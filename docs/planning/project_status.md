@@ -10,20 +10,21 @@ Last updated: 2026-11-04
 ## In progress
 | Issue | Feature | Phase | Branch | State |
 |---|---|---|---|---|
-| #6 | `v0.1.0` | Customer contract | `feat/6-customer-contract` | PR open, CI running |
+| #7 | `v0.1.0` | Rider contract | `feat/7-rider-contract` | PR open, CI running |
 
 ## Completed (shipped, with evidence)
 | Issue | Feature | Version | Test report |
 |---|---|---|---|
 | #1 | Project setup | Before `v0.1.0` | PR #2, CI passed |
 | #5 | Shared API rules | `v0.1.0` | [reports/5.md](../testing/reports/5.md) |
+| #6 | Customer contract | `v0.1.0` | [reports/6.md](../testing/reports/6.md) |
 
 ## Blocked
 | Issue | Blocker | Since |
 |---|---|---|
 
 ## Next actions
-1. `v0.1.0`, one phase at a time: #6 customer contract (PR open), #7 rider contract, #8 mock servers, #9 contract review.
+1. `v0.1.0`, one phase at a time: #7 rider contract (PR open), #8 mock servers, #9 contract review. #15 waits on the owner's cancel and refund rule.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
 
@@ -61,7 +62,7 @@ Overrides the KT docs and the earlier plan. Full flow: `docs/engineering/data_fl
 - Other developers build all Flutter apps, including the partner app. Claude builds only the hub APIs for it.
 - The Google Doc [Ninzo Backend: Shared Index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) is the orchestrator for communicating with the app developers, and the index of all shareables. GitHub stays the source of truth.
 - Supabase: Ninzo gets its own new project in Mumbai when `v0.2.0` starts, and everything is built around it. The existing project, `teamprosperlink's Project`, belongs to a different app and must never be touched.
-- Gate change is allowed only before paying, because a refused change during the wait would reveal the rider. Proposed by engineering, narrower than the edge-case doc.
+- No gate or address change after payment: owner decision, 2026-11-04. It overrides the edge-case doc.
 - Mock server: a small, cheap host now. Railway proposed. Production hosting is decided later.
 
 ## Open questions for the owner

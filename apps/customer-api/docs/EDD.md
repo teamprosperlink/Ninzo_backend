@@ -18,6 +18,7 @@ One transition function in `internal/orders/domain`. Illegal transitions are rej
 CREATED -> PAYMENT_PENDING -> PAYMENT_SECURED -> OFFERED -> RIDER_ACCEPTED
 RIDER_ACCEPTED -> PACKED -> TIMER_RUNNING -> ARRIVED -> HANDED_OVER -> COMPLETED
 PACKED -> ARRIVED (rider already inside 100 m; no timer)
+PACKED or TIMER_RUNNING -> HANDED_OVER (signal lost: a valid OTP records the arrival first)
 
 Before RIDER_ACCEPTED: CANCELLED, PAYMENT_FAILED, NO_SCOOTER, TIMED_OUT
 PAYMENT_FAILED -> PAYMENT_PENDING (retry) or TIMED_OUT
@@ -129,7 +130,7 @@ CUST and the rider doc both submit an OTP, and nothing gives the customer one to
 The server only knows what it has received. If a rider enters the perimeter with no signal, the timer could end first and show a false miss. **Proposed:** official times are server receipt times. A late event with a device time inside the timer and a plausible GPS track goes to audit review before any remedy, with a time limit, so the customer is not left waiting. Status open question 8.
 
 ### 9.4 Offline OTP check
-Rider R9 requires handover to work offline. An offline rider app cannot check the OTP unless it can verify it locally. **Proposed:** the server sends the rider app a salted hash of the OTP for that order at arrival. The rider app checks it locally, and the server re-checks on sync. Needs a rider-side review.
+Rider R9 requires handover to work offline. A salted hash on the device was rejected: review cracked a 6-digit OTP from one in under a second, which would let a rider fake a delivery. **Proposed:** the app queues the typed OTP and the server checks it on sync. A wrong OTP after the food was given alerts support. See Rider offline events in `contracts/README.md`.
 
 ### 9.5 Payment holds (Q5)
 The design hides the difference behind the `payments` surface: `Secure`, `Settle` and `Release`.

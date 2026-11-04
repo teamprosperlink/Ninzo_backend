@@ -1193,7 +1193,7 @@ components:
           type:
             - string
             - 'null'
-          description: Set only at the arrived stage. The customer shows it, and the rider submits it.
+          description: Set at the arrived stage, or in the signal-lost case in contracts/README.md. The customer shows it, and the rider submits it.
         created_at:
           type: string
           format: date-time

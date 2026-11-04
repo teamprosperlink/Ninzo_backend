@@ -48,6 +48,22 @@ var hiddenCustomerFields = map[string]bool{
 
 var hiddenCustomerRefs = regexp.MustCompile(`#/components/schemas/(OrderState|OrderInternalTimes)$`)
 
+// hiddenRiderFields would put a countdown or a customer's contact details in front of the rider.
+var hiddenRiderFields = map[string]bool{
+	"timer_started_at": true,
+	"timer_duration_s": true,
+	"timer_stopped_at": true,
+	"timer_missed":     true,
+	"timer":            true,
+	"seconds_left":     true,
+	"customer_phone":   true,
+	"customer_id":      true,
+	"handover_otp":     true,
+	"customer_stage":   true,
+}
+
+var hiddenRiderRefs = regexp.MustCompile(`#/components/schemas/(OrderTimer|CustomerStage)$`)
+
 type doc struct {
 	path string
 	root map[string]any
@@ -365,6 +381,23 @@ func TestCustomerOrderFieldsAreExactlyTheAllowedList(t *testing.T) {
 	}
 }
 
+func TestOperationIdsAreUniquePerContract(t *testing.T) {
+	for _, file := range contractFiles(t) {
+		l := &loader{docs: map[string]*doc{}}
+		d, err := l.load(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := map[string]bool{}
+		for _, op := range operations(d) {
+			if ids[op.id] {
+				t.Errorf("%s: duplicate operationId %s", file, op.id)
+			}
+			ids[op.id] = true
+		}
+	}
+}
+
 // TestCustomerContractHidesTheRider walks everything reachable from the customer
 // contract, so a hidden field cannot arrive through a shared schema either.
 func TestCustomerContractHidesTheRider(t *testing.T) {
@@ -379,7 +412,7 @@ func TestCustomerContractHidesTheRider(t *testing.T) {
 			start = map[string]any{"paths": paths}
 		}
 		seen := map[string]bool{}
-		if err := walkForHidden(l, d, start, file, seen); err != nil {
+		if err := walkForHidden(l, d, start, file, seen, hiddenCustomerFields, hiddenCustomerRefs); err != nil {
 			t.Error(err)
 		}
 		if len(seen) == 0 {
@@ -388,17 +421,94 @@ func TestCustomerContractHidesTheRider(t *testing.T) {
 	}
 }
 
-func walkForHidden(l *loader, d *doc, node any, at string, seen map[string]bool) error {
+// TestRiderContractHasNoCountdown protects the owner's rule: the rider sees a calm
+// fixed label, so the clock never pressures the rider.
+func TestRiderContractHasNoCountdown(t *testing.T) {
+	for _, file := range []string{"rider/openapi.yaml", "rider/stream.asyncapi.yaml"} {
+		l := &loader{docs: map[string]*doc{}}
+		d, err := l.load(filepath.Join(contractsDir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := d.root
+		if paths, ok := d.root["paths"]; ok {
+			start = map[string]any{"paths": paths}
+		}
+		seen := map[string]bool{}
+		if err := walkForHidden(l, d, start, file, seen, hiddenRiderFields, hiddenRiderRefs); err != nil {
+			t.Error(err)
+		}
+		if len(seen) == 0 {
+			t.Errorf("%s: followed no references, so this test proved nothing", file)
+		}
+	}
+}
+
+// riderOrderFields is the complete list of what a rider may see of an order.
+// A new field must be added here on purpose, after checking it adds no countdown
+// and no customer contact details.
+var riderOrderFields = []string{
+	"ended_reason", "fencing_token", "gate", "handed_over_at", "id", "items", "offer_id",
+	"otp_available", "rider_accepted_at", "seq", "state", "timer_label",
+}
+
+func TestRiderOrderFieldsAreExactlyTheAllowedList(t *testing.T) {
+	l := &loader{docs: map[string]*doc{}}
+	d, err := l.load(filepath.Join(contractsDir, "rider/openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	components, _ := d.root["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	order, _ := schemas["RiderOrder"].(map[string]any)
+	props, _ := order["properties"].(map[string]any)
+	required, _ := order["required"].([]any)
+	var got []string
+	for name := range props {
+		got = append(got, name)
+	}
+	sort.Strings(got)
+	if strings.Join(got, ",") != strings.Join(riderOrderFields, ",") {
+		t.Errorf("RiderOrder fields changed.\n got: %v\nwant: %v", got, riderOrderFields)
+	}
+	requiredSet := map[string]bool{}
+	for _, r := range required {
+		name, _ := r.(string)
+		requiredSet[name] = true
+	}
+	for _, name := range riderOrderFields {
+		if !requiredSet[name] {
+			t.Errorf("RiderOrder.%s must be required", name)
+		}
+	}
+}
+
+// TestRiderCannotReportArrival protects decision 0007: GPS stops the timer, so
+// there must be no arrive endpoint.
+func TestRiderCannotReportArrival(t *testing.T) {
+	l := &loader{docs: map[string]*doc{}}
+	d, err := l.load(filepath.Join(contractsDir, "rider/openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range operations(d) {
+		if strings.Contains(strings.ToLower(op.path), "arriv") {
+			t.Errorf("%s %s: arrival comes from GPS, not an endpoint", op.method, op.path)
+		}
+	}
+}
+
+func walkForHidden(l *loader, d *doc, node any, at string, seen map[string]bool, fields map[string]bool, refs *regexp.Regexp) error {
 	switch v := node.(type) {
 	case []any:
 		for i, item := range v {
-			if err := walkForHidden(l, d, item, fmt.Sprintf("%s[%d]", at, i), seen); err != nil {
+			if err := walkForHidden(l, d, item, fmt.Sprintf("%s[%d]", at, i), seen, fields, refs); err != nil {
 				return err
 			}
 		}
 	case map[string]any:
 		if ref, ok := v["$ref"].(string); ok {
-			if hiddenCustomerRefs.MatchString(ref) {
+			if refs.MatchString(ref) {
 				return fmt.Errorf("%s references hidden schema %s", at, ref)
 			}
 			key := d.path + "|" + ref
@@ -410,17 +520,17 @@ func walkForHidden(l *loader, d *doc, node any, at string, seen map[string]bool)
 			if err != nil {
 				return err
 			}
-			return walkForHidden(l, target, node, at+"->"+ref, seen)
+			return walkForHidden(l, target, node, at+"->"+ref, seen, fields, refs)
 		}
 		if props, ok := v["properties"].(map[string]any); ok {
 			for name := range props {
-				if hiddenCustomerFields[name] {
+				if fields[name] {
 					return fmt.Errorf("%s exposes hidden field %q", at, name)
 				}
 			}
 		}
 		for key, child := range v {
-			if err := walkForHidden(l, d, child, at+"."+key, seen); err != nil {
+			if err := walkForHidden(l, d, child, at+"."+key, seen, fields, refs); err != nil {
 				return err
 			}
 		}

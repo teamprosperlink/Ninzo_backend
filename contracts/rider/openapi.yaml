@@ -1,0 +1,2277 @@
+openapi: 3.1.0
+info:
+  title: Ninzo rider API
+  version: 0.1.0
+  description: The API behind the rider app. The shared rules are in contracts/README.md. Field names
+    are final only after the contract review. Until the partner API exists, hub actions come from a simulator.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+- url: https://rider-api.example.invalid/v1
+  description: Placeholder. Real URLs are published with the mock server.
+security:
+- bearerAuth: []
+tags:
+- name: auth
+  description: Sign-in and tokens.
+- name: profile
+  description: The rider, verification and devices.
+- name: shift
+  description: Shifts and staging nodes.
+- name: stock
+  description: Stock on the scooter.
+- name: offers
+  description: Offers, accept and Ready.
+- name: delivery
+  description: Route and handover.
+- name: location
+  description: Location pings and offline sync.
+- name: restock
+  description: Restock suggestions and requests.
+- name: support
+  description: Problems and earnings.
+paths:
+  /auth/otp/request:
+    post:
+      tags:
+      - auth
+      operationId: requestOtp
+      summary: Send a sign-in code
+      description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend
+        limit is reached.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - phone
+              properties:
+                phone:
+                  type: string
+                  description: In E.164 format.
+                  pattern: ^\+[1-9][0-9]{7,14}$
+                  example: '+919876543210'
+      responses:
+        '200':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /auth/otp/verify:
+    post:
+      tags:
+      - auth
+      operationId: verifyOtp
+      summary: Sign in with the code
+      description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - request_id
+              - otp
+              properties:
+                request_id:
+                  type: string
+                otp:
+                  type: string
+                  pattern: ^[0-9]{4,8}$
+                  example: '123456'
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderSession'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /auth/refresh:
+    post:
+      tags:
+      - auth
+      operationId: refreshToken
+      summary: Get a new token pair
+      description: Send only one refresh at a time. See Sign-in in contracts/README.md.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: A new pair.
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/common.yaml#/components/schemas/TokenPair
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /riders/me:
+    get:
+      tags:
+      - profile
+      operationId: getRider
+      summary: Get the signed-in rider
+      description: Returns the rider's own profile.
+      responses:
+        '200':
+          description: The rider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/state:
+    get:
+      tags:
+      - profile
+      operationId: getRiderState
+      summary: Get everything current for this rider
+      description: The authority for the rider stream. Fetch this before showing anything after a reconnect
+        or a notification.
+      responses:
+        '200':
+          description: The current state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderState'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/verification:
+    get:
+      tags:
+      - profile
+      operationId: getVerification
+      summary: Get document verification status
+      description: Only verified riders can start a shift.
+      responses:
+        '200':
+          description: The status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/verification/start:
+    post:
+      tags:
+      - profile
+      operationId: startVerification
+      summary: Start document verification
+      description: A mock until DigiLocker approval. Returns where to go next.
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - method
+              properties:
+                method:
+                  type: string
+                  enum:
+                  - digilocker
+                  - manual_upload
+      responses:
+        '200':
+          description: Started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationStart'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/devices:
+    post:
+      tags:
+      - profile
+      operationId: registerRiderDevice
+      summary: Register a device for push
+      description: Registering a token that already exists updates it.
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - platform
+              - push_token
+              properties:
+                platform:
+                  type: string
+                  enum:
+                  - android
+                  - ios
+                push_token:
+                  type: string
+      responses:
+        '201':
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/devices/{device_id}:
+    delete:
+      tags:
+      - profile
+      operationId: removeRiderDevice
+      summary: Remove a device from push
+      description: Called on sign-out.
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        description: The device.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/shifts/start:
+    post:
+      tags:
+      - shift
+      operationId: startShift
+      summary: Start a shift
+      description: 'A suspended rider gets 403. Errors, all 409: rider_not_verified, shift_already_open,
+        shift_limit_reached.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - node_id
+              properties:
+                node_id:
+                  $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/shifts/end:
+    post:
+      tags:
+      - shift
+      operationId: endShift
+      summary: End the shift
+      description: 'Errors, both 409: no_open_shift, order_in_progress.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Ended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /nodes:
+    get:
+      tags:
+      - shift
+      operationId: listNodes
+      summary: List staging nodes in a zone
+      description: Shows how full each node is, and a relocation suggestion if there is one.
+      parameters:
+      - name: zone_id
+        in: query
+        required: true
+        description: The zone.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: The nodes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/relocations/{relocation_id}/accept:
+    post:
+      tags:
+      - shift
+      operationId: acceptRelocation
+      summary: Accept a suggested move
+      description: 'Moving is paid time. Ignoring or refusing a move has no penalty. Errors: relocation_expired
+        (409).'
+      parameters:
+      - name: relocation_id
+        in: path
+        required: true
+        description: The suggestion.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/stock/scan:
+    post:
+      tags:
+      - stock
+      operationId: scanStock
+      summary: Scan a lot onto the scooter
+      description: 'Errors, all 409: bad_scan, lot_expired, lot_quarantined, lot_already_on_scooter, lot_not_expected.
+        A temperature problem returns temp_status so the app can show the quarantine prompt.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - lot_code
+              - scanned_at
+              properties:
+                lot_code:
+                  type: string
+                scanned_at:
+                  type: string
+                  format: date-time
+                  description: Device time. The server sets the official time.
+      responses:
+        '200':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockUnitResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/stock:
+    get:
+      tags:
+      - stock
+      operationId: getStock
+      summary: Get the scooter's stock
+      description: The lots the backend has on this scooter.
+      responses:
+        '200':
+          description: The stock.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/offers:
+    get:
+      tags:
+      - offers
+      operationId: listOffers
+      summary: List current offers
+      description: Offers also arrive on the live stream. A stale offer shows as expired, never as accepted.
+      responses:
+        '200':
+          description: The offers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /offers/{offer_id}/accept:
+    post:
+      tags:
+      - offers
+      operationId: acceptOffer
+      summary: Accept an offer
+      description: 'A repeated accept has no second effect. Errors, all 409: offer_expired, offer_taken,
+        stale_fencing_token.'
+      parameters:
+      - $ref: '#/components/parameters/OfferId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - fencing_token
+              properties:
+                fencing_token:
+                  type: string
+      responses:
+        '200':
+          description: Accepted. The rider stops and packs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /offers/{offer_id}/decline:
+    post:
+      tags:
+      - offers
+      operationId: declineOffer
+      summary: Decline an offer
+      description: 'There is no penalty. Errors, both 409: offer_expired, stale_fencing_token.'
+      parameters:
+      - $ref: '#/components/parameters/OfferId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - fencing_token
+              properties:
+                fencing_token:
+                  type: string
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: Declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /offers/{offer_id}/ready:
+    post:
+      tags:
+      - offers
+      operationId: markReady
+      summary: Mark the order packed
+      description: 'The server also checks that the rider is stopped. If the order is already packed,
+        including through the packing limit, this succeeds with no change. Errors, all 409: rider_moving,
+        order_cancelled, stale_fencing_token. Pressing Ready does not start the timer by itself.'
+      parameters:
+      - $ref: '#/components/parameters/OfferId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - fencing_token
+              properties:
+                fencing_token:
+                  type: string
+      responses:
+        '200':
+          description: Packed. The rider can ride.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /orders/{order_id}:
+    get:
+      tags:
+      - delivery
+      operationId: getRiderOrder
+      summary: Get an order this rider is delivering
+      description: For an order this rider is or was assigned. If the rider no longer has it, this shows
+        the last state with ended_reason set, and never another rider's progress.
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /orders/{order_id}/route:
+    get:
+      tags:
+      - delivery
+      operationId: getRoute
+      summary: Get the route to the gate
+      description: Refresh after a road closure. Keep the last route on screen on a weak signal.
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The route.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /orders/{order_id}/handover:
+    post:
+      tags:
+      - delivery
+      operationId: handOver
+      summary: Hand over the order
+      description: 'Sends the OTP the customer shows, and the quantities. Recorded once. Queue the event
+        first, and use its event_id as the Idempotency-Key, so the direct and queued paths count as one.
+        A repeat by the same rider after success returns success. Allowed from PACKED, TIMER_RUNNING or
+        ARRIVED. Rejected with rider_not_near if the handover is current and fresh GPS shows the rider
+        away from the gate. Errors, all 409: wrong_otp, otp_attempts_exceeded, handover_not_allowed, rider_not_near.'
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - otp
+              - quantities
+              - client_time
+              properties:
+                otp:
+                  type: string
+                  pattern: ^[0-9]{4,8}$
+                quantities:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: '#/components/schemas/HandoverQuantity'
+                client_time:
+                  type: string
+                  format: date-time
+                  description: Device time. The server sets the official time.
+      responses:
+        '200':
+          description: Handed over.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /orders/{order_id}/call:
+    post:
+      tags:
+      - delivery
+      operationId: startRiderMaskedCall
+      summary: Call the customer through a masked number
+      description: 'Errors: call_not_available (409). Priority P2.'
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: The number to call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaskedCall'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /riders/me/location:
+    post:
+      tags:
+      - location
+      operationId: locationPing
+      summary: Send a location ping
+      description: Accepted at once, and processed afterwards. This is what starts and stops the customer's
+        timer, so send at the rate in next_ping_s.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - lat
+              - lng
+              - speed_mps
+              - accuracy_m
+              - device_time
+              properties:
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lng:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+                speed_mps:
+                  type: number
+                  minimum: 0
+                accuracy_m:
+                  type: number
+                  minimum: 0
+                device_time:
+                  type: string
+                  format: date-time
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationAccepted'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/events:
+    post:
+      tags:
+      - location
+      operationId: sendEventBatch
+      summary: Send queued offline events
+      description: Applied in the order given, and each event is checked on its own, so one bad event
+        never blocks the queue. A repeated event_id returns its first result, accepted or rejected, with
+        no second effect. See Rider offline events in contracts/README.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - events
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    $ref: '#/components/schemas/OfflineEvent'
+      responses:
+        '200':
+          description: Each event is accepted or rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventBatchResult'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/restock-suggestions:
+    get:
+      tags:
+      - restock
+      operationId: listRestockSuggestions
+      summary: List suggested restocks
+      description: Drafted by the system. The rider confirms, edits or declines.
+      responses:
+        '200':
+          description: The suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockSuggestionList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /restock/{request_id}/confirm:
+    post:
+      tags:
+      - restock
+      operationId: confirmRestock
+      summary: Confirm a suggested restock
+      description: 'A repeated confirm creates no second request. Errors, all 409: suggestion_expired,
+        hub_out_of_stock, restock_already_open.'
+      parameters:
+      - $ref: '#/components/parameters/RestockRequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity_override:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RestockLineRequest'
+      responses:
+        '200':
+          description: Confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /restock/{request_id}/decline:
+    post:
+      tags:
+      - restock
+      operationId: declineRestock
+      summary: Decline a suggested restock
+      description: It is drafted again at the next stock check.
+      parameters:
+      - $ref: '#/components/parameters/RestockRequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: Declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /restock:
+    post:
+      tags:
+      - restock
+      operationId: createRestock
+      summary: Request a restock
+      description: 'For spoiled or damaged units the system cannot see. Duplicates merge into the scooter''s
+        one open request. Errors: hub_out_of_stock (409).'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - hub_id
+              - items
+              properties:
+                hub_id:
+                  $ref: ../shared/common.yaml#/components/schemas/Id
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: '#/components/schemas/RestockLineRequest'
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /restock/options:
+    get:
+      tags:
+      - restock
+      operationId: getRestockOptions
+      summary: Get hubs and items for a manual request
+      description: The hubs in the rider's zone, and the items that can be requested.
+      responses:
+        '200':
+          description: The options.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockOptions'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /restock/{request_id}/shortfall-response:
+    post:
+      tags:
+      - restock
+      operationId: respondToShortfall
+      summary: Accept or refuse a substitute
+      description: 'For a request the hub could not fill. Refusing is shown to the hub. Errors: shortfall_not_open
+        (409).'
+      parameters:
+      - $ref: '#/components/parameters/RestockRequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - accept
+              properties:
+                accept:
+                  type: boolean
+      responses:
+        '200':
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /restock/{request_id}:
+    get:
+      tags:
+      - restock
+      operationId: getRestock
+      summary: Get a restock request
+      description: Shows the queue slot and the hub's progress.
+      parameters:
+      - $ref: '#/components/parameters/RestockRequestId'
+      responses:
+        '200':
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/problems:
+    post:
+      tags:
+      - support
+      operationId: reportProblem
+      summary: Report a problem
+      description: There is no penalty. Support sees it within seconds. An unsafe route never counts against
+        the rider.
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - type
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - breakdown
+                  - accident
+                  - gate_closed
+                  - customer_absent
+                  - unsafe_route
+                order_id:
+                  $ref: ../shared/common.yaml#/components/schemas/Id
+                note:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '201':
+          description: Reported.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/earnings:
+    get:
+      tags:
+      - support
+      operationId: getEarnings
+      summary: Get earnings for a day
+      description: Orders, incentives and paid repositioning time.
+      parameters:
+      - name: date
+        in: query
+        required: true
+        description: The day, in the zone's local time.
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: The day's earnings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Earnings'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token from the sign-in endpoints.
+  parameters:
+    OfferId:
+      name: offer_id
+      in: path
+      required: true
+      description: The offer.
+      schema:
+        $ref: ../shared/common.yaml#/components/schemas/Id
+    OrderId:
+      name: order_id
+      in: path
+      required: true
+      description: The order.
+      schema:
+        $ref: ../shared/common.yaml#/components/schemas/Id
+    RestockRequestId:
+      name: request_id
+      in: path
+      required: true
+      description: The restock request or suggestion.
+      schema:
+        $ref: ../shared/common.yaml#/components/schemas/Id
+  schemas:
+    Done:
+      type: object
+      required:
+      - server_time
+      properties:
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    OtpRequestResult:
+      type: object
+      required:
+      - request_id
+      - expires_in_s
+      - resend_after_s
+      - server_time
+      properties:
+        request_id:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+          example: 300
+        resend_after_s:
+          type: integer
+          minimum: 0
+          example: 30
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderSession:
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - expires_in_s
+      - rider_id
+      - server_time
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+          example: 900
+        rider_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    Rider:
+      type: object
+      required:
+      - id
+      - name
+      - status
+      - zone_id
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        status:
+          type: string
+          description: Open list, including active, suspended.
+    RiderResponse:
+      type: object
+      required:
+      - rider
+      - server_time
+      properties:
+        rider:
+          $ref: '#/components/schemas/Rider'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    VerificationResponse:
+      type: object
+      required:
+      - status
+      - reason
+      - server_time
+      properties:
+        status:
+          type: string
+          enum:
+          - pending
+          - verified
+          - failed
+          - expired
+        reason:
+          type:
+          - string
+          - 'null'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    VerificationStart:
+      type: object
+      required:
+      - redirect_url
+      - upload_url
+      - server_time
+      properties:
+        redirect_url:
+          type:
+          - string
+          - 'null'
+          format: uri
+        upload_url:
+          type:
+          - string
+          - 'null'
+          format: uri
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    DeviceResponse:
+      type: object
+      required:
+      - device_id
+      - server_time
+      properties:
+        device_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    Shift:
+      type: object
+      required:
+      - id
+      - node_id
+      - started_at
+      - ended_at
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        node_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    ShiftResponse:
+      type: object
+      required:
+      - shift
+      - server_time
+      properties:
+        shift:
+          $ref: '#/components/schemas/Shift'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderState:
+      type: object
+      description: Everything current for this rider. seq is compared with seq on the rider stream.
+      required:
+      - seq
+      - shift
+      - offers
+      - current_order
+      - restock_request
+      - server_time
+      properties:
+        seq:
+          type: integer
+          minimum: 1
+          example: 7
+        shift:
+          oneOf:
+          - $ref: '#/components/schemas/Shift'
+          - type: 'null'
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Offer'
+        current_order:
+          oneOf:
+          - $ref: '#/components/schemas/RiderOrder'
+          - type: 'null'
+        restock_request:
+          oneOf:
+          - $ref: '#/components/schemas/RestockRequest'
+          - type: 'null'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    Node:
+      type: object
+      required:
+      - id
+      - name
+      - fullness_pct
+      - lat
+      - lng
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        fullness_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        lat:
+          type: number
+        lng:
+          type: number
+    RelocationSuggestion:
+      type: object
+      required:
+      - id
+      - node_id
+      - reason
+      - expires_at
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        node_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          description: Short text, such as how many orders are expected.
+          example: 3 orders expected, nobody nearby
+        expires_at:
+          type: string
+          format: date-time
+    NodeList:
+      type: object
+      required:
+      - nodes
+      - assigned_node_id
+      - relocation
+      - server_time
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        assigned_node_id:
+          type:
+          - string
+          - 'null'
+          description: The node this rider is told to wait at.
+        relocation:
+          oneOf:
+          - $ref: '#/components/schemas/RelocationSuggestion'
+          - type: 'null'
+          description: A suggestion only. It never blocks the screen.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    StockUnit:
+      type: object
+      required:
+      - lot_id
+      - item_id
+      - expiry
+      - temp_status
+      properties:
+        lot_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        expiry:
+          type: string
+          format: date-time
+        temp_status:
+          $ref: '#/components/schemas/TempStatus'
+    TempStatus:
+      type: string
+      enum:
+      - ok
+      - alert
+    StockUnitResponse:
+      type: object
+      required:
+      - unit
+      - server_time
+      properties:
+        unit:
+          $ref: '#/components/schemas/StockUnit'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    StockLot:
+      type: object
+      required:
+      - lot_id
+      - item_id
+      - qty
+      - expiry
+      - temp_status
+      properties:
+        lot_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty:
+          type: integer
+          minimum: 0
+        expiry:
+          type: string
+          format: date-time
+        temp_status:
+          $ref: '#/components/schemas/TempStatus'
+    StockList:
+      type: object
+      required:
+      - lots
+      - server_time
+      properties:
+        lots:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockLot'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    OrderLine:
+      type: object
+      required:
+      - item_id
+      - name
+      - qty
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+    Offer:
+      type: object
+      required:
+      - id
+      - order_id
+      - items
+      - gate
+      - expires_at
+      - state
+      - fencing_token
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_id:
+          type:
+          - string
+          - 'null'
+          description: Set once accepted.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        gate:
+          type: object
+          description: Where the rider is going.
+          required:
+          - id
+          - label
+          - lat
+          - lng
+          - entry_notes
+          properties:
+            id:
+              $ref: ../shared/common.yaml#/components/schemas/Id
+            label:
+              type: string
+            lat:
+              type: number
+            lng:
+              type: number
+            entry_notes:
+              type:
+              - string
+              - 'null'
+        expires_at:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum:
+          - open
+          - accepted
+          - declined
+          - expired
+          - taken
+          - cancelled
+        fencing_token:
+          type: string
+          description: Fixed for the life of the offer. Send with accept, decline and Ready. A device
+            holding a token from another offer is rejected with stale_fencing_token.
+    OfferList:
+      type: object
+      required:
+      - offers
+      - server_time
+      properties:
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Offer'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderOrder:
+      type: object
+      description: What the rider sees of an order. It has no countdown fields. The rider sees a calm
+        fixed label, so the clock never pressures the rider.
+      required:
+      - id
+      - offer_id
+      - fencing_token
+      - state
+      - seq
+      - ended_reason
+      - items
+      - gate
+      - timer_label
+      - rider_accepted_at
+      - otp_available
+      - handed_over_at
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        offer_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        fencing_token:
+          type: string
+          description: Send with Ready, including after a restart.
+        state:
+          $ref: ../shared/common.yaml#/components/schemas/OrderState
+        ended_reason:
+          type:
+          - string
+          - 'null'
+          description: Set when this rider no longer has the order. Open list, including cancelled, reassigned,
+            failed, timed_out.
+        seq:
+          type: integer
+          minimum: 1
+          description: The rider's current seq when this was read.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        gate:
+          type: object
+          description: Where the rider is going.
+          required:
+          - id
+          - label
+          - lat
+          - lng
+          - entry_notes
+          properties:
+            id:
+              $ref: ../shared/common.yaml#/components/schemas/Id
+            label:
+              type: string
+            lat:
+              type: number
+            lng:
+              type: number
+            entry_notes:
+              type:
+              - string
+              - 'null'
+        timer_label:
+          type: string
+          description: A fixed label built from this order's timer length. It does not count down.
+          example: 1.5 mins
+        rider_accepted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        otp_available:
+          type: boolean
+          description: True once the customer has the OTP to show. Offline, this value may be stale, so
+            the app must still allow the rider to enter an OTP.
+        handed_over_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    OrderResponse:
+      type: object
+      required:
+      - order
+      - server_time
+      properties:
+        order:
+          $ref: '#/components/schemas/RiderOrder'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RouteResponse:
+      type: object
+      required:
+      - polyline
+      - eta_source
+      - eta_s
+      - server_time
+      properties:
+        polyline:
+          type: string
+        eta_source:
+          $ref: ../shared/common.yaml#/components/schemas/EtaSource
+        eta_s:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+          description: Set only when eta_source is measured.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HandoverQuantity:
+      type: object
+      required:
+      - item_id
+      - qty
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty:
+          type: integer
+          minimum: 0
+          description: Below the ordered quantity means a partial handover.
+    MaskedCall:
+      type: object
+      required:
+      - phone
+      - expires_at
+      - server_time
+      properties:
+        phone:
+          type: string
+          description: A masked number, not the customer's own.
+        expires_at:
+          type: string
+          format: date-time
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    LocationAccepted:
+      type: object
+      required:
+      - next_ping_s
+      - server_time
+      properties:
+        next_ping_s:
+          type: integer
+          minimum: 1
+          description: Seconds until the next ping. About 2 to 3 from packed to arrived, and slower otherwise.
+          example: 3
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    OfflineEvent:
+      description: One queued action. Each type has its own payload.
+      oneOf:
+      - $ref: '#/components/schemas/LocationEvent'
+      - $ref: '#/components/schemas/HandoverEvent'
+      - $ref: '#/components/schemas/ProblemEvent'
+      - $ref: '#/components/schemas/RestockConfirmEvent'
+      - $ref: '#/components/schemas/RestockDeclineEvent'
+      - $ref: '#/components/schemas/StockScanEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          location: '#/components/schemas/LocationEvent'
+          handover: '#/components/schemas/HandoverEvent'
+          problem: '#/components/schemas/ProblemEvent'
+          restock_confirm: '#/components/schemas/RestockConfirmEvent'
+          restock_decline: '#/components/schemas/RestockDeclineEvent'
+          stock_scan: '#/components/schemas/StockScanEvent'
+    LocationEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          const: location
+        payload:
+          $ref: '#/components/schemas/LocationEventPayload'
+        device_time:
+          type: string
+          format: date-time
+    HandoverEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          const: handover
+        payload:
+          $ref: '#/components/schemas/HandoverEventPayload'
+        device_time:
+          type: string
+          format: date-time
+    ProblemEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          const: problem
+        payload:
+          $ref: '#/components/schemas/ProblemEventPayload'
+        device_time:
+          type: string
+          format: date-time
+    RestockConfirmEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          const: restock_confirm
+        payload:
+          $ref: '#/components/schemas/RestockEventPayload'
+        device_time:
+          type: string
+          format: date-time
+    RestockDeclineEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          const: restock_decline
+        payload:
+          $ref: '#/components/schemas/RestockEventPayload'
+        device_time:
+          type: string
+          format: date-time
+    StockScanEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          const: stock_scan
+        payload:
+          $ref: '#/components/schemas/StockScanEventPayload'
+        device_time:
+          type: string
+          format: date-time
+    LocationEventPayload:
+      type: object
+      description: For type location.
+      required:
+      - lat
+      - lng
+      - speed_mps
+      - accuracy_m
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+        speed_mps:
+          type: number
+          minimum: 0
+        accuracy_m:
+          type: number
+          minimum: 0
+    HandoverEventPayload:
+      type: object
+      description: For type handover.
+      required:
+      - order_id
+      - otp
+      - quantities
+      properties:
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        otp:
+          type: string
+          pattern: ^[0-9]{4,8}$
+        quantities:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HandoverQuantity'
+    ProblemEventPayload:
+      type: object
+      description: For type problem.
+      required:
+      - problem_type
+      properties:
+        problem_type:
+          type: string
+          enum:
+          - breakdown
+          - accident
+          - gate_closed
+          - customer_absent
+          - unsafe_route
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        note:
+          type: string
+          maxLength: 1000
+    RestockEventPayload:
+      type: object
+      description: For types restock_confirm and restock_decline.
+      required:
+      - request_id
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          maxLength: 200
+        quantity_override:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestockLineRequest'
+    StockScanEventPayload:
+      type: object
+      description: For type stock_scan.
+      required:
+      - lot_code
+      properties:
+        lot_code:
+          type: string
+    RejectedEvent:
+      type: object
+      required:
+      - id
+      - code
+      - message
+      - retryable
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+          description: Open list. See Rider offline events in contracts/README.md.
+        message:
+          type: string
+        retryable:
+          type: boolean
+    EventBatchResult:
+      type: object
+      required:
+      - accepted_ids
+      - rejected
+      - server_time
+      properties:
+        accepted_ids:
+          type: array
+          items:
+            type: string
+        rejected:
+          type: array
+          items:
+            $ref: '#/components/schemas/RejectedEvent'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RestockLineRequest:
+      type: object
+      required:
+      - item_id
+      - qty
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty:
+          type: integer
+          minimum: 1
+    RestockLine:
+      type: object
+      required:
+      - item_id
+      - name
+      - qty
+      - filled_qty
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+          example: Burger
+        qty:
+          type: integer
+          minimum: 1
+        filled_qty:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+          description: Set once the hub has packed. Below qty means a short fill.
+    RestockOption:
+      type: object
+      required:
+      - item_id
+      - name
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+    RestockOptions:
+      type: object
+      required:
+      - hubs
+      - items
+      - server_time
+      properties:
+        hubs:
+          type: array
+          items:
+            $ref: '#/components/schemas/HubRef'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestockOption'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RestockShortfall:
+      type: object
+      description: What the hub could not fill, and what it offers instead.
+      required:
+      - action
+      - substitute
+      - other_hub
+      properties:
+        action:
+          type: string
+          enum:
+          - partial
+          - substitute
+          - other_hub
+        substitute:
+          oneOf:
+          - $ref: '#/components/schemas/RestockOption'
+          - type: 'null'
+        other_hub:
+          oneOf:
+          - $ref: '#/components/schemas/HubRef'
+          - type: 'null'
+    RestockSuggestion:
+      type: object
+      required:
+      - id
+      - hub
+      - items
+      - expires_at
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        hub:
+          $ref: '#/components/schemas/HubRef'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestockLine'
+        expires_at:
+          type: string
+          format: date-time
+    HubRef:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+    RestockSuggestionList:
+      type: object
+      required:
+      - suggestions
+      - server_time
+      properties:
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestockSuggestion'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RestockRequest:
+      type: object
+      required:
+      - id
+      - state
+      - hub
+      - items
+      - slot_at
+      - arrive_by
+      - lot_numbers
+      - shortfall
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        state:
+          type: string
+          enum:
+          - suggested
+          - confirmed
+          - hub_accepted
+          - packing
+          - ready
+          - picked_up
+          - received
+          - closed
+          - expired
+          - cancelled
+          - partial
+        hub:
+          $ref: '#/components/schemas/HubRef'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestockLine'
+        shortfall:
+          oneOf:
+          - $ref: '#/components/schemas/RestockShortfall'
+          - type: 'null'
+        slot_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: The hub's queue slot.
+        arrive_by:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When the rider should arrive.
+        lot_numbers:
+          type: array
+          description: The lots in the cassette, set at ready. The rider's scan is checked against these.
+          items:
+            type: string
+    RestockResponse:
+      type: object
+      required:
+      - request
+      - server_time
+      properties:
+        request:
+          $ref: '#/components/schemas/RestockRequest'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ProblemResponse:
+      type: object
+      required:
+      - report_id
+      - server_time
+      properties:
+        report_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    OrderEarning:
+      type: object
+      required:
+      - order_id
+      - amount
+      properties:
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        amount:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+    Earnings:
+      type: object
+      required:
+      - date
+      - orders
+      - order_earnings
+      - incentives
+      - total
+      - repositioning_seconds
+      - server_time
+      properties:
+        date:
+          type: string
+          format: date
+        orders:
+          type: integer
+          minimum: 0
+          description: How many orders.
+        order_earnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderEarning'
+        total:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        incentives:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        repositioning_seconds:
+          type: integer
+          minimum: 0
+          description: Repositioning is paid time.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime

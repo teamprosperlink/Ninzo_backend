@@ -12,6 +12,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### Rider contract (#7)
+- Added: `contracts/rider/openapi.yaml` and `contracts/rider/stream.asyncapi.yaml`.
+- Added: rule tests that keep countdown fields and an arrive endpoint out of the rider contract.
+- Evidence: docs/testing/reports/7.md
+
 ### Customer contract (#6)
 - Added: `contracts/customer/openapi.yaml` and `contracts/customer/stream.asyncapi.yaml`.
 - Added: `tests/contracts`, which enforces the contract rules in `go test`.
