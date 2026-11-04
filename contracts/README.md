@@ -7,6 +7,7 @@ Check them with `task verify`. `task contracts:lint` checks that the files are v
 | Contract | Files |
 |---|---|
 | Customer | `customer/openapi.yaml`, `customer/stream.asyncapi.yaml` |
+| Rider | `rider/openapi.yaml`, `rider/stream.asyncapi.yaml` |
 
 Values marked **Proposed** are engineering defaults that the owner has not reviewed.
 
@@ -159,7 +160,7 @@ True times are always kept in `order_events`.
 
 `seq` decides which update is newest, not the order of stages. An app that reconnects can miss a stage, and `no_scooter` can go back to `looking_for_rider`.
 
-The handover OTP is sent to the customer only at `arrived`, so a handover cannot happen during the wait.
+The handover OTP is sent to the customer at `arrived`, or in the signal-lost case under Rider offline events. Neither can happen during the wait, because the signal-lost case needs `rider_accepted`.
 
 ### What the customer order carries at each stage
 These fields are always present, and are `null` when not listed as set. Fields not shown here, such as `timer`, follow their own rules.
@@ -176,7 +177,7 @@ These fields are always present, and are `null` when not listed as set. Fields n
 | `handed_over` | `rider` | `false` |
 | `ended` | `ended_reason`, and `rider` if one was shown | `false` |
 
-`remedy` can be set at `handed_over` or `ended`, or from the moment a timer is missed. A longer ETA replaces `wait_deadline`, so the customer always has one clear time to wait for.
+`handover_otp` is also set in the signal-lost case under Rider offline events. `remedy` can be set at `handed_over` or `ended`, or from the moment a timer is missed. A longer ETA replaces `wait_deadline`, so the customer always has one clear time to wait for.
 
 ## Timer
 `OrderTimer` has `timer_started_at`, `timer_duration_s`, `timer_stopped_at` and `timer_missed`. `rider_accepted_at` is in `OrderInternalTimes`.
@@ -189,4 +190,37 @@ These fields are always present, and are `null` when not listed as set. Fields n
 - `eta_source` says whether to show a time. Show one only for `measured`.
 - Times are not signed, because apps cannot check a signature without the secret key. The server's values are official (**Proposed**).
 
-The rider's calm "1.5 mins" label is defined in the rider contract, because the rider needs it before the timer starts.
+## Rider view
+- The rider sees `OrderState`, because it is the rider's own work.
+- The rider sees `timer_label`, such as "1.5 mins": a fixed label built from the order's timer length, available from the offer being accepted. The rider contract has no countdown fields, so the clock never pressures the rider. The app must not build a countdown from `TIMER_RUNNING` either.
+- Arrival comes from GPS, so there is no arrive endpoint. Pressing Ready never starts the timer by itself.
+- `next_ping_s` on each location response tells the app how often to ping: about every 2 to 3 seconds from packed to arrived, and slower otherwise. Only pings with different `device_time` values count towards the two-ping check.
+- The rider never sees the customer's phone number or the handover OTP. The customer shows the OTP, and the rider types it. The app holds nothing that can check an OTP, because a short code can be cracked on the device in under a second. Only the server checks it.
+- A rider who no longer has an order, for example after a rematch, sees `ended_reason` and never another rider's progress.
+
+### Rider offline events
+Every action is queued first with a unique `event_id`. A direct request uses that `event_id` as its `Idempotency-Key`. For a rider's actions that can be queued, the server tracks the key per rider, not per path, so a direct request and its queued copy count as one action, and a difference in their bodies does not cause a 422.
+
+- Events apply in order, and each is checked on its own. The batch itself fails only if the body cannot be read.
+- A repeated `event_id` returns the stored result if that result was final: accepted, or rejected with `retryable: false`. A rejection with `retryable: true` is not stored, so the event is checked again.
+- `retryable` on a rejected event means the same event may succeed later. If it is false, the app shows the rejection to the rider and removes the event from the queue.
+- `device_time` is kept as evidence. The official time is when the server received the event (**Proposed**).
+
+| Event arrives when | Result | What happens next |
+|---|---|---|
+| Handover, with a wrong OTP | Rejected, `wrong_otp` | The rider is told, and support is alerted if the food was already given |
+| Handover, after the customer cancelled or the order was reassigned | Rejected, `order_cancelled` or `order_reassigned` | Support is alerted if the food was already given |
+| Handover, with no earlier arrival | Accepted | Arrival is recorded first, then handover |
+| Problem, on a finished order | Accepted | Support sees it |
+| Restock confirm, after the suggestion expired | Rejected, `suggestion_expired` | The next suggestion is drafted |
+| Location, older than one already applied | Accepted | Kept as evidence, and does not change the order |
+| Location, with a `device_time` more than 30 seconds before it arrived (**Proposed**) | Accepted | Evidence only. It never starts or stops a timer, so a flush of old pings cannot do both at once |
+
+### Signal lost at the gate
+A rider with no signal sends no pings, so the server cannot detect arrival. The customer must still be able to get the food (**Proposed**):
+
+- `handover_otp` is also set if no ping has arrived for 30 seconds, and either the timer has ended or `wait_deadline` has passed at `rider_accepted`. Both conditions are needed, so a late rider with working GPS never releases the OTP early.
+- `otp_available` tells the rider that the customer has it. Offline, it may be stale, so the app must still allow the rider to enter an OTP, and queue it.
+- A handover made in the last 30 seconds (by `device_time`) is rejected with `rider_not_near` if fresh GPS shows the rider away from the gate. An older queued handover with a valid OTP is accepted and flagged for audit, because the rider may have handed over offline and ridden on.
+- A valid OTP with no fresh GPS records the arrival, with the time the server received it, and marks `arrival_source` as `handover`, not `gps`. These are flagged for audit, so a rider who switches GPS off to phone for the OTP can be found.
+- A late location with a `device_time` inside the timer goes to audit review before any remedy. If the review is not finished within 10 minutes (**Proposed**), the remedy goes ahead, so the customer is not left waiting.

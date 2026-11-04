@@ -1,0 +1,154 @@
+asyncapi: 2.6.0
+id: urn:ninzo:rider:stream
+info:
+  title: Ninzo rider stream
+  version: 0.1.0
+  description: >-
+    The live stream for one rider. Sign-in, seq, heartbeat and close code rules
+    are in contracts/README.md. GET /v1/riders/me/state stays the authority. The
+    token must be renewed on the same connection, because this stream lasts a
+    whole shift.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+defaultContentType: application/json
+servers:
+  placeholder:
+    url: rider-api.example.invalid
+    protocol: wss
+    description: Placeholder. Real URLs are published with the mock server.
+tags:
+  - name: rider
+    description: Following a rider's work live.
+channels:
+  /v1/riders/me/stream:
+    description: One rider's offers, orders and restock changes.
+    publish:
+      operationId: sendRiderStreamFrame
+      summary: Frames the app sends
+      description: The first frame must be auth, within 5 seconds. Send it again with a new token before the current one expires.
+      tags:
+        - name: rider
+      message:
+        $ref: '#/components/messages/Auth'
+    subscribe:
+      operationId: receiveRiderStreamEvent
+      summary: Events the app receives
+      description: Apply events by the seq rules in contracts/README.md.
+      tags:
+        - name: rider
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AuthOk'
+          - $ref: '#/components/messages/Heartbeat'
+          - $ref: '#/components/messages/Offer'
+          - $ref: '#/components/messages/OrderState'
+          - $ref: '#/components/messages/Restock'
+components:
+  messages:
+    Auth:
+      name: auth
+      title: Sign in to the stream
+      summary: Sends a current access token.
+      payload:
+        type: object
+        required: [type, token]
+        properties:
+          type:
+            type: string
+            const: auth
+          token:
+            type: string
+    AuthOk:
+      name: auth_ok
+      title: Signed in
+      summary: The first event. Fetch the rider's state next if the app has not already.
+      payload:
+        type: object
+        required: [type, server_time, data]
+        properties:
+          type:
+            type: string
+            const: auth_ok
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+    Heartbeat:
+      name: heartbeat
+      title: Heartbeat
+      summary: Sent every 15 seconds with the current seq. If its seq is higher than the app has, fetch the rider's state.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: heartbeat
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+    Offer:
+      name: offer
+      title: Offer changed
+      summary: A new offer, or an offer that expired, was taken or was cancelled.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: offer
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            $ref: 'openapi.yaml#/components/schemas/Offer'
+    OrderState:
+      name: order_state
+      title: Order changed
+      summary: The order changed, including a cancel during packing or arrival at the perimeter.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: order_state
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            $ref: 'openapi.yaml#/components/schemas/RiderOrder'
+    Restock:
+      name: restock
+      title: Restock changed
+      summary: The hub or system changed the rider's restock request.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: restock
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            $ref: 'openapi.yaml#/components/schemas/RestockRequest'

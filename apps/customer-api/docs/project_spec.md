@@ -71,7 +71,7 @@ CA-17 is listed as a core countdown feature in CUST. Priority P2 is **Proposed**
 | Accept a longer ETA | `POST /v1/orders/{id}/accept-eta` | CA-10 |
 | Notify me | `POST /v1/availability/notify` | CA-10 |
 | Change gate before paying | `PATCH /v1/orders/{id}/gate` | CA-02, EDGE |
-| Handover OTP for display | Included in `GET /v1/orders/{id}` once arrived | CA-09 |
+| Handover OTP for display | Included in `GET /v1/orders/{id}` at arrived, or in the signal-lost case in `contracts/README.md` | CA-09 |
 | Masked call | `POST /v1/orders/{id}/call` | CA-17 |
 
 Rider position is delivered on the order stream, not through a new endpoint.
@@ -83,7 +83,7 @@ The contract is `contracts/customer/`, and it wins if this table differs. It als
 2. `eta_source` is `measured`, `placeholder` or `unavailable`. The server must never send a time as `measured` unless it is measured. (CUST rule 2)
 3. A notification carries no authoritative state. (CUST rule 4)
 4. Cancel wording must be "no payment taken; any hold releases within days", never "nobody is charged". The API must not return text that contradicts it. (CUST rule 7)
-5. A gate can change only before paying, and a change returns a new payment to complete. After paying, the customer cancels and orders again, because a refused change during the wait would reveal the rider. **Proposed,** narrower than EDGE.
+5. A gate can change only before paying, and a change returns a new payment to complete. After paying, the customer cancels and orders again, because a refused change during the wait would reveal the rider. Owner decision, 2026-11-04, overriding EDGE.
 6. If checks fail, the offer is withdrawn, never stretched. (EDGE)
 7. Stock can be held only by a reservation with a TTL, and can never go negative. (ARCH, PLAN section 1)
 8. Prices are fixed at order creation. **Proposed,** implied by the Razorpay order amount in the `POST /v1/orders` response.
