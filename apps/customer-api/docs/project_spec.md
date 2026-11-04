@@ -55,7 +55,7 @@ CA-17 is listed as a core countdown feature in CUST. Priority P2 is **Proposed**
 | `GET /v1/orders`, `GET /v1/orders/{id}` | CA-06, CA-12 | CUST |
 | `POST /v1/orders/{id}/cancel` | CA-11 | CUST |
 | `WS /v1/orders/{id}/stream` | CA-08 | CUST |
-| `POST /v1/orders/{id}/handover-confirm` | CA-09 | CUST; **Proposed:** replace, see EDD 9.2 |
+| `POST /v1/orders/{id}/handover-confirm` | CA-09 | CUST. Removed: the customer app shows `handover_otp`, and the rider submits it. See EDD 9.2 |
 | `POST /v1/support/tickets`, `GET /v1/support/tickets/{id}` | CA-13 | CUST |
 | `GET /v1/orders/{id}/refund` | CA-13 | CUST |
 
@@ -70,18 +70,20 @@ CA-17 is listed as a core countdown feature in CUST. Priority P2 is **Proposed**
 | Device token | `POST /v1/me/devices` | CA-14 |
 | Accept a longer ETA | `POST /v1/orders/{id}/accept-eta` | CA-10 |
 | Notify me | `POST /v1/availability/notify` | CA-10 |
-| Change gate before the rider accepts | `PATCH /v1/orders/{id}/gate` | CA-02, EDGE |
+| Change gate before paying | `PATCH /v1/orders/{id}/gate` | CA-02, EDGE |
 | Handover OTP for display | Included in `GET /v1/orders/{id}` once arrived | CA-09 |
 | Masked call | `POST /v1/orders/{id}/call` | CA-17 |
 
 Rider position is delivered on the order stream, not through a new endpoint.
+
+The contract is `contracts/customer/`, and it wins if this table differs. It also adds `DELETE /v1/me/devices/{id}`, for sign-out.
 
 ## 4. Business rules
 1. The countdown is `timer_started_at + timer_duration_s`, from the server, corrected for phone clock offset. (Decision 0007, replacing CUST rule 1)
 2. `eta_source` is `measured`, `placeholder` or `unavailable`. The server must never send a time as `measured` unless it is measured. (CUST rule 2)
 3. A notification carries no authoritative state. (CUST rule 4)
 4. Cancel wording must be "no payment taken; any hold releases within days", never "nobody is charged". The API must not return text that contradicts it. (CUST rule 7)
-5. A gate can change only before the rider accepts, and a change triggers a re-quote. (EDGE)
+5. A gate can change only before paying, and a change returns a new payment to complete. After paying, the customer cancels and orders again, because a refused change during the wait would reveal the rider. **Proposed,** narrower than EDGE.
 6. If checks fail, the offer is withdrawn, never stretched. (EDGE)
 7. Stock can be held only by a reservation with a TTL, and can never go negative. (ARCH, PLAN section 1)
 8. Prices are fixed at order creation. **Proposed,** implied by the Razorpay order amount in the `POST /v1/orders` response.
@@ -105,7 +107,7 @@ From EDGE, the scenario catalog, limited to what the customer sees.
 | Rain, traffic or road closure | Reduce the radius, or suspend the offer in the zone |
 | Gate closed or entry refused | Use the pin, call the customer, hand over at the nearest open point |
 | Customer unreachable at gate | Wait window, call, then end per policy: waste and refund. Policy values not set |
-| Wrong pin or customer moves | Confirm before payment. Changes only before the rider accepts |
+| Wrong pin or customer moves | Confirm before payment. Changes only before paying. After that, cancel and order again |
 | Temperature breach | Quarantine lot, pull scooter from search, refund or replace |
 | Payment fails after reserve | Release stock, no rider contacted, allow retry |
 | App crash or no network at gate | Server timer keeps running. Reconcile later |

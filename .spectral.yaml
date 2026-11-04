@@ -1,5 +1,8 @@
-extends: ["spectral:oas"]
+extends: ["spectral:oas", "spectral:asyncapi"]
 rules:
   # A components-only file has no operations, and contracts use placeholder servers until the mock is published.
   oas3-unused-component: off
   oas3-server-not-example.com: off
+  # There is no public contact address, and the linter's AsyncAPI rules cover version 2.x.
+  asyncapi-info-contact-properties: off
+  asyncapi-latest-version: off

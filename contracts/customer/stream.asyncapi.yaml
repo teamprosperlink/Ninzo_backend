@@ -1,0 +1,143 @@
+asyncapi: 2.6.0
+id: urn:ninzo:customer:stream
+info:
+  title: Ninzo customer order stream
+  version: 0.1.0
+  description: >-
+    The live stream for one order. Sign-in, seq, heartbeat and close code rules
+    are in contracts/README.md. GET /v1/orders/{order_id} stays the authority.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+defaultContentType: application/json
+servers:
+  placeholder:
+    url: customer-api.example.invalid
+    protocol: wss
+    description: Placeholder. Real URLs are published with the mock server.
+tags:
+  - name: orders
+    description: Following an order live.
+channels:
+  /v1/orders/{order_id}/stream:
+    description: One customer order.
+    parameters:
+      order_id:
+        description: The order.
+        schema:
+          type: string
+    publish:
+      operationId: sendCustomerStreamFrame
+      summary: Frames the app sends
+      description: The first frame must be auth, within 5 seconds. Send it again with a new token before the current one expires.
+      tags:
+        - name: orders
+      message:
+        $ref: '#/components/messages/Auth'
+    subscribe:
+      operationId: receiveCustomerStreamEvent
+      summary: Events the app receives
+      description: Apply events by the seq rules in contracts/README.md.
+      tags:
+        - name: orders
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AuthOk'
+          - $ref: '#/components/messages/Heartbeat'
+          - $ref: '#/components/messages/OrderUpdate'
+          - $ref: '#/components/messages/RiderPosition'
+components:
+  messages:
+    Auth:
+      name: auth
+      title: Sign in to the stream
+      summary: Sends a current access token.
+      payload:
+        type: object
+        required: [type, token]
+        properties:
+          type:
+            type: string
+            const: auth
+          token:
+            type: string
+    AuthOk:
+      name: auth_ok
+      title: Signed in
+      summary: The first event. Fetch the order next if the app has not already.
+      payload:
+        type: object
+        required: [type, server_time, data]
+        properties:
+          type:
+            type: string
+            const: auth_ok
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+    Heartbeat:
+      name: heartbeat
+      title: Heartbeat
+      summary: Sent every 15 seconds with the current seq. If its seq is higher than the app has, fetch the order.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: heartbeat
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+    OrderUpdate:
+      name: order_update
+      title: Order changed
+      summary: Sent whenever something the customer can see changes. data is the same order GET returns.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: order_update
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            $ref: 'openapi.yaml#/components/schemas/Order'
+    RiderPosition:
+      name: rider_position
+      title: Rider position
+      summary: A passing update with no seq. Sent only from the rider_accepted stage until handover.
+      payload:
+        type: object
+        required: [type, server_time, data]
+        properties:
+          type:
+            type: string
+            const: rider_position
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+            required: [lat, lng, recorded_at]
+            properties:
+              lat:
+                type: number
+              lng:
+                type: number
+              recorded_at:
+                type: string
+                format: date-time

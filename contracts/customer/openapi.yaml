@@ -1,0 +1,1327 @@
+openapi: 3.1.0
+info:
+  title: Ninzo customer API
+  version: 0.1.0
+  description: >-
+    The API behind the customer app. The shared rules are in contracts/README.md.
+    Field names are final only after the contract review.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://customer-api.example.invalid/v1
+    description: Placeholder. Real URLs are published with the mock server.
+security:
+  - bearerAuth: []
+tags:
+  - name: auth
+    description: Sign-in and tokens.
+  - name: profile
+    description: The customer's profile and devices.
+  - name: gates
+    description: The customer's saved delivery gates.
+  - name: menu
+    description: Items and what is in reach.
+  - name: orders
+    description: Creating and following orders.
+  - name: support
+    description: Help and refund status.
+  - name: webhooks
+    description: Called by payment providers, not by the app.
+paths:
+  /auth/otp/request:
+    post:
+      tags: [auth]
+      operationId: requestOtp
+      summary: Send a sign-in code
+      description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  description: In E.164 format.
+                  pattern: '^\+[1-9][0-9]{7,14}$'
+                  example: '+919876543210'
+      responses:
+        '200':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /auth/otp/verify:
+    post:
+      tags: [auth]
+      operationId: verifyOtp
+      summary: Sign in with the code
+      description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id, otp]
+              properties:
+                request_id:
+                  type: string
+                otp:
+                  type: string
+                  pattern: '^[0-9]{4,8}$'
+                  example: '123456'
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerSession'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshToken
+      summary: Get a new token pair
+      description: Send only one refresh at a time. See Sign-in in contracts/README.md.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: A new pair.
+          content:
+            application/json:
+              schema:
+                $ref: '../shared/common.yaml#/components/schemas/TokenPair'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /me:
+    get:
+      tags: [profile]
+      operationId: getMe
+      summary: Get the signed-in customer
+      description: Returns the customer's own profile.
+      responses:
+        '200':
+          description: The customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+    patch:
+      tags: [profile]
+      operationId: updateMe
+      summary: Update the signed-in customer
+      description: Sets the customer's name.
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /me/devices:
+    post:
+      tags: [profile]
+      operationId: registerDevice
+      summary: Register a device for push
+      description: Registering a token that already exists updates it.
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, push_token]
+              properties:
+                platform:
+                  type: string
+                  enum: [android, ios]
+                push_token:
+                  type: string
+      responses:
+        '201':
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /me/devices/{device_id}:
+    delete:
+      tags: [profile]
+      operationId: removeDevice
+      summary: Remove a device from push
+      description: Called on sign-out.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /gates:
+    get:
+      tags: [gates]
+      operationId: listGates
+      summary: List the customer's saved gates
+      description: Returns every gate the customer has saved.
+      responses:
+        '200':
+          description: The gates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateList'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+    post:
+      tags: [gates]
+      operationId: createGate
+      summary: Save a gate
+      description: 'Errors: out_of_service_area (400), duplicate_gate (409).'
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, lat, lng]
+              properties:
+                label:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lng:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+                entry_notes:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /menu/items:
+    get:
+      tags: [menu]
+      operationId: listMenuItems
+      summary: List the menu
+      description: The full menu. Use availability to see what is in reach of a gate.
+      responses:
+        '200':
+          description: The menu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItemList'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /menu/items/{item_id}:
+    get:
+      tags: [menu]
+      operationId: getMenuItem
+      summary: Get one menu item
+      description: Returns one item's details.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItemResponse'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /availability:
+    get:
+      tags: [menu]
+      operationId: getAvailability
+      summary: See what is in reach of a gate
+      description: Returns only items truly in reach, with quantity left.
+      parameters:
+        - name: gate_id
+          in: query
+          required: true
+          description: The gate to check.
+          schema:
+            $ref: '../shared/common.yaml#/components/schemas/Id'
+      responses:
+        '200':
+          description: What is in reach. Items is empty when no offer is available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Availability'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /availability/notify:
+    post:
+      tags: [menu]
+      operationId: notifyWhenAvailable
+      summary: Ask to be told when an item is in reach
+      description: Sends one push when the gate has an offer again.
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [gate_id]
+              properties:
+                gate_id:
+                  $ref: '../shared/common.yaml#/components/schemas/Id'
+                item_id:
+                  $ref: '../shared/common.yaml#/components/schemas/Id'
+      responses:
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /orders:
+    get:
+      tags: [orders]
+      operationId: listOrders
+      summary: List past and current orders
+      description: Newest first.
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/Cursor'
+        - $ref: '../shared/common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderList'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+    post:
+      tags: [orders]
+      operationId: createOrder
+      summary: Create an order and start payment
+      description: >-
+        Reserves stock and returns what the app needs for Razorpay checkout. The
+        app never marks an order paid. Errors: sold_out, gate_not_verified,
+        no_offer (all 409).
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [gate_id, items]
+              properties:
+                gate_id:
+                  $ref: '../shared/common.yaml#/components/schemas/Id'
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: '#/components/schemas/OrderItemRequest'
+      responses:
+        '201':
+          description: Created. A replay returns this same response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResult'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /orders/{order_id}:
+    get:
+      tags: [orders]
+      operationId: getOrder
+      summary: Get an order's current state
+      description: The authority on an order. Fetch this before showing anything after a reconnect or a notification.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /orders/{order_id}/cancel:
+    post:
+      tags: [orders]
+      operationId: cancelOrder
+      summary: Cancel an order
+      description: >-
+        Free until the customer sees rider_accepted, or once wait_deadline has
+        passed and before the timer starts. Otherwise rejected with
+        cancel_not_allowed (409). Order.cancellable says which applies now.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /orders/{order_id}/gate:
+    patch:
+      tags: [orders]
+      operationId: changeOrderGate
+      summary: Change the gate before paying
+      description: >-
+        Allowed only at the payment stage. After that, the customer cancels and
+        orders again. Returns the payment to complete. Errors:
+        gate_change_not_allowed, no_offer, sold_out (all 409).
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [gate_id]
+              properties:
+                gate_id:
+                  $ref: '../shared/common.yaml#/components/schemas/Id'
+      responses:
+        '200':
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResult'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /orders/{order_id}/payment/retry:
+    post:
+      tags: [orders]
+      operationId: retryPayment
+      summary: Try payment again
+      description: Allowed at the payment_failed stage. Errors, both 409, payment_retry_not_allowed at any other stage, and sold_out if the stock has gone. To resume after the app was closed during checkout, use payment_request on the order.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: A new payment to complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResult'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /orders/{order_id}/accept-eta:
+    post:
+      tags: [orders]
+      operationId: acceptLongerEta
+      summary: Accept a longer ETA
+      description: >-
+        The customer's explicit consent at the no_scooter stage. An order is never
+        silently re-promised. Errors: eta_offer_expired (409).
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eta_offer_id]
+              properties:
+                eta_offer_id:
+                  $ref: '../shared/common.yaml#/components/schemas/Id'
+      responses:
+        '200':
+          description: Accepted. The order returns to looking_for_rider, and wait_deadline becomes the agreed time.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /orders/{order_id}/call:
+    post:
+      tags: [orders]
+      operationId: startMaskedCall
+      summary: Call the rider through a masked number
+      description: Available from the rider_accepted stage. Otherwise rejected with call_not_available (409). Priority P2.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The number to call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaskedCall'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /orders/{order_id}/refund:
+    get:
+      tags: [support]
+      operationId: getOrderRefund
+      summary: Get an order's refund status
+      description: 404 if the order has no refund.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The refund.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /support/tickets:
+    post:
+      tags: [support]
+      operationId: createTicket
+      summary: Report a problem
+      description: For example, missing or cold food.
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, text]
+              properties:
+                order_id:
+                  $ref: '../shared/common.yaml#/components/schemas/Id'
+                type:
+                  type: string
+                  enum: [missing_item, cold_food, wrong_item, payment, other]
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /support/tickets/{ticket_id}:
+    get:
+      tags: [support]
+      operationId: getTicket
+      summary: Get a ticket
+      description: Returns the ticket and its messages.
+      parameters:
+        - name: ticket_id
+          in: path
+          required: true
+          description: The ticket.
+          schema:
+            $ref: '../shared/common.yaml#/components/schemas/Id'
+      responses:
+        '200':
+          description: The ticket.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /webhooks/razorpay:
+    post:
+      tags: [webhooks]
+      operationId: razorpayWebhook
+      summary: Receive a Razorpay event
+      description: Called by Razorpay, not by the app. Verified by signature, and deduplicated by Razorpay's event ID.
+      security: []
+      parameters:
+        - name: X-Razorpay-Signature
+          in: header
+          required: true
+          description: Signature of the raw request body.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Defined by Razorpay.
+      responses:
+        '200':
+          description: Received.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token from the sign-in endpoints.
+  parameters:
+    OrderId:
+      name: order_id
+      in: path
+      required: true
+      description: The order.
+      schema:
+        $ref: '../shared/common.yaml#/components/schemas/Id'
+    ItemId:
+      name: item_id
+      in: path
+      required: true
+      description: The menu item.
+      schema:
+        $ref: '../shared/common.yaml#/components/schemas/Id'
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      description: The device.
+      schema:
+        $ref: '../shared/common.yaml#/components/schemas/Id'
+  schemas:
+    Done:
+      type: object
+      description: A successful result with nothing else to return.
+      required: [server_time]
+      properties:
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    OtpRequestResult:
+      type: object
+      required: [request_id, expires_in_s, resend_after_s, server_time]
+      properties:
+        request_id:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+          example: 300
+        resend_after_s:
+          type: integer
+          minimum: 0
+          description: Seconds before a new code can be requested.
+          example: 30
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    CustomerSession:
+      type: object
+      required: [access_token, refresh_token, expires_in_s, customer_id, server_time]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+          example: 900
+        customer_id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    Customer:
+      type: object
+      required: [id, phone]
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        phone:
+          type: string
+          example: '+919876543210'
+        name:
+          type:
+            - string
+            - 'null'
+    CustomerResponse:
+      type: object
+      required: [customer, server_time]
+      properties:
+        customer:
+          $ref: '#/components/schemas/Customer'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    DeviceResponse:
+      type: object
+      required: [device_id, server_time]
+      properties:
+        device_id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    Gate:
+      type: object
+      required: [id, label, lat, lng, verified]
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        label:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        entry_notes:
+          type:
+            - string
+            - 'null'
+        verified:
+          type: boolean
+          description: Orders can be placed only at verified gates. Proposed, until the owner settles the gate policy.
+    GateResponse:
+      type: object
+      required: [gate, server_time]
+      properties:
+        gate:
+          $ref: '#/components/schemas/Gate'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    GateList:
+      type: object
+      required: [gates, server_time]
+      properties:
+        gates:
+          type: array
+          items:
+            $ref: '#/components/schemas/Gate'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    MenuItem:
+      type: object
+      required: [id, name, price, allergens]
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        price:
+          $ref: '../shared/common.yaml#/components/schemas/Money'
+        allergens:
+          type: array
+          items:
+            type: string
+        photo_url:
+          type:
+            - string
+            - 'null'
+          format: uri
+    MenuItemResponse:
+      type: object
+      required: [item, server_time]
+      properties:
+        item:
+          $ref: '#/components/schemas/MenuItem'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    MenuItemList:
+      type: object
+      required: [items, server_time]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuItem'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    AvailableItem:
+      type: object
+      required: [item, qty_left]
+      properties:
+        item:
+          $ref: '#/components/schemas/MenuItem'
+        qty_left:
+          type: integer
+          minimum: 1
+          example: 4
+    Availability:
+      type: object
+      required: [offer_available, items, stale_at, server_time]
+      properties:
+        offer_available:
+          type: boolean
+          description: False when the checks fail. The promise is withdrawn, not stretched.
+        unavailable_reason:
+          type:
+            - string
+            - 'null'
+          description: 'Set when offer_available is false. Open list, including zone_off, gate_not_verified, gate_at_cap, no_coverage.'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailableItem'
+        stale_at:
+          type: string
+          format: date-time
+          description: Fetch again after this time.
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    OrderItemRequest:
+      type: object
+      required: [item_id, qty]
+      properties:
+        item_id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        qty:
+          type: integer
+          minimum: 1
+          example: 1
+    OrderItem:
+      type: object
+      required: [item_id, name, qty, unit_price]
+      properties:
+        item_id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        name:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+        unit_price:
+          $ref: '../shared/common.yaml#/components/schemas/Money'
+    OrderGate:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        label:
+          type: string
+    PaymentStatus:
+      type: string
+      description: >-
+        Only the server sets this, from the Razorpay webhook. settled never
+        appears before the rider_accepted stage. not_paid means the order ended
+        with no payment. released means a hold was let go, with no charge.
+        refunded means money taken was returned.
+      enum:
+        - pending
+        - secured
+        - settled
+        - failed
+        - not_paid
+        - released
+        - refunded
+    OrderRider:
+      type: object
+      description: Null on the order until the rider_accepted stage.
+      required: [first_name]
+      properties:
+        first_name:
+          type: string
+          example: Ravi
+    EtaOffer:
+      type: object
+      description: A longer ETA the customer may accept at the no_scooter stage. Offered only when the time is measured, because the customer must see it to agree.
+      required: [id, eta_s, expires_at]
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        eta_s:
+          type: integer
+          minimum: 1
+          example: 600
+        expires_at:
+          type: string
+          format: date-time
+    Order:
+      type: object
+      description: >-
+        What the customer may see of an order. It never includes the true order
+        state or rider_accepted_at. See Order states and customer stages in
+        contracts/README.md.
+      required:
+        - id
+        - seq
+        - customer_stage
+        - ended_reason
+        - gate
+        - items
+        - total
+        - payment_status
+        - payment_request
+        - cancellable
+        - wait_deadline
+        - eta_source
+        - eta_s
+        - eta_offer
+        - rider
+        - timer
+        - remedy
+        - handover_otp
+        - created_at
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        seq:
+          type: integer
+          minimum: 1
+          description: The customer-visible version. Compare it with seq on the live stream.
+          example: 3
+        customer_stage:
+          $ref: '../shared/common.yaml#/components/schemas/CustomerStage'
+        ended_reason:
+          type:
+            - string
+            - 'null'
+          description: 'Set only at the ended stage. Open list, including cancelled, timed_out, failed. failed appears only after the customer has seen rider_accepted.'
+        gate:
+          $ref: '#/components/schemas/OrderGate'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        total:
+          $ref: '../shared/common.yaml#/components/schemas/Money'
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatus'
+        payment_request:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentRequest'
+            - type: 'null'
+          description: Set only at the payment stage, so checkout can resume after the app was closed.
+        cancellable:
+          type: boolean
+          description: True if cancelling is free right now. Stays true throughout looking_for_rider.
+        wait_deadline:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: >-
+            The clear time shown while waiting. See the stage table in
+            contracts/README.md. It does not change when a rider accepts.
+        eta_source:
+          $ref: '../shared/common.yaml#/components/schemas/EtaSource'
+        eta_s:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+          description: Null before the rider_accepted stage, and unless eta_source is measured.
+        eta_offer:
+          oneOf:
+            - $ref: '#/components/schemas/EtaOffer'
+            - type: 'null'
+          description: Set only at the no_scooter stage, when a longer ETA is on offer.
+        rider:
+          oneOf:
+            - $ref: '#/components/schemas/OrderRider'
+            - type: 'null'
+          description: Null until the rider_accepted stage.
+        timer:
+          $ref: '../shared/common.yaml#/components/schemas/OrderTimer'
+        remedy:
+          oneOf:
+            - $ref: '#/components/schemas/Remedy'
+            - type: 'null'
+          description: Set when a miss or failure earned the customer a remedy.
+        handover_otp:
+          type:
+            - string
+            - 'null'
+          description: Set only at the arrived stage. The customer shows it, and the rider submits it.
+        created_at:
+          type: string
+          format: date-time
+    Remedy:
+      type: object
+      required: [type, amount]
+      properties:
+        type:
+          type: string
+          description: 'Open list, including credit, refund, replacement.'
+          example: credit
+        amount:
+          oneOf:
+            - $ref: '../shared/common.yaml#/components/schemas/Money'
+            - type: 'null'
+    OrderResponse:
+      type: object
+      required: [order, server_time]
+      properties:
+        order:
+          $ref: '#/components/schemas/Order'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    OrderList:
+      type: object
+      required: [orders, next_cursor, server_time]
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        next_cursor:
+          type:
+            - string
+            - 'null'
+          description: Pass as cursor to get the next page. Null on the last page.
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    PaymentRequest:
+      type: object
+      description: What the app needs to open Razorpay checkout.
+      required: [razorpay_key_id, razorpay_order_id, amount]
+      properties:
+        razorpay_key_id:
+          type: string
+          description: Razorpay's public key ID. Not a secret.
+        razorpay_order_id:
+          type: string
+        amount:
+          $ref: '../shared/common.yaml#/components/schemas/Money'
+    CreateOrderResult:
+      type: object
+      required: [order, payment, server_time]
+      properties:
+        order:
+          $ref: '#/components/schemas/Order'
+        payment:
+          $ref: '#/components/schemas/PaymentRequest'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    MaskedCall:
+      type: object
+      required: [phone, expires_at, server_time]
+      properties:
+        phone:
+          type: string
+          description: A masked number, not the rider's own.
+        expires_at:
+          type: string
+          format: date-time
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    Refund:
+      type: object
+      required: [status, amount]
+      properties:
+        status:
+          type: string
+          enum: [pending, processed, failed]
+        amount:
+          $ref: '../shared/common.yaml#/components/schemas/Money'
+        expected_by:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    RefundResponse:
+      type: object
+      required: [refund, server_time]
+      properties:
+        refund:
+          $ref: '#/components/schemas/Refund'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    TicketMessage:
+      type: object
+      required: [from, text, sent_at]
+      properties:
+        from:
+          type: string
+          enum: [customer, support]
+        text:
+          type: string
+        sent_at:
+          type: string
+          format: date-time
+    Ticket:
+      type: object
+      required: [id, status, messages]
+      properties:
+        id:
+          $ref: '../shared/common.yaml#/components/schemas/Id'
+        order_id:
+          type:
+            - string
+            - 'null'
+        status:
+          type: string
+          enum: [open, resolved]
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketMessage'
+    TicketResponse:
+      type: object
+      required: [ticket, server_time]
+      properties:
+        ticket:
+          $ref: '#/components/schemas/Ticket'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'

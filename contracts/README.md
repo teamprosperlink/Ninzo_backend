@@ -2,7 +2,11 @@
 
 The contract comes first, and code follows it. Every customer and rider endpoint follows these rules. Shared schemas are in `shared/common.yaml`.
 
-Check them with `task contracts:lint`. Linting checks that the files are valid. It does not check the rules below, so reviews must.
+Check them with `task verify`. `task contracts:lint` checks that the files are valid. `tests/contracts` enforces the rules it can: `server_time`, the error shape, `Idempotency-Key`, sign-in, cursor paging, and no hidden fields in the customer contract. The other rules below are checked by review.
+
+| Contract | Files |
+|---|---|
+| Customer | `customer/openapi.yaml`, `customer/stream.asyncapi.yaml` |
 
 Values marked **Proposed** are engineering defaults that the owner has not reviewed.
 
@@ -67,7 +71,9 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 | Same key, same body, first request still running | 409 `idempotency_in_progress`, with `Retry-After` |
 | Same key, different body | 422 `idempotency_key_reused` |
 
-**What gets stored:** only `2xx` responses and final rejections: 400, 403, 404, 409 `conflict` and 422. A 401, 429 or `5xx` is not stored, so a retry with the same key runs again.
+**What gets stored:** only `2xx` responses. A rejected request had no effect, so a retry with the same key is checked again against the current state. For example, a cancel rejected with `cancel_not_allowed` can succeed once the maximum wait has passed.
+
+**When to change the key:** keep the same key after a timeout, a network error, a `5xx`, a 401 or 429, or `idempotency_in_progress`, including when the user taps again, because the first request may have worked. Use a new key only after a final `4xx` rejection, or for a new action.
 
 **After a crash:** a running request holds its key for 30 seconds (**Proposed**), and then a retry runs again. An endpoint with several steps must be able to resume, because some may already be committed. For example, `POST /v1/orders` saves the key with the order, so a retry finds that order and continues instead of reserving stock twice.
 
@@ -127,7 +133,9 @@ The customer is shown "looking for riders" while a rider is already allotted. So
 - Push and SMS follow `customer_stage`, never the order state.
 - Payment is settled when the stage reaches `rider_accepted`, because a charge would reveal an earlier accept.
 - A cancel during the wait succeeds as free, whatever the rider has done by then. The rider is told the offer was cancelled.
-- A cancel allowed after the maximum wait is also free. By then the stock is committed and the payment settled, so the stock is returned to the scooter's count, and the payment is refunded.
+- `eta_source` stays `placeholder` and `eta_s` stays `null` until `rider_accepted`, and `wait_deadline` does not change because a rider accepts.
+- If the rider breaks down or drops out during the wait, the server rematches silently. If the order must end, it ends the same way as finding no rider: `ended_reason` is `timed_out`, the customer is not charged or is refunded, and there is no `remedy`, because a promise was never shown.
+- A cancel after the maximum wait is also free. At `looking_for_rider`, it works like any other cancel during the wait. At `rider_accepted`, the stock is already committed and the payment settled, so the stock is returned to the scooter's count, and the payment is refunded.
 
 True times are always kept in `order_events`.
 
@@ -152,6 +160,23 @@ True times are always kept in `order_events`.
 `seq` decides which update is newest, not the order of stages. An app that reconnects can miss a stage, and `no_scooter` can go back to `looking_for_rider`.
 
 The handover OTP is sent to the customer only at `arrived`, so a handover cannot happen during the wait.
+
+### What the customer order carries at each stage
+These fields are always present, and are `null` when not listed as set. Fields not shown here, such as `timer`, follow their own rules.
+
+| Stage | Set | `cancellable` |
+|---|---|---|
+| `payment` | `payment_request` | `true` |
+| `payment_failed` | Nothing extra. Use payment retry | `true` |
+| `looking_for_rider` | `wait_deadline`: payment confirmed plus the maximum wait, or the agreed time after a longer ETA | `true` |
+| `no_scooter` | `wait_deadline`: the time to choose before an automatic refund. `eta_offer` if a longer ETA is on offer | `true` |
+| `rider_accepted` | `rider`, `wait_deadline`, and `eta_s` if `eta_source` is `measured` | `false`, or `true` once `wait_deadline` has passed |
+| `timer_running` | `rider`, and `eta_s` if `eta_source` is `measured` | `false` |
+| `arrived` | `rider`, `handover_otp` | `false` |
+| `handed_over` | `rider` | `false` |
+| `ended` | `ended_reason`, and `rider` if one was shown | `false` |
+
+`remedy` can be set at `handed_over` or `ended`, or from the moment a timer is missed. A longer ETA replaces `wait_deadline`, so the customer always has one clear time to wait for.
 
 ## Timer
 `OrderTimer` has `timer_started_at`, `timer_duration_s`, `timer_stopped_at` and `timer_missed`. `rider_accepted_at` is in `OrderInternalTimes`.
