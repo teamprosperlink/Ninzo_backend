@@ -16,6 +16,7 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: agreed milestones v0.1.0 to v1.0.0 in `docs/planning/milestones.md`, and `app:*` labels.
 - Changed: Claude merges PRs once checks pass, with no per-PR owner sign-off.
 - Removed: the required QR or code scan on arrival.
+- Added: rule that the shared Google Doc is how we communicate with the app developers.
 
 ### Config (#1)
 - Added: `env.example`, `.gitattributes`, `.editorconfig`, `.dockerignore`, `deploy/compose.yml`, `deploy/Dockerfile.service`, and `db:up` and `db:down` tasks.

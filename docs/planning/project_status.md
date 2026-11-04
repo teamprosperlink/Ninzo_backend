@@ -57,6 +57,7 @@ Overrides the KT docs and the earlier plan. Full flow: `docs/engineering/data_fl
 - Claude merges PRs once checks pass, without owner sign-off on each PR.
 - Milestones are one combined line, with `app:*` labels to filter by app.
 - Other developers build all Flutter apps, including the partner app. Claude builds only the hub APIs for it.
+- The Google Doc [Ninzo Backend: Shared Index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) is the orchestrator for communicating with the app developers, and the index of all shareables. GitHub stays the source of truth.
 - Mock server: a small, cheap host now. Railway proposed. Production hosting is decided later.
 
 ## Open questions for the owner

@@ -13,8 +13,8 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 |---|---|---|---|
 | 1 | GitHub repo and login | Finished on 2026-11-04 | Issues, PRs |
 | 2 | Railway account | Create one for the mock server. The free or cheapest plan is fine. Then run `railway login` in a terminal on this machine | A stable mock URL |
-| 3 | App developers | Send their GitHub usernames, so they can read the contracts in this private repo | Contract review |
-| 4 | Contract review | Tell the developers to expect it, and who decides on field names | Finishing `v0.1.0` |
+| 3 | Google Docs connector | Connect it with `/mcp` or in Claude's connector settings, so Claude can edit the shared index in place. Google Drive alone can only create files | Keeping the index updated |
+| 4 | Share the index | Send the developers the [shared index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) when the mock is ready, and say when their feedback is in | Contract review |
 
 ## 2. Needed for v0.2.0 and v0.3.0
 

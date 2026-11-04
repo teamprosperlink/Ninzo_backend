@@ -55,6 +55,14 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 4. Record anything found along the way, including questions, blockers and new bugs, as a comment or a new Issue. Do not leave it only in chat or in files.
 5. If GitHub cannot be reached, say so, and open the Issues as soon as access returns.
 
+## Developer communication (owner rule)
+The Google Doc [Ninzo Backend: Shared Index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) is the orchestrator for communicating with the app developers, and the index of every shareable, link and note. If anything else needs discussing with them, use the same process:
+1. Publish links, notes and changes in the Doc. The owner shares it with the developers.
+2. Developers comment in the Doc. The owner says when feedback is in.
+3. Read the comments, record them on GitHub, make the fix, and update the Doc.
+
+GitHub stays the source of truth for work and contracts, and wins if the two disagree. Never put secrets in the Doc. Update it whenever a link or shareable changes. Do not ask the owner for the developers' contact details or GitHub usernames: the owner does not have them.
+
 ## Never re-ask
 Check `docs/planning/project_status.md` and `docs/decisions/` before asking the owner anything. Record each answer there straight away.
 
