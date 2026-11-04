@@ -1,0 +1,16 @@
+meta {
+  name: getVerification
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/riders/me/verification
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

@@ -1,0 +1,21 @@
+meta {
+  name: notifyWhenAvailable
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/availability/notify
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-notifyWhenAvailable-0001
+}
+
+body:json {
+  {}
+}

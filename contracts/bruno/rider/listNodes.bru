@@ -1,0 +1,16 @@
+meta {
+  name: listNodes
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/nodes
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

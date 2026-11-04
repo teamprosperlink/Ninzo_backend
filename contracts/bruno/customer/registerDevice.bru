@@ -1,0 +1,21 @@
+meta {
+  name: registerDevice
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/me/devices
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-registerDevice-0001
+}
+
+body:json {
+  {}
+}

@@ -1,0 +1,17 @@
+meta {
+  name: removeRiderDevice
+  type: http
+  seq: 25
+}
+
+delete {
+  url: {{baseUrl}}/riders/me/devices/mock_id
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-removeRiderDevice-0001
+}

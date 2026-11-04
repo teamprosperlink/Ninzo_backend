@@ -12,6 +12,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### Mock server (#8)
+- Added: `cmd/mock-server` and `internal/mockserver`: every customer and rider endpoint, all scenarios and live stream replay.
+- Added: `cmd/contract-bundle`, `contracts/dist` and `contracts/bruno`.
+- Fixed: the rider handover contract now declares a retryable 503.
+- Evidence: docs/testing/reports/8.md
+
 ### Cancel and refund rule (#15)
 - Changed: 5-second cancel window with a full refund, replacing free cancel. No rider is contacted until it closes.
 - Evidence: docs/testing/reports/15.md

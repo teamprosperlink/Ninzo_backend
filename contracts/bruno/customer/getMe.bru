@@ -1,0 +1,16 @@
+meta {
+  name: getMe
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

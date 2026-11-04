@@ -1,0 +1,16 @@
+meta {
+  name: getRoute
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/orders/mock_id/route
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

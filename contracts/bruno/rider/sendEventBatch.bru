@@ -1,0 +1,21 @@
+meta {
+  name: sendEventBatch
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{baseUrl}}/riders/me/events
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-sendEventBatch-0001
+}
+
+body:json {
+  {}
+}

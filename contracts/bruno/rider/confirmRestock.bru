@@ -1,0 +1,21 @@
+meta {
+  name: confirmRestock
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/restock/mock_id/confirm
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-confirmRestock-0001
+}
+
+body:json {
+  {}
+}

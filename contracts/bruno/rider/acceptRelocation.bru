@@ -1,0 +1,17 @@
+meta {
+  name: acceptRelocation
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/riders/me/relocations/mock_id/accept
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-acceptRelocation-0001
+}

@@ -1,0 +1,16 @@
+meta {
+  name: listRestockSuggestions
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/riders/me/restock-suggestions
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

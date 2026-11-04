@@ -1,0 +1,21 @@
+meta {
+  name: handOver
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/orders/mock_id/handover
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-handOver-0001
+}
+
+body:json {
+  {}
+}

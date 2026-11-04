@@ -1,0 +1,16 @@
+meta {
+  name: getOrderRefund
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/orders/mock_id/refund
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

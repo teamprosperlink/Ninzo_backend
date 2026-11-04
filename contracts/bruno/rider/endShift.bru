@@ -1,0 +1,17 @@
+meta {
+  name: endShift
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/riders/me/shifts/end
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-endShift-0001
+}

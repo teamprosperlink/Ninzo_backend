@@ -1,0 +1,16 @@
+meta {
+  name: getRestockOptions
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/restock/options
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

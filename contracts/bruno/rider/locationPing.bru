@@ -1,0 +1,21 @@
+meta {
+  name: locationPing
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/riders/me/location
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-locationPing-0001
+}
+
+body:json {
+  {}
+}

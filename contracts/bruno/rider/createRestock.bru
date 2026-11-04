@@ -1,0 +1,21 @@
+meta {
+  name: createRestock
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/restock
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-createRestock-0001
+}
+
+body:json {
+  {}
+}

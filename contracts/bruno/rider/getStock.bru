@@ -1,0 +1,16 @@
+meta {
+  name: getStock
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/riders/me/stock
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

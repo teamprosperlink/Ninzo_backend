@@ -1,0 +1,16 @@
+meta {
+  name: listOrders
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/orders
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

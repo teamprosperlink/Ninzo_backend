@@ -1,0 +1,16 @@
+meta {
+  name: getOrder
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/orders/mock_id
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
