@@ -13,6 +13,10 @@ tasks:
     cmds:
       - task: vet
       - task: test
+      - task: contracts:lint
+  contracts:lint:
+    desc: Lint the API contracts
+    cmds: ["npx --yes @stoplight/spectral-cli@6.17.0 lint --fail-severity=warn 'contracts/**/*.yaml'"]
   db:up:
     desc: Start local Postgres and Redis
     cmds: ["docker compose -f deploy/compose.yml up -d --wait"]

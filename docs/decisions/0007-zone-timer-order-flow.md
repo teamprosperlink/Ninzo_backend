@@ -15,7 +15,7 @@ The KT docs and the earlier plan start the 90 s clock at server acceptance, afte
 Option 2. The flow is defined in `docs/engineering/data_flow.md`, section 1.
 
 - **The promise is reaching the customer's location,** not handover or door delivery.
-- **Timer start:** the rider is packed and inside the zone, confirmed by two GPS pings. Packed means Ready was pressed or the packing limit passed, so the rider never has to start the timer.
+- **Timer start:** the rider is packed and inside the zone, confirmed by two GPS pings, and the minimum wait has passed. Packed means Ready was pressed or the packing limit passed, so the rider never has to start the timer.
 - **Timer stop:** the rider enters the 100 m perimeter. The customer sees "rider has arrived at your location", and the map stays live.
 - **Proof:** GPS alone stops the timer, and OTP is the proof of delivery. The required QR or code scan on arrival, and `POST /v1/orders/{id}/arrive`, are dropped (owner, 2026-11-04).
 - **Settings:** timer length (90 s), zone radius (350 m, set per location) and the others are console settings. The owner will write the location-based radius algorithm later.

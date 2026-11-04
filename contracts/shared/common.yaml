@@ -1,0 +1,336 @@
+openapi: 3.1.0
+info:
+  title: Ninzo shared API components
+  version: 0.1.0
+  description: >-
+    Schemas, parameters, headers and responses shared by the customer and rider
+    contracts. The rules behind them are in contracts/README.md. This file has
+    no endpoints of its own.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://api.example.invalid/v1
+    description: Placeholder. Real URLs are published with the mock server.
+tags:
+  - name: shared
+    description: Components used by other contracts.
+paths: {}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token from the sign-in endpoints.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Unique per intended action. Send the same key when retrying. Kept for
+        24 hours, per signed-in user, method and exact path.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^[A-Za-z0-9_-]+$'
+      example: 7f3c1e9a-2b4d-4c8e-9a10-5d6e7f8a9b0c
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Value of next_cursor from the previous page. Treat it as opaque.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+  headers:
+    IdempotencyReplayed:
+      description: Present and true when this response was replayed from an earlier request.
+      schema:
+        type: boolean
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 0
+  schemas:
+    ServerTime:
+      type: string
+      format: date-time
+      description: Current server time in UTC. Clients use it to measure phone clock offset.
+      example: '2026-11-04T10:15:30.250Z'
+    Timestamp:
+      type: string
+      format: date-time
+      description: A UTC time set by the server.
+      example: '2026-11-04T10:15:30.250Z'
+    Id:
+      type: string
+      minLength: 1
+      description: Opaque identifier. Do not parse it.
+      example: ord_01HZX3Q7
+    Money:
+      type: object
+      description: An amount in minor units, such as paise. Never a decimal.
+      required: [amount_minor, currency]
+      properties:
+        amount_minor:
+          type: integer
+          minimum: 0
+          example: 14900
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: INR
+    Error:
+      type: object
+      description: The one error shape, used by every endpoint.
+      required: [code, message, retryable, server_time]
+      properties:
+        code:
+          type: string
+          description: >-
+            Stable code for app logic. This is an open list: contracts add codes
+            for their own endpoints. If a client does not know a code, it follows
+            retryable. Shared codes are listed in contracts/README.md.
+          example: token_expired
+        message:
+          type: string
+          description: For developers and logs. App wording comes from the copy deck.
+          example: The access token has expired.
+        retryable:
+          type: boolean
+          description: True if the same request may succeed later without changes.
+          example: false
+        server_time:
+          $ref: '#/components/schemas/ServerTime'
+        missing_permission:
+          type: string
+          description: Only on 403. The permission the caller lacks.
+          example: orders.read
+    PageInfo:
+      type: object
+      description: Added to every list response, next to its items.
+      required: [next_cursor]
+      properties:
+        next_cursor:
+          type:
+            - string
+            - 'null'
+          description: Pass as cursor to get the next page. Null on the last page.
+    TokenPair:
+      type: object
+      description: Sign-in responses add the signed-in user's ID to these fields.
+      required: [access_token, refresh_token, expires_in_s, server_time]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+          description: Single use. Each refresh returns a new one. See contracts/README.md.
+        expires_in_s:
+          type: integer
+          minimum: 1
+          description: Access token lifetime in seconds.
+          example: 900
+        server_time:
+          $ref: '#/components/schemas/ServerTime'
+    OrderState:
+      type: string
+      description: >-
+        The true order state. Only rider and console contracts expose it. The
+        customer contract must use CustomerStage instead.
+      enum:
+        - CREATED
+        - PAYMENT_PENDING
+        - PAYMENT_SECURED
+        - OFFERED
+        - RIDER_ACCEPTED
+        - PACKED
+        - TIMER_RUNNING
+        - ARRIVED
+        - HANDED_OVER
+        - COMPLETED
+        - CANCELLED
+        - PAYMENT_FAILED
+        - NO_SCOOTER
+        - TIMED_OUT
+        - FAILED
+    CustomerStage:
+      type: string
+      description: What the customer is shown. The mapping is in contracts/README.md.
+      enum:
+        - payment
+        - payment_failed
+        - looking_for_rider
+        - no_scooter
+        - rider_accepted
+        - timer_running
+        - arrived
+        - handed_over
+        - ended
+    EtaSource:
+      type: string
+      description: Show a time only when this is measured.
+      enum:
+        - measured
+        - placeholder
+        - unavailable
+    OrderTimer:
+      type: object
+      description: >-
+        The order's timer, set only by the server. The countdown ends at
+        timer_started_at + timer_duration_s, corrected for phone clock offset.
+      required: [timer_started_at, timer_duration_s, timer_stopped_at, timer_missed]
+      properties:
+        timer_started_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Null until the timer starts, and stays null if no timer runs.
+        timer_duration_s:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: The length this order was fixed with. Null until the timer starts.
+          example: 90
+        timer_stopped_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Set when the rider enters the arrival perimeter.
+        timer_missed:
+          type: boolean
+          description: Becomes true, once, if the timer ended before the rider reached the arrival perimeter.
+          example: false
+    OrderInternalTimes:
+      type: object
+      description: >-
+        True order times. Only rider and console contracts may use this. The
+        customer contract must never return it.
+      required: [rider_accepted_at]
+      properties:
+        rider_accepted_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the rider accepted the offer. Null before that.
+    StreamAuthFrame:
+      type: object
+      description: >-
+        Sent by the client as the first frame on a live stream, and again with a
+        new token before the current one expires.
+      required: [type, token]
+      properties:
+        type:
+          type: string
+          const: auth
+        token:
+          type: string
+          description: A current access token.
+    StreamEvent:
+      type: object
+      description: The envelope of every event on a live stream.
+      required: [type, server_time, data]
+      properties:
+        type:
+          type: string
+          description: Event name, defined by each stream's contract. The first event is auth_ok. Every stream also has heartbeat.
+          example: order_update
+        seq:
+          type: integer
+          minimum: 1
+          description: >-
+            Version of what this stream's reader can see, also returned by GET.
+            Heartbeat events carry the current value. Absent on auth_ok and on
+            passing updates such as rider position.
+          example: 12
+        server_time:
+          $ref: '#/components/schemas/ServerTime'
+        data:
+          type: object
+          description: Event fields, defined by each stream's contract.
+  responses:
+    BadRequest:
+      description: The request is invalid, or a required Idempotency-Key is missing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: The token is missing, invalid or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: The caller lacks a permission, named in missing_permission.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The resource does not exist, or the caller cannot see it.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: >-
+        The action no longer fits the current state, or the same
+        Idempotency-Key is still being processed. In that second case,
+        retryable is true and Retry-After is set.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    IdempotencyKeyReused:
+      description: This Idempotency-Key was already used with a different request body.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limited.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: An unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: A dependency is down. Retry later.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

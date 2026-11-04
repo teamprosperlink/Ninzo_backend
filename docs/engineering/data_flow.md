@@ -14,19 +14,23 @@ Owner decision, recorded in [decision 0007](../decisions/0007-zone-timer-order-f
 |---|---|---|---|---|
 | 1 | Order created | Not told yet | Payment | Checks stock, rider and gate. Reserves stock on the pre-selected rider's scooter. Creates the Razorpay order |
 | 2 | Payment webhook confirms | Gets the offer | "Looking for riders" | Moves to `OFFERED`, with a fencing token |
-| 3 | Rider accepts | Stops and packs | "Rider has accepted", after the minimum wait | Records `rider_accepted_at`. Settles payment. Free cancel ends |
-| 4 | Ready pressed, or packing limit passes | Rides if outside the zone. Sees "1.5 mins" | Live map | Records packed time. Pings every 2-3 s |
-| 5 | Packed and inside the zone (2 pings) | Is not asked to do anything | Timer starts | Records `timer_started_at`, and keeps the timer length and radius on the order |
+| 3 | Rider accepts | Stops and packs | Still "looking for riders" until the minimum wait passes, then "rider has accepted" | Records `rider_accepted_at`, and fixes the timer length and radius on the order. When the customer sees "rider has accepted": settles payment, and free cancel ends |
+| 4 | Ready pressed, or packing limit passes | Rides if outside the zone. Sees "1.5 mins" | Live map, once the customer sees "rider has accepted" | Records packed time. Pings every 2-3 s |
+| 5 | Packed, inside the zone (2 pings), and minimum wait passed | Is not asked to do anything | Timer starts | Records `timer_started_at` |
 | 6 | Inside the 100 m perimeter (2 pings) | Checks doors | Timer off, "Rider has arrived at your location", map stays live | Records `timer_stopped_at`. Promise met |
 | 7 | Rider submits OTP and quantities | Hands over | OTP screen | Records handover. Stock is decremented for good |
 
 ### Rules at each edge
-- **Rider already in the zone at step 2:** the "looking for riders" wait uses the shorter setting. It is never zero. The timer starts as soon as the rider is packed.
+- **Rider already in the zone at step 2:** the "looking for riders" wait uses the shorter setting. It is never zero. The timer starts as soon as the rider is packed and the wait has passed.
 - **Rider already inside 100 m when packed:** no timer. Go straight to step 6.
-- **Rider ignores or refuses an offer:** move to the next rider before acceptance, with no penalty. If stock cannot be reserved on another scooter, the order ends as `NO_SCOOTER`.
+- **Minimum wait (Proposed):** counted from when payment is confirmed. If the rider reaches 100 m during it, there is no timer: the customer sees "rider has accepted" when it ends, and then "arrived".
+- **Customer cancels during the wait, after the rider has accepted:** the cancel succeeds as free, and the rider is told the offer was cancelled.
+- **Nothing reveals the rider early:** until the customer sees "rider has accepted", no API field, push, SMS, map position or charge shows that a rider is allotted. See `contracts/README.md`.
+- **Rider ignores or refuses an offer:** move to the next rider before acceptance, with no penalty. If stock cannot be reserved on another scooter, the order moves to `NO_SCOOTER`.
 - **Timer ends before 100 m:** the customer sees a calm message, and the map stays live. The order continues, and the remedy fires automatically.
 - **Signal lost during the timer:** the server timer keeps running. No remedy fires until location returns or a limit passes. Official times are server receipt times (status open question 8).
-- **Maximum wait passes before the timer:** the customer can cancel for free or keep waiting.
+- **No scooter available:** the customer can take a longer ETA or cancel. If they do neither in time, the order times out and the payment is refunded.
+- **Maximum wait passes before the timer:** the customer can cancel for free or keep waiting. Stock is returned and the payment refunded.
 - **GPS jump:** implausible speeds are dropped, and two consecutive pings are needed before a zone event counts.
 
 ### Settings
@@ -41,6 +45,7 @@ Stored in the database, changed in the admin console, and audited. Until the con
 | Shorter wait for a rider already in the zone, above zero | Zone | Not set |
 | Packing limit | Zone | Not set |
 | Maximum wait before the timer | Zone | 5 minutes |
+| Time to choose after no scooter, before an automatic refund | Zone | Not set |
 | Remedy if the timer ends before 100 m | Zone | Credit, amount not set |
 
 The location-based radius algorithm, written later by the owner, will supply the location value. It plugs in behind the same lookup, so the order flow does not change.

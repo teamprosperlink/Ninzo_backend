@@ -20,6 +20,10 @@ RIDER_ACCEPTED -> PACKED -> TIMER_RUNNING -> ARRIVED -> HANDED_OVER -> COMPLETED
 PACKED -> ARRIVED (rider already inside 100 m; no timer)
 
 Before RIDER_ACCEPTED: CANCELLED, PAYMENT_FAILED, NO_SCOOTER, TIMED_OUT
+PAYMENT_FAILED -> PAYMENT_PENDING (retry) or TIMED_OUT
+NO_SCOOTER -> OFFERED (customer takes a longer ETA), CANCELLED, or TIMED_OUT (no choice in time, refunded automatically)
+RIDER_ACCEPTED, PACKED or ARRIVED -> CANCELLED (during the minimum wait)
+RIDER_ACCEPTED or PACKED -> CANCELLED (after the maximum wait)
 From RIDER_ACCEPTED on: FAILED
 timer_missed is a flag on the order, not a state
 ```
@@ -30,7 +34,7 @@ timer_missed is a flag on the order, not a state
 - A rider is contacted only after the webhook confirms, not at creation as ARCH says. This means no rider makes a wasted trip for a failed payment. **Proposed.**
 - A missed timer is a flag, because the order must still reach `COMPLETED`. The customer can still receive the food.
 
-**Customer stage.** The stream sends a `customer_stage` separate from the order state: `payment`, `looking_for_rider`, `rider_accepted`, `timer_running`, `arrived`, `handed_over`. `looking_for_rider` holds until the rider has accepted and the minimum wait has passed. `order_events` always keeps the true times.
+**Customer stage.** The stream sends a `customer_stage` separate from the order state: `payment`, `payment_failed`, `looking_for_rider`, `no_scooter`, `rider_accepted`, `timer_running`, `arrived`, `handed_over`, `ended`. `looking_for_rider` holds until the rider has accepted and the minimum wait has passed. The customer API never returns the order state or `rider_accepted_at`, because they would contradict the screen. `order_events` always keeps the true times. The mapping is in `contracts/README.md`.
 
 ## 3. Main flow by module
 
@@ -38,12 +42,12 @@ timer_missed is a flag on the order, not a state
 |---|---|---|
 | 1 | `POST /v1/orders`: check the gate, zone switch and gate cap | `geo`, `ops` |
 | 2 | Availability: online scooters with stock, not on restock, whose ETA fits the maximum wait | `dispatch`, `geo`, `inventory` |
-| 3 | Reserve stock in one transaction: `FOR UPDATE SKIP LOCKED` on stock rows, a reservation row, a ledger entry and an outbox event | `inventory` |
-| 4 | Create the Razorpay order and return it | `payments` |
+| 3 | Reserve stock in one transaction: `FOR UPDATE SKIP LOCKED` on stock rows, a reservation row, a ledger entry, an outbox event, and the order with its `Idempotency-Key` as a unique value | `inventory`, `orders` |
+| 4 | Create the Razorpay order and return it. A retry after a crash finds the order from step 3 and resumes here | `payments` |
 | 5 | Webhook confirms. Extend the reservation (section 5). Send the offer | `payments`, `orders`, `dispatch` |
-| 6 | Rider accepts: commit the reservation, record `rider_accepted_at`. Settle payment afterwards by idempotent retry | `orders`, `inventory`, `payments` |
+| 6 | Rider accepts: record `rider_accepted_at`, and keep the reservation from expiring. When the customer stage reaches `rider_accepted`: commit the reservation, then settle payment by idempotent retry | `orders`, `inventory`, `payments` |
 | 7 | Ready pressed or packing limit passes: move to `PACKED` | `orders` |
-| 8 | `tracking` confirms the rider is inside the zone: if packed, start the timer | `tracking`, `orders` |
+| 8 | `tracking` confirms the rider is inside the zone: if packed and the minimum wait has passed, start the timer | `tracking`, `orders` |
 | 9 | `tracking` confirms the rider is inside 100 m: stop the timer, move to `ARRIVED` | `tracking`, `orders` |
 | 10 | Rider submits OTP and quantities. Stock is decremented for good | `orders`, `inventory` |
 
@@ -52,7 +56,7 @@ timer_missed is a flag on the order, not a state
 **Candidate selection.** Rank by p90 ETA, then longest idle. Offer to the top 1-2 (EDGE). The 55 s sweet spot no longer gates the offer, but it is still used to place scooters at staging nodes.
 
 ## 4. The timer
-- `timer_started_at`, `timer_duration_s` and `timer_stopped_at` are written once, by the server, and signed when sent to devices (ARCH).
+- `timer_started_at`, `timer_duration_s` and `timer_stopped_at` are written once, by the server. They are not signed, because apps cannot check a signature without the secret key. **Proposed,** to revisit for offline events.
 - The start and stop are triggered by GPS only, and confirmed by two consecutive pings after speed checks.
 - Pings run every 2-3 s from packed to arrived, and slower otherwise. At 20-25 km/h a rider moves about 11-21 m between pings, so a two-ping check adds up to about 6 s of delay.
 - The customer's countdown is `timer_started_at + timer_duration_s`, corrected for phone clock offset.
@@ -67,7 +71,7 @@ Reservation TTL must outlast the payment window and the wait for a rider.
 |---|---|
 | At creation | now + payment window |
 | After the webhook confirms | now + maximum offer wait + safety buffer |
-| After the rider accepts | Committed, no expiry |
+| After the rider accepts | No expiry. Committed when the customer stage reaches `rider_accepted`, or released on cancel. A later cancel after the maximum wait reverses it with a ledger entry |
 
 All values are settings, not constants. Expiry runs from rows in Postgres, so a restart loses nothing.
 
@@ -92,8 +96,8 @@ Outbox polling must not carry time-critical steps. Offers and zone events run di
 
 ## 7. Live channel
 - `WS /v1/orders/{id}/stream`, with the token in the first frame.
-- Events carry `seq`, `customer_stage`, the timer fields, `eta_source` and `server_time`. Clients re-fetch state after reconnect, so `GET /v1/orders/{id}` is always authoritative and cheap.
-- The rider's position keeps streaming after the timer stops, until handover.
+- Events carry `seq`, `customer_stage`, the timer fields, `eta_source` and `server_time`. `seq` is the order's customer-visible version, so a lost Redis message shows up as a gap, and a `heartbeat` reveals a lost last message. See `contracts/README.md`. Clients re-fetch state after reconnect, so `GET /v1/orders/{id}` is always authoritative and cheap.
+- The rider's position streams from when the customer sees "rider has accepted", and keeps going after the timer stops, until handover.
 - Fan-out through Redis pub/sub. If Redis fails, the stream degrades, but order correctness does not.
 - **Proposed:** the stream runs inside `customer-api` for the pilot, using the `realtime` module.
 
@@ -133,8 +137,9 @@ The design hides the difference behind the `payments` surface: `Secure`, `Settle
 | Action | With a hold | With charge at order |
 |---|---|---|
 | `Secure` | Authorise | Capture |
-| `Settle` at rider accepted | Capture | No-op |
-| `Release` on cancel or failure | Void | Refund |
+| `Settle` when the customer stage reaches `rider_accepted` | Capture | No-op |
+| `Release` on cancel or failure, before `Settle` | Void | Refund |
+| `Release` after `Settle` | Refund | Refund |
 
 ### 9.6 Other known gaps
 - Missing endpoints: `project_spec.md` section 3.
@@ -155,7 +160,16 @@ Written before the code they cover (PLAN section 10). Run against Docker Postgre
 | Rider drops before accepting | Release and rematch |
 | Rider packed, enters zone | Timer starts once, after two pings |
 | Rider enters zone, not yet packed | Timer waits for Ready or the packing limit |
-| Rider already in zone | Shorter wait above zero, then timer starts when packed |
+| Rider already in zone | Shorter wait above zero, then timer starts when packed and the wait has passed |
+| Customer cancels during the wait, after the rider accepted or arrived | Free cancel succeeds, stock released, rider told |
+| Customer cancels after the maximum wait | Free cancel succeeds, stock reversed in the ledger, payment refunded, rider told |
+| `POST /v1/orders` crashes after reserving, then retries | One order, one reservation |
+| Customer does nothing at `no_scooter` | Order times out, stock released, payment refunded |
+| Hidden change during the wait | Customer `seq` does not rise |
+| Last stream message lost | Next `heartbeat` shows a higher `seq`, and the client fetches state |
+| During the wait | No push, SMS, position, charge or API field reveals the rider |
+| Rider reaches 100 m during the wait | No timer. `rider_accepted`, then `arrived` |
+| Minimum wait passes with no state change | `seq` rises, and a stage event is sent |
 | Rider already inside 100 m when packed | No timer, straight to arrived |
 | Single GPS jump into the zone or perimeter | No timer change |
 | Enters 100 m | Timer stops once, map keeps streaming |

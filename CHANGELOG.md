@@ -12,6 +12,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### API rules (#5)
+- Added: `contracts/shared/common.yaml` and `contracts/README.md`: errors, `server_time`, idempotency, paging, sign-in, live streams, order states, customer stages, timer fields.
+- Added: `task contracts:lint` and a CI job that lints contracts.
+- Evidence: docs/testing/reports/5.md
+
 ### Plan (#3)
 - Added: agreed milestones v0.1.0 to v1.0.0 in `docs/planning/milestones.md`, and `app:*` labels.
 - Changed: Claude merges PRs once checks pass, with no per-PR owner sign-off.
