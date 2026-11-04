@@ -13,6 +13,5 @@ Closes #
 - [ ] Independent review against the spec: no open FAIL
 - [ ] `CHANGELOG.md`, `docs/testing/test_log.md`, affected docs updated
 - [ ] `docs/planning/project_status.md` updated
-- [ ] Owner sign-off
 
 ## Risks / follow-ups

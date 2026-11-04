@@ -1,4 +1,9 @@
 [
+  { "name": "app:customer", "color": "1d76db", "description": "Customer API" },
+  { "name": "app:rider", "color": "006b75", "description": "Rider API" },
+  { "name": "app:partner", "color": "8a63d2", "description": "Partner and hub API" },
+  { "name": "app:console", "color": "d4c5f9", "description": "Admin and ops console API" },
+  { "name": "app:shared", "color": "bfd4f2", "description": "Shared by several apps" },
   { "name": "type:feature", "color": "0e8a16", "description": "A shippable capability" },
   { "name": "type:phase", "color": "5319e7", "description": "Step inside a feature" },
   { "name": "type:bug", "color": "d73a4a", "description": "Differs from the spec" },
