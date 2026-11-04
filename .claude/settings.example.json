@@ -1,0 +1,12 @@
+{
+  "_comment": "Example only. Copy the 'hooks' block into settings.json once the verify command exists and passes on a clean checkout; a Stop hook that fails on a missing command would block every session.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "task verify" }
+        ]
+      }
+    ]
+  }
+}

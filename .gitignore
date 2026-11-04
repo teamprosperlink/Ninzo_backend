@@ -1,0 +1,35 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+.task/
+tmp/
+
+# Secrets: never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*service-account*.json
+*serviceAccount*.json
+firebase-adminsdk*.json
+secrets/
+
+# Python jobs in tools/
+__pycache__/
+*.pyc
+.venv/
+
+# Local editor and Claude settings
+.idea/
+.vscode/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
