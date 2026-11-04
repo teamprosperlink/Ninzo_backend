@@ -5,31 +5,31 @@ LIVE. Summary of the current situation. GitHub Issues are the source of truth; i
 Last updated: 2026-11-04
 
 ## Current milestone
-None yet. Repo setup and documentation come before `v0.1.0`.
+`v0.1.0`: contracts and mock servers. Not started: waiting for the owner's go-ahead.
 
 ## In progress
 | Issue | Feature | Phase | Branch | State |
 |---|---|---|---|---|
-| #1 | Project setup | n/a | `chore/1-project-setup` | PR open, awaiting owner sign-off |
 
 ## Completed (shipped, with evidence)
 | Issue | Feature | Version | Test report |
 |---|---|---|---|
+| #1 | Project setup | Before `v0.1.0` | PR #2, CI passed |
 
 ## Blocked
 | Issue | Blocker | Since |
 |---|---|---|
 
 ## Next actions
-1. Owner reviews and signs off the PR for #1, the project setup. CI runs on that PR.
-2. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
-3. Open Issues for `v0.1.0`, then start it: customer and core rider contracts, and mock servers.
+1. Owner gives the go-ahead for `v0.1.0`. Its phases are open as GitHub Issues under that milestone.
+2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
+3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
 
-GitHub: `teamprosperlink/Ninzo_backend`. The owner logged in with `gh auth login` on 2026-11-04. `main` cannot be protected on the current plan, so the PR rule is followed by discipline, not enforced.
+GitHub: `teamprosperlink/Ninzo_backend`. `main` cannot be protected on the current plan, so the PR rule is followed by discipline, not enforced.
 
 Old folders in `Ninzo/` were deleted on 2026-11-04. Backup, removed only when the owner says so: `Github-prosperlink/ninzo-old-folders-backup-2026-11-04.tar.gz`.
 
-Build order: customer and rider contracts; then the shared modules, `customer-api` and the core of `rider-api`, until one full order works, with a simulator for tests; then `partner-api`, then the console. Proposed in decision 0007.
+Build order, set by the owner: all customer and rider APIs, then partner, then admin and ops console. Plan: `docs/planning/milestones.md`.
 
 ## Recent decisions
 Agreed with the owner on 2026-11-04. Written up in `docs/decisions/` 0001-0006, awaiting owner review of the write-ups.
@@ -53,6 +53,11 @@ Overrides the KT docs and the earlier plan. Full flow: `docs/engineering/data_fl
 - Marketing and branding own the public claim and wording.
 - Starting values, proposed by engineering and accepted as defaults when the owner said to start on 2026-11-04: timer starts when packed and inside the zone (packed means Ready pressed or packing limit passed); 5 minute maximum wait before the timer; credit if the timer ends before 100 m; free cancel until "rider has accepted", or once the maximum wait passes.
 - Every task starts with a GitHub Issue. See `CLAUDE.md`.
+- GPS alone stops the timer. OTP is the proof of delivery. The required QR or code scan on arrival, and `POST /v1/orders/{id}/arrive`, are dropped.
+- Claude merges PRs once checks pass, without owner sign-off on each PR.
+- Milestones are one combined line, with `app:*` labels to filter by app.
+- Other developers build all Flutter apps, including the partner app. Claude builds only the hub APIs for it.
+- Mock server: a small, cheap host now. Railway proposed. Production hosting is decided later.
 
 ## Open questions for the owner
 Proposed defaults are not yet agreed.

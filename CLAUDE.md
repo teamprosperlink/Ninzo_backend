@@ -29,7 +29,7 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 | Accounts, keys and details the owner must supply | `docs/planning/owner_setup_checklist.md` |
 | Non-functional requirements | `docs/engineering/engineering_requirements.md` |
 | Constraints and policies | `docs/engineering/constraints_policies.md` |
-| Fixed scope per version | `docs/planning/milestones.md` |
+| Fixed scope per version, and build order | `docs/planning/milestones.md` |
 | Current situation | `docs/planning/project_status.md` |
 | Why we chose X | `docs/decisions/` |
 | Test evidence | `docs/testing/test_log.md` |
@@ -62,7 +62,7 @@ Check `docs/planning/project_status.md` and `docs/decisions/` before asking the 
 Never read `.env`, and never ask the owner to paste a secret or private key into chat, an Issue or a file that gets committed. Secrets go in the local `.env` or the hosting and GitHub secret stores. List new ones in `env.example` with no value. It is named that way because `.claude/settings.json` blocks `.env.*`.
 
 ## Hard rules
-- Never say "done". Say what was run and show the output. A feature ships only after tests, validation, independent review and owner sign-off (see `CONTRIBUTING.md`).
+- Never say "done". Say what was run and show the output. A feature ships only after tests, validation and independent review (see `CONTRIBUTING.md`).
 - Never edit or delete an existing test to make it pass.
-- Never merge to `main` except through a PR with passing checks.
+- Never merge to `main` except through a PR with passing checks. Claude merges its own PRs once checks pass (owner decision, 2026-11-04).
 - Issues are the source of truth. Do not track work only in files.

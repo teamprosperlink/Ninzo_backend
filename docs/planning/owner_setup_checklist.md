@@ -7,19 +7,20 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 - **Never send in chat:** passwords, API secrets, private SSH keys and service account files. Put them in the local `.env` (never committed, and Claude is blocked from reading it). For hosted environments, put them in GitHub or hosting secret stores.
 - Create test or staging keys first. Live keys come only at go-live.
 
-## 1. Needed now
+## 1. Needed for v0.1.0
 
 | # | Item | What to do | Unblocks |
 |---|---|---|---|
-| 1 | GitHub repo | Send the `ninzo-backend` repo URL | First commit |
-| 2 | SSH access | Add `~/.ssh/id_ed25519.pub` to the GitHub account that owns the repo. No private key needs to be shared | `git push` |
-| 3 | GitHub CLI | Run `gh auth login` in a terminal on this machine | Issues, PRs, labels |
-| 4 | Docker Desktop | Start it. It is installed but was not running | Local Postgres and Redis |
+| 1 | GitHub repo and login | Finished on 2026-11-04 | Issues, PRs |
+| 2 | Railway account | Create one for the mock server. The free or cheapest plan is fine. Then run `railway login` in a terminal on this machine | A stable mock URL |
+| 3 | App developers | Send their GitHub usernames, so they can read the contracts in this private repo | Contract review |
+| 4 | Contract review | Tell the developers to expect it, and who decides on field names | Finishing `v0.1.0` |
 
 ## 2. Needed for v0.2.0 and v0.3.0
 
 | # | Account | Create | Put in |
 |---|---|---|---|
+| 4a | Docker Desktop | Start it. It is installed but was not running | Local Postgres and Redis |
 | 5 | Supabase | A project in Mumbai, for staging. The free plan is fine for now | `DATABASE_URL`: session pooler string |
 | 6 | Google Maps Platform | A billing-enabled project and a server key restricted by API and IP. Separate restricted keys go to each app | `GOOGLE_MAPS_SERVER_API_KEY` |
 | 7 | Decision | Pilot city, for map data and polygons | Reply in chat or an Issue |
@@ -37,7 +38,7 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 
 | # | Account | Create | Put in |
 |---|---|---|---|
-| 12 | Hosting | Proposed: AWS, Mumbai region. Please confirm first (status open question 1) | Access set up together, not in chat |
+| 12 | Staging hosting, needed by v0.2.0 | Proposed: AWS, Mumbai region. Please confirm first (status open question 1) | Access set up together, not in chat |
 | 13 | Redis | Comes with the hosting choice | `REDIS_URL` |
 | 14 | Domain | A domain with DNS access, for example for `api.` and `staging-api.` | DNS records |
 | 15 | Sentry | One organisation and one project per service | `SENTRY_DSN` |

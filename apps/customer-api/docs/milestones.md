@@ -2,7 +2,7 @@
 
 Version: 0.2.0 (draft for owner review) · Updated: 2026-11-04
 
-**Proposed. Not agreed.** After owner approval, the versions go into `docs/planning/milestones.md`, which holds fixed scope, and each stage becomes a GitHub Issue. Until then, that file stays as it is.
+This is the customer view of the plan. The fixed plan, agreed on 2026-11-04, is in `docs/planning/milestones.md`, and that file wins if the two differ.
 
 Feature IDs are from `project_spec.md`. The KT milestones doc is deliberately not time-based, so no dates are given here.
 
@@ -18,7 +18,7 @@ Rider location drives the customer's timer ([decision 0007](../../../docs/decisi
 | v0.5.0 | **One full order works end to end** | S5, S6 | A real order runs from payment to handover, with GPS starting and stopping the timer. Tested with the core of `rider-api` and a simulator |
 | v0.6.0 | Every failure ends properly, and the customer feature set is complete | S7, S8 | Every test in EDD section 10 passes. All P1 CA features meet "Done when" |
 
-`v1.0.0` is system-wide, covering all P1 features, so it also needs `partner-api`, `console-api` and `console-web`, built next in that order.
+`v1.0.0` is system-wide, covering all P1 features, so it also needs the rest of `rider-api` (v0.7.0), `partner-api` (v0.8.0) and `console-api` (v0.9.0 and v0.10.0).
 
 ## Stages
 

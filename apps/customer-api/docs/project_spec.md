@@ -110,7 +110,7 @@ From EDGE, the scenario catalog, limited to what the customer sees.
 | Payment fails after reserve | Release stock, no rider contacted, allow retry |
 | App crash or no network at gate | Server timer keeps running. Reconcile later |
 | Duplicate or stale commit | Idempotency key and fencing token reject the later event |
-| False arrival claim | Geofence plus QR or beacon plus customer OTP |
+| False arrival claim | Two-ping and speed checks on GPS, plus customer OTP at handover |
 
 ## 6. Assumptions
 - Single-leg orders only until multi-scooter is built. **Proposed.**

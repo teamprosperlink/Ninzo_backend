@@ -18,7 +18,7 @@ Gate rule: do not start the next phase until the current phase is tested and val
 2. Create a branch and worktree (section 5).
 3. Work phase by phase. After each phase: run tests, record evidence.
 4. Write or update the test report `docs/testing/reports/<issue>.md` with real command output.
-5. Open a PR (section 6). Independent review runs. Owner signs off.
+5. Open a PR (section 6). Independent review runs. Claude merges once checks pass and review has no open FAIL. The owner can hold any PR by saying so.
 6. Merge to `main`. Update `CHANGELOG.md` and `docs/testing/test_log.md` in the same PR.
 
 ### 2.2 Issue-based workflow
@@ -33,7 +33,6 @@ Gate rule: do not start the next phase until the current phase is tested and val
 - [ ] Scenario / end-to-end tests for the feature pass.
 - [ ] Manual or e2e validation was done, and its evidence is in the test report.
 - [ ] Independent AI review of the diff against the spec: no open FAIL.
-- [ ] Owner sign-off recorded on the PR.
 - [ ] `CHANGELOG.md`, `docs/testing/test_log.md` and affected docs updated.
 - [ ] `docs/planning/project_status.md` reflects the new state.
 
