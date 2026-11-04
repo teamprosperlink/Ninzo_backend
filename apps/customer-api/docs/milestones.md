@@ -27,7 +27,7 @@ Rider location drives the customer's timer ([decision 0007](../../../docs/decisi
 | S1 | OpenAPI, AsyncAPI, mocks, fixtures | All (contract only), plus core rider endpoints | GitHub access | Handover OTP (EDD 9.2), missing endpoints |
 | S2 | Platform: config, migrations, idempotency, audit, outbox, CI, sign-in | CA-01 | S1 | Migration tool, Supabase project |
 | S3 | Gates, zones, polygons, menu, availability, settings | CA-02, 03, 16 | S2 | Gate policy (Q3), pilot city (Q6) |
-| S4 | Orders, reservations, Razorpay, cancel | CA-04, 05, 11 | S3 | Holds on UPI (Q5) |
+| S4 | Orders, reservations, Razorpay, cancel | CA-04, 05, 11 | S3 | None for payment: charged up front (owner decision) |
 | S5 | Core of `rider-api`, location, offers, packing, simulator | CA-06, 08, 18 | S4 | Minimum wait and packing limit values |
 | S6 | Zone timer, arrival, handover | CA-07, 09 | S5 | Late events (Q8) |
 | S7 | Remedies and no-scooter paths | CA-10, 15 | S6 | Credit amount, no-show policy |

@@ -519,9 +519,11 @@ paths:
       operationId: cancelOrder
       summary: Cancel an order
       description: >-
-        Free until the customer sees rider_accepted, or once wait_deadline has
-        passed and before the timer starts. Otherwise rejected with
-        cancel_not_allowed (409). Order.cancellable says which applies now.
+        Allowed before payment is confirmed, for 5 seconds after (cancel_until),
+        at no_scooter, and once wait_deadline has passed and before the timer
+        starts. Otherwise rejected with cancel_not_allowed (409), with no refund.
+        Order.cancellable says which applies now. See Cancels and refunds in
+        contracts/README.md.
       parameters:
         - $ref: '#/components/parameters/OrderId'
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
@@ -560,8 +562,9 @@ paths:
       operationId: changeOrderGate
       summary: Change the gate before paying
       description: >-
-        Allowed only at the payment stage. After that, the customer cancels and
-        orders again. Returns the payment to complete. Errors:
+        Allowed only at the payment stage. After payment the address cannot change.
+        The customer can only cancel within the 5-second window. Returns the payment
+        to complete. Errors:
         gate_change_not_allowed, no_offer, sold_out (all 409).
       parameters:
         - $ref: '#/components/parameters/OrderId'
@@ -700,7 +703,7 @@ paths:
       tags: [support]
       operationId: getOrderRefund
       summary: Get an order's refund status
-      description: 404 if the order has no refund.
+      description: Says why and how the customer is refunded. 404 if the order has no refund.
       parameters:
         - $ref: '#/components/parameters/OrderId'
       responses:
@@ -1063,17 +1066,14 @@ components:
     PaymentStatus:
       type: string
       description: >-
-        Only the server sets this, from the Razorpay webhook. settled never
-        appears before the rider_accepted stage. not_paid means the order ended
-        with no payment. released means a hold was let go, with no charge.
-        refunded means money taken was returned.
+        Only the server sets this, from the Razorpay webhook. Payment is charged
+        up front. not_paid means the order ended with no payment. refunded means
+        money taken was returned.
       enum:
         - pending
-        - secured
-        - settled
+        - paid
         - failed
         - not_paid
-        - released
         - refunded
     OrderRider:
       type: object
@@ -1114,6 +1114,7 @@ components:
         - payment_status
         - payment_request
         - cancellable
+        - cancel_until
         - wait_deadline
         - eta_source
         - eta_s
@@ -1155,7 +1156,13 @@ components:
           description: Set only at the payment stage, so checkout can resume after the app was closed.
         cancellable:
           type: boolean
-          description: True if cancelling is free right now. Stays true throughout looking_for_rider.
+          description: True if the customer can cancel right now. See Cancels and refunds in contracts/README.md.
+        cancel_until:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: The end of the 5-second window after payment is confirmed. Null before that.
         wait_deadline:
           type:
             - string
@@ -1268,8 +1275,16 @@ components:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     Refund:
       type: object
-      required: [status, amount]
+      required: [reason_code, method, status, amount, expected_by]
       properties:
+        reason_code:
+          type: string
+          description: Why, for the copy deck's wording. Open list. See Reason codes for refunds in contracts/README.md.
+          example: no_rider_found
+        method:
+          type: string
+          description: How. Open list, currently original_payment_method.
+          example: original_payment_method
         status:
           type: string
           enum: [pending, processed, failed]

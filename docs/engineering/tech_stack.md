@@ -37,7 +37,7 @@ The ops doc says chi comes from "the backend handover". That handover is not in 
 
 | Need | Choice | Status | Note |
 |---|---|---|---|
-| Payments | Razorpay, webhook-driven | KT | UPI holds unconfirmed: status open question 5 |
+| Payments | Razorpay, webhook-driven | KT | Charged up front, with no holds: owner decision, 2026-11-04 |
 | Push | Firebase Cloud Messaging | KT | |
 | SMS and OTP | SMS gateway, not chosen. Test OTP until DLT is done | KT | Customer doc scope |
 | Routing engine | OSRM or Valhalla with an OpenStreetMap extract | Proposed | Needs the pilot city: status open question 6 |

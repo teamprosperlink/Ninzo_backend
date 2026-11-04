@@ -20,18 +20,20 @@ RIDER_ACCEPTED -> PACKED -> TIMER_RUNNING -> ARRIVED -> HANDED_OVER -> COMPLETED
 PACKED -> ARRIVED (rider already inside 100 m; no timer)
 PACKED or TIMER_RUNNING -> HANDED_OVER (signal lost: a valid OTP records the arrival first)
 
-Before RIDER_ACCEPTED: CANCELLED, PAYMENT_FAILED, NO_SCOOTER, TIMED_OUT
+CREATED, PAYMENT_PENDING or PAYMENT_FAILED -> CANCELLED (before payment is confirmed)
+Before RIDER_ACCEPTED: PAYMENT_FAILED, NO_SCOOTER, TIMED_OUT
 PAYMENT_FAILED -> PAYMENT_PENDING (retry) or TIMED_OUT
-NO_SCOOTER -> OFFERED (customer takes a longer ETA), CANCELLED, or TIMED_OUT (no choice in time, refunded automatically)
-RIDER_ACCEPTED, PACKED or ARRIVED -> CANCELLED (during the minimum wait)
-RIDER_ACCEPTED or PACKED -> CANCELLED (after the maximum wait)
-From RIDER_ACCEPTED on: FAILED. During the minimum wait, a failure rematches silently, or ends as TIMED_OUT with no remedy, so nothing reveals the rider
+NO_SCOOTER -> OFFERED (customer takes a longer ETA, and only after `cancel_until`), CANCELLED, or TIMED_OUT (no choice in time, refunded automatically)
+PAYMENT_SECURED -> CANCELLED (within 5 seconds of payment being confirmed)
+PAYMENT_SECURED -> OFFERED (only after those 5 seconds)
+OFFERED, RIDER_ACCEPTED or PACKED -> CANCELLED (after the maximum wait, before the timer starts)
+From RIDER_ACCEPTED on, including a hidden ARRIVED: FAILED. During the minimum wait, a failure rematches silently, or ends as TIMED_OUT with no remedy and reason `no_rider_found`, so nothing reveals the rider
 timer_missed is a flag on the order, not a state
 ```
 
 **Why these differ from the sources:**
 - `TIMER_RUNNING` and `ARRIVED` come from [decision 0007](../../../docs/decisions/0007-zone-timer-order-flow.md). They replace `ACCEPTED`, `EN_ROUTE` and the KT's `accepted_at`.
-- `PAYMENT_SECURED` replaces `PAYMENT_AUTHORIZED`, so the name holds for either result of Q5. **Proposed.**
+- `PAYMENT_SECURED` replaces `PAYMENT_AUTHORIZED`, because payment is charged up front.
 - A rider is contacted only after the webhook confirms, not at creation as ARCH says. This means no rider makes a wasted trip for a failed payment. **Proposed.**
 - A missed timer is a flag, because the order must still reach `COMPLETED`. The customer can still receive the food.
 
@@ -45,14 +47,14 @@ timer_missed is a flag on the order, not a state
 | 2 | Availability: online scooters with stock, not on restock, whose ETA fits the maximum wait | `dispatch`, `geo`, `inventory` |
 | 3 | Reserve stock in one transaction: `FOR UPDATE SKIP LOCKED` on stock rows, a reservation row, a ledger entry, an outbox event, and the order with its `Idempotency-Key` as a unique value | `inventory`, `orders` |
 | 4 | Create the Razorpay order and return it. A retry after a crash finds the order from step 3 and resumes here | `payments` |
-| 5 | Webhook confirms. Extend the reservation (section 5). Send the offer | `payments`, `orders`, `dispatch` |
-| 6 | Rider accepts: record `rider_accepted_at`, and keep the reservation from expiring. When the customer stage reaches `rider_accepted`: commit the reservation, then settle payment by idempotent retry | `orders`, `inventory`, `payments` |
+| 5 | Webhook confirms: set `cancel_until`, and extend the reservation (section 5). A due row in Postgres sends the offer after `cancel_until`, never before. A webhook on an ended order refunds automatically | `payments`, `orders`, `dispatch` |
+| 6 | Rider accepts: record `rider_accepted_at`, and keep the reservation from expiring. When the customer stage reaches `rider_accepted`: commit the reservation | `orders`, `inventory` |
 | 7 | Ready pressed or packing limit passes: move to `PACKED` | `orders` |
 | 8 | `tracking` confirms the rider is inside the zone: if packed and the minimum wait has passed, start the timer | `tracking`, `orders` |
 | 9 | `tracking` confirms the rider is inside 100 m: stop the timer, move to `ARRIVED` | `tracking`, `orders` |
 | 10 | Rider submits OTP and quantities. Stock is decremented for good | `orders`, `inventory` |
 
-**Why step 6 settles after the commit:** a payment provider call must not sit inside a database transaction. If settlement fails, the worker retries. If it keeps failing, it raises an ops alert, and the food is not withheld. **Proposed.**
+**Payment:** charged up front at step 4 and confirmed by the webhook at step 5. Every refund is one idempotent call, retried by the worker. If it keeps failing, it raises an ops alert. A provider call never sits inside a database transaction.
 
 **Candidate selection.** Rank by p90 ETA, then longest idle. Offer to the top 1-2 (EDGE). The 55 s sweet spot no longer gates the offer, but it is still used to place scooters at staging nodes.
 
@@ -71,12 +73,12 @@ Reservation TTL must outlast the payment window and the wait for a rider.
 | Stage | Reservation expires at |
 |---|---|
 | At creation | now + payment window |
-| After the webhook confirms | now + maximum offer wait + safety buffer |
+| After the webhook confirms | now + cancel window + maximum offer wait + safety buffer |
 | After the rider accepts | No expiry. Committed when the customer stage reaches `rider_accepted`, or released on cancel. A later cancel after the maximum wait reverses it with a ledger entry |
 
 All values are settings, not constants. Expiry runs from rows in Postgres, so a restart loses nothing.
 
-**Late webhook.** Payment can succeed after the reservation has expired. The handler tries to reserve again. If that fails, it moves to `TIMED_OUT` and voids or refunds automatically. The customer is never left paid with no order.
+**Late webhook.** Payment can succeed after the reservation has expired. The handler tries to reserve again. If that fails, it moves to `TIMED_OUT` and refunds automatically. The customer is never left paid with no order.
 
 **Rematch.** A reservation is tied to one scooter. Re-offering to a different scooter means release and reserve in one transaction. If no stock can be reserved, the order moves to `NO_SCOOTER`.
 
@@ -132,19 +134,12 @@ The server only knows what it has received. If a rider enters the perimeter with
 ### 9.4 Offline OTP check
 Rider R9 requires handover to work offline. A salted hash on the device was rejected: review cracked a 6-digit OTP from one in under a second, which would let a rider fake a delivery. **Proposed:** the app queues the typed OTP and the server checks it on sync. A wrong OTP after the food was given alerts support. See Rider offline events in `contracts/README.md`.
 
-### 9.5 Payment holds (Q5)
-The design hides the difference behind the `payments` surface: `Secure`, `Settle` and `Release`.
-
-| Action | With a hold | With charge at order |
-|---|---|---|
-| `Secure` | Authorise | Capture |
-| `Settle` when the customer stage reaches `rider_accepted` | Capture | No-op |
-| `Release` on cancel or failure, before `Settle` | Void | Refund |
-| `Release` after `Settle` | Refund | Refund |
+### 9.5 Payment
+Decided by the owner on 2026-11-04: charge up front and refund automatically, with no holds. The `payments` surface has `Charge` and `Refund`. Refunds take days to reach the customer, so the app tells them why, how and by when.
 
 ### 9.6 Other known gaps
 - Missing endpoints: `project_spec.md` section 3.
-- Customer no-show: wait window and refund policy values are not set (EDGE).
+- Customer no-show: no refund, **Proposed.** The wait window is not set (EDGE).
 - Refund amount rules, and who approves above a limit (PLAN question 6).
 - Google Maps terms may limit storing Google-derived data. To be checked before any is stored, and this also affects the routing engine choice.
 
@@ -157,13 +152,17 @@ Written before the code they cover (PLAN section 10). Run against Docker Postgre
 | Double tap, webhook, accept, Ready, handover | One effect each |
 | Stale rider accept after re-offer | Rejected |
 | Payment fails after reserve | Stock released, no rider contacted |
-| Webhook after reservation expiry | Re-reserved, or automatic void or refund |
+| Webhook after reservation expiry | Re-reserved, or automatic refund |
+| Webhook on an order already cancelled | Automatic refund, reason `customer_cancelled` |
+| Cancel at 4.9 seconds racing the rider search | Exactly one wins, under the row lock |
 | Rider drops before accepting | Release and rematch |
 | Rider packed, enters zone | Timer starts once, after two pings |
 | Rider enters zone, not yet packed | Timer waits for Ready or the packing limit |
 | Rider already in zone | Shorter wait above zero, then timer starts when packed and the wait has passed |
-| Customer cancels during the wait, after the rider accepted or arrived | Free cancel succeeds, stock released, rider told |
-| Customer cancels after the maximum wait, at `rider_accepted` | Free cancel succeeds, stock reversed in the ledger, payment refunded, rider told |
+| Customer cancels within 5 seconds of payment | Full refund, stock released, no rider contacted |
+| Customer cancels after 5 seconds, before `wait_deadline` | `cancel_not_allowed`, the same whether or not a rider accepted |
+| Failure on Ninzo's side, at any stage | Automatic refund, with reason and method |
+| Customer cancels after the maximum wait, at `rider_accepted` | Cancel succeeds, stock reversed in the ledger, payment refunded, rider told |
 | `POST /v1/orders` crashes after reserving, then retries | One order, one reservation |
 | Customer does nothing at `no_scooter` | Order times out, stock released, payment refunded |
 | Hidden change during the wait | Customer `seq` does not rise |

@@ -12,6 +12,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### Cancel and refund rule (#15)
+- Changed: 5-second cancel window with a full refund, replacing free cancel. No rider is contacted until it closes.
+- Evidence: docs/testing/reports/15.md
+- Added: `cancel_until` on the order, and `reason_code` and `method` on the refund.
+- Changed: payment is charged up front, with no holds. `PaymentStatus` is now `pending`, `paid`, `failed`, `not_paid`, `refunded`.
+
 ### Rider contract (#7)
 - Added: `contracts/rider/openapi.yaml` and `contracts/rider/stream.asyncapi.yaml`.
 - Added: rule tests that keep countdown fields and an arrive endpoint out of the rider contract.

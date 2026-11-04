@@ -73,6 +73,5 @@ These change the customer's experience. Details are in the EDD, section 9.
 | Topic | Proposed default | Reference |
 |---|---|---|
 | Minimum waits, packing limit and credit amount | Not set. They are console settings | `docs/engineering/data_flow.md` |
-| Payment holds with UPI | Confirm with Razorpay. If not possible, charge at order and auto-refund on failure | Q5 |
 | Which gates can be used | Ops-verified list | Q3 |
 | Pilot city | Not proposed | Q6 |

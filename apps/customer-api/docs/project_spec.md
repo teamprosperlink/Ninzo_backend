@@ -25,16 +25,16 @@ All from CUST, "API endpoints", except where marked.
 | CA-03 | Menu and availability | P1 | Only items truly in reach are returned, with `qty_left` and `stale_at`. A zone with the offer off and an unverified gate return no offer | CUST C4, EDGE rule 1 |
 | CA-04 | Create order | P1 | One key creates exactly one order. 50 parallel orders for the last unit produce one winner and no negative stock | CUST C5, PLAN section 10 |
 | CA-05 | Payment and webhook | P1 | Only a verified webhook moves payment state. A duplicate webhook has one effect. Failed payment releases stock | CUST rule 6, EDGE |
-| CA-06 | Waiting stages | P1 | "Looking for riders" then "rider has accepted", with a shorter wait above zero for a rider already in the zone. State survives an app restart. After the maximum wait, the customer can cancel for free or keep waiting | Decision 0007, CUST C6 |
+| CA-06 | Waiting stages | P1 | "Looking for riders" then "rider has accepted", with a shorter wait above zero for a rider already in the zone. State survives an app restart. After the maximum wait, the customer can leave with a full refund or keep waiting | Decision 0007, CUST C6 |
 | CA-07 | Zone timer | P1 | The timer starts once, when the rider is packed and inside the zone and the minimum wait has passed, with no rider action. It stops once at the 100 m perimeter. A console change does not affect a running timer | Decision 0007, EDGE rule 3 |
 | CA-08 | Live order stream | P1 | Token in the first frame. Events carry `seq`, `customer_stage`, the timer fields, `eta_source` and `server_time`. After reconnect, `GET` returns the true state | CUST C6-C8, C13 |
 | CA-09 | Arrival and handover | P1 | At 100 m the customer sees "rider has arrived at your location", and the map stays live until handover. Handover is recorded once even if sent twice. A wrong OTP is rejected. See EDD 9.2 for who submits what | Decision 0007, CUST C8, Rider R9 |
-| CA-10 | No scooter available | P1 | The customer can wait, take a longer ETA with explicit consent, ask to be notified, or cancel free. No order is silently re-promised | CUST C9, EDGE, PLAN gap 8 |
-| CA-11 | Cancel | P1 | Free until "rider has accepted" shows, or once the maximum wait passes. Cancel releases stock and the payment hold. Otherwise it is rejected with a clear code | Decision 0007, CUST rule 7 |
+| CA-10 | No scooter available | P1 | The customer can wait, take a longer ETA with explicit consent, ask to be notified, or cancel with a full refund. No order is silently re-promised | CUST C9, EDGE, PLAN gap 8 |
+| CA-11 | Cancel | P1 | Full refund within 5 seconds of payment being confirmed. After that, rejected with a clear code and no refund, until `wait_deadline` passes. No rider is contacted until the window closes | Owner decision 2026-11-04, CUST rule 7 |
 | CA-12 | History and reorder data | P1 | Past orders list by cursor. An order returns enough item data to refill a cart | CUST C10 |
-| CA-13 | Help and refund status | P1 | A customer files a report and sees refund status and expected date | CUST C11 |
+| CA-13 | Help and refund status | P1 | A customer files a report and sees why, how and when they are refunded. Failures on Ninzo's side are always refunded | CUST C11, owner decision 2026-11-04 |
 | CA-14 | Notifications | P1 | Push and SMS are sent at each customer stage, and never reveal a later state. Device tokens can be registered. Payload carries order ID, and the app fetches the true state | CUST C12, status known gaps |
-| CA-15 | Automatic remedy | P1 | A timer that ends before 100 m, or a failed order, triggers the set remedy (credit to start) and an audit record, with no staff action | EDGE rule 4, Decision 0007 |
+| CA-15 | Automatic refunds and remedy | P1 | A failure on Ninzo's side always triggers a refund, and an audit record, with no staff action. A timer that ends before 100 m on an order still delivered triggers the set remedy (credit to start) | Owner decision 2026-11-04, EDGE rule 4, Decision 0007 |
 | CA-16 | Zone switch and gate cap | P1 | With a zone switched off or a gate at its cap, new orders get no offer | EDGE, ARCH glossary |
 | CA-17 | Masked call | P2 until provider chosen | Customer and rider can call without seeing each other's numbers | CUST feature table |
 | CA-18 | Rider position on the map | P1 | From when the customer sees "rider has accepted" until handover, including after the timer stops, the customer sees the rider's position, with no rider data beyond what is needed | CUST feature table, Decision 0007 |
@@ -82,8 +82,8 @@ The contract is `contracts/customer/`, and it wins if this table differs. It als
 1. The countdown is `timer_started_at + timer_duration_s`, from the server, corrected for phone clock offset. (Decision 0007, replacing CUST rule 1)
 2. `eta_source` is `measured`, `placeholder` or `unavailable`. The server must never send a time as `measured` unless it is measured. (CUST rule 2)
 3. A notification carries no authoritative state. (CUST rule 4)
-4. Cancel wording must be "no payment taken; any hold releases within days", never "nobody is charged". The API must not return text that contradicts it. (CUST rule 7)
-5. A gate can change only before paying, and a change returns a new payment to complete. After paying, the customer cancels and orders again, because a refused change during the wait would reveal the rider. Owner decision, 2026-11-04, overriding EDGE.
+4. Refund wording comes from the copy deck, and must match how the money returns. It is never "nobody is charged". The API returns the reason and method so the app can tell the customer why and how. (CUST rule 7, owner decision 2026-11-04)
+5. A gate can change only before paying, and a change returns a new payment to complete. After payment the address cannot change. The customer can only cancel within the 5-second window. Owner decision, 2026-11-04, overriding EDGE.
 6. If checks fail, the offer is withdrawn, never stretched. (EDGE)
 7. Stock can be held only by a reservation with a TTL, and can never go negative. (ARCH, PLAN section 1)
 8. Prices are fixed at order creation. **Proposed,** implied by the Razorpay order amount in the `POST /v1/orders` response.
@@ -103,12 +103,12 @@ From EDGE, the scenario catalog, limited to what the customer sees.
 | Burst of orders to one gate | Cap on concurrent orders per gate. Queue with honest ETA |
 | Rider ignores an offer | Short offer timeout, then re-offer |
 | Rider drops before accepting | Release reservation and rematch |
-| Breakdown after the rider accepts | Safety first, tell the customer, send the nearest scooter, remedy and log the miss |
+| Breakdown after the rider accepts | Safety first, tell the customer, and refund. If the rider was already shown, log the miss |
 | Rain, traffic or road closure | Reduce the radius, or suspend the offer in the zone |
 | Gate closed or entry refused | Use the pin, call the customer, hand over at the nearest open point |
-| Customer unreachable at gate | Wait window, call, then end per policy: waste and refund. Policy values not set |
-| Wrong pin or customer moves | Confirm before payment. Changes only before paying. After that, cancel and order again |
-| Temperature breach | Quarantine lot, pull scooter from search, refund or replace |
+| Customer unreachable at gate | Wait window, call, then end. This is not a failure on Ninzo's side, so no refund. **Proposed.** Wait window not set |
+| Wrong pin or customer moves | Confirm before payment. No change after payment. Cancel only within the 5-second window |
+| Temperature breach | Quarantine lot, pull scooter from search, and refund |
 | Payment fails after reserve | Release stock, no rider contacted, allow retry |
 | App crash or no network at gate | Server timer keeps running. Reconcile later |
 | Duplicate or stale commit | Idempotency key and fencing token reject the later event |
