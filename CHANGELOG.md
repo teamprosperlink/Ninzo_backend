@@ -12,6 +12,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### Customer contract (#6)
+- Added: `contracts/customer/openapi.yaml` and `contracts/customer/stream.asyncapi.yaml`.
+- Added: `tests/contracts`, which enforces the contract rules in `go test`.
+- Evidence: docs/testing/reports/6.md
+
 ### API rules (#5)
 - Added: `contracts/shared/common.yaml` and `contracts/README.md`: errors, `server_time`, idempotency, paging, sign-in, live streams, order states, customer stages, timer fields.
 - Added: `task contracts:lint` and a CI job that lints contracts.

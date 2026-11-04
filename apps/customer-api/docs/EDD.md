@@ -24,7 +24,7 @@ PAYMENT_FAILED -> PAYMENT_PENDING (retry) or TIMED_OUT
 NO_SCOOTER -> OFFERED (customer takes a longer ETA), CANCELLED, or TIMED_OUT (no choice in time, refunded automatically)
 RIDER_ACCEPTED, PACKED or ARRIVED -> CANCELLED (during the minimum wait)
 RIDER_ACCEPTED or PACKED -> CANCELLED (after the maximum wait)
-From RIDER_ACCEPTED on: FAILED
+From RIDER_ACCEPTED on: FAILED. During the minimum wait, a failure rematches silently, or ends as TIMED_OUT with no remedy, so nothing reveals the rider
 timer_missed is a flag on the order, not a state
 ```
 
@@ -162,7 +162,7 @@ Written before the code they cover (PLAN section 10). Run against Docker Postgre
 | Rider enters zone, not yet packed | Timer waits for Ready or the packing limit |
 | Rider already in zone | Shorter wait above zero, then timer starts when packed and the wait has passed |
 | Customer cancels during the wait, after the rider accepted or arrived | Free cancel succeeds, stock released, rider told |
-| Customer cancels after the maximum wait | Free cancel succeeds, stock reversed in the ledger, payment refunded, rider told |
+| Customer cancels after the maximum wait, at `rider_accepted` | Free cancel succeeds, stock reversed in the ledger, payment refunded, rider told |
 | `POST /v1/orders` crashes after reserving, then retries | One order, one reservation |
 | Customer does nothing at `no_scooter` | Order times out, stock released, payment refunded |
 | Hidden change during the wait | Customer `seq` does not rise |
