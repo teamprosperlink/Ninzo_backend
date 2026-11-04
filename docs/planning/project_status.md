@@ -5,11 +5,12 @@ LIVE. Summary of the current situation. GitHub Issues are the source of truth; i
 Last updated: 2026-11-04
 
 ## Current milestone
-`v0.1.0`: contracts and mock servers. Not started: waiting for the owner's go-ahead.
+`v0.1.0`: contracts and mock servers. The owner gave the go-ahead on 2026-11-04.
 
 ## In progress
 | Issue | Feature | Phase | Branch | State |
 |---|---|---|---|---|
+| #5 | `v0.1.0` | Shared API rules | `feat/5-shared-api-rules` | PR open, CI running |
 
 ## Completed (shipped, with evidence)
 | Issue | Feature | Version | Test report |
@@ -21,7 +22,7 @@ Last updated: 2026-11-04
 |---|---|---|
 
 ## Next actions
-1. Owner gives the go-ahead for `v0.1.0`. Its phases are open as GitHub Issues under that milestone.
+1. `v0.1.0`, one phase at a time: #5 shared API rules, #6 customer contract, #7 rider contract, #8 mock servers, #9 contract review.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
 

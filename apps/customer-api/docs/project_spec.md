@@ -26,18 +26,18 @@ All from CUST, "API endpoints", except where marked.
 | CA-04 | Create order | P1 | One key creates exactly one order. 50 parallel orders for the last unit produce one winner and no negative stock | CUST C5, PLAN section 10 |
 | CA-05 | Payment and webhook | P1 | Only a verified webhook moves payment state. A duplicate webhook has one effect. Failed payment releases stock | CUST rule 6, EDGE |
 | CA-06 | Waiting stages | P1 | "Looking for riders" then "rider has accepted", with a shorter wait above zero for a rider already in the zone. State survives an app restart. After the maximum wait, the customer can cancel for free or keep waiting | Decision 0007, CUST C6 |
-| CA-07 | Zone timer | P1 | The timer starts once, when the rider is packed and inside the zone, with no rider action. It stops once at the 100 m perimeter. A console change does not affect a running timer | Decision 0007, EDGE rule 3 |
+| CA-07 | Zone timer | P1 | The timer starts once, when the rider is packed and inside the zone and the minimum wait has passed, with no rider action. It stops once at the 100 m perimeter. A console change does not affect a running timer | Decision 0007, EDGE rule 3 |
 | CA-08 | Live order stream | P1 | Token in the first frame. Events carry `seq`, `customer_stage`, the timer fields, `eta_source` and `server_time`. After reconnect, `GET` returns the true state | CUST C6-C8, C13 |
 | CA-09 | Arrival and handover | P1 | At 100 m the customer sees "rider has arrived at your location", and the map stays live until handover. Handover is recorded once even if sent twice. A wrong OTP is rejected. See EDD 9.2 for who submits what | Decision 0007, CUST C8, Rider R9 |
 | CA-10 | No scooter available | P1 | The customer can wait, take a longer ETA with explicit consent, ask to be notified, or cancel free. No order is silently re-promised | CUST C9, EDGE, PLAN gap 8 |
 | CA-11 | Cancel | P1 | Free until "rider has accepted" shows, or once the maximum wait passes. Cancel releases stock and the payment hold. Otherwise it is rejected with a clear code | Decision 0007, CUST rule 7 |
 | CA-12 | History and reorder data | P1 | Past orders list by cursor. An order returns enough item data to refill a cart | CUST C10 |
 | CA-13 | Help and refund status | P1 | A customer files a report and sees refund status and expected date | CUST C11 |
-| CA-14 | Notifications | P1 | Push and SMS are sent at each state. Device tokens can be registered. Payload carries order ID, and the app fetches the true state | CUST C12, status known gaps |
+| CA-14 | Notifications | P1 | Push and SMS are sent at each customer stage, and never reveal a later state. Device tokens can be registered. Payload carries order ID, and the app fetches the true state | CUST C12, status known gaps |
 | CA-15 | Automatic remedy | P1 | A timer that ends before 100 m, or a failed order, triggers the set remedy (credit to start) and an audit record, with no staff action | EDGE rule 4, Decision 0007 |
 | CA-16 | Zone switch and gate cap | P1 | With a zone switched off or a gate at its cap, new orders get no offer | EDGE, ARCH glossary |
 | CA-17 | Masked call | P2 until provider chosen | Customer and rider can call without seeing each other's numbers | CUST feature table |
-| CA-18 | Rider position on the map | P1 | From packed until handover, including after the timer stops, the customer sees the rider's position, with no rider data beyond what is needed | CUST feature table, Decision 0007 |
+| CA-18 | Rider position on the map | P1 | From when the customer sees "rider has accepted" until handover, including after the timer stops, the customer sees the rider's position, with no rider data beyond what is needed | CUST feature table, Decision 0007 |
 
 CA-17 is listed as a core countdown feature in CUST. Priority P2 is **Proposed**, because no telephony provider is chosen.
 
@@ -93,7 +93,7 @@ From EDGE, the scenario catalog, limited to what the customer sees.
 | Scenario | Expected behaviour |
 |---|---|
 | No scooter available | No offer. Longer ETA with consent, or wait with a timeout |
-| Rider already in the zone | Shorter wait above zero, then the timer starts when packed |
+| Rider already in the zone | Shorter wait above zero, then the timer starts when packed and the wait has passed |
 | Rider already inside 100 m when packed | No timer, straight to "arrived" |
 | Timer ends before 100 m | Calm message, map stays live, remedy fires |
 | One scooter in range, two orders | First wins on ETA. The second is re-checked after the first leaves |
