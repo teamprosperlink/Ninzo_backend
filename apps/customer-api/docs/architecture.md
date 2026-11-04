@@ -10,7 +10,7 @@ Covers only what is specific to this app. Stack: `docs/engineering/tech_stack.md
 Customer app (Flutter)
    | HTTPS /v1, WS /v1/orders/{id}/stream
    v
-customer-api ----------> Razorpay (create order, capture, void, refund)
+customer-api ----------> Razorpay (create order, refund)
    ^    |   \----------> Routing engine (live ETA)
    |    |
 Razorpay webhook

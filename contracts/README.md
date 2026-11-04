@@ -132,11 +132,11 @@ The customer is shown "looking for riders" while a rider is already allotted. So
 - The customer contract never returns `OrderState`, `OrderInternalTimes` or anything else showing the true state.
 - The rider's identity and position are not sent before `rider_accepted`.
 - Push and SMS follow `customer_stage`, never the order state.
-- Payment is settled when the stage reaches `rider_accepted`, because a charge would reveal an earlier accept.
-- A cancel during the wait succeeds as free, whatever the rider has done by then. The rider is told the offer was cancelled.
+- Payment is charged up front, before any rider is contacted, so a charge reveals nothing.
+- The cancel rules are the same whether or not a rider has accepted, so a refused cancel reveals nothing.
 - `eta_source` stays `placeholder` and `eta_s` stays `null` until `rider_accepted`, and `wait_deadline` does not change because a rider accepts.
-- If the rider breaks down or drops out during the wait, the server rematches silently. If the order must end, it ends the same way as finding no rider: `ended_reason` is `timed_out`, the customer is not charged or is refunded, and there is no `remedy`, because a promise was never shown.
-- A cancel after the maximum wait is also free. At `looking_for_rider`, it works like any other cancel during the wait. At `rider_accepted`, the stock is already committed and the payment settled, so the stock is returned to the scooter's count, and the payment is refunded.
+- If the rider breaks down or drops out during the wait, the server rematches silently. If the order must end, it ends the same way as finding no rider: `ended_reason` is `timed_out`, the customer is refunded, and there is no `remedy`, because a promise was never shown.
+- A cancel after `wait_deadline` is refunded. At `rider_accepted` the stock is already committed, so it is returned to the scooter's count. The rider is told the offer was cancelled.
 
 True times are always kept in `order_events`.
 
@@ -169,7 +169,7 @@ These fields are always present, and are `null` when not listed as set. Fields n
 |---|---|---|
 | `payment` | `payment_request` | `true` |
 | `payment_failed` | Nothing extra. Use payment retry | `true` |
-| `looking_for_rider` | `wait_deadline`: payment confirmed plus the maximum wait, or the agreed time after a longer ETA | `true` |
+| `looking_for_rider` | `cancel_until`, and `wait_deadline`: payment confirmed plus the maximum wait, or the agreed time after a longer ETA | `true` until `cancel_until`, then `false`, then `true` once `wait_deadline` has passed |
 | `no_scooter` | `wait_deadline`: the time to choose before an automatic refund. `eta_offer` if a longer ETA is on offer | `true` |
 | `rider_accepted` | `rider`, `wait_deadline`, and `eta_s` if `eta_source` is `measured` | `false`, or `true` once `wait_deadline` has passed |
 | `timer_running` | `rider`, and `eta_s` if `eta_source` is `measured` | `false` |
@@ -178,6 +178,39 @@ These fields are always present, and are `null` when not listed as set. Fields n
 | `ended` | `ended_reason`, and `rider` if one was shown | `false` |
 
 `handover_otp` is also set in the signal-lost case under Rider offline events. `remedy` can be set at `handed_over` or `ended`, or from the moment a timer is missed. A longer ETA replaces `wait_deadline`, so the customer always has one clear time to wait for.
+
+### Cancels and refunds
+Owner decision, 2026-11-04.
+
+| When | Can the customer cancel? | Money |
+|---|---|---|
+| Before payment is confirmed (`payment`, `payment_failed`) | Yes | Nothing confirmed. If a payment is confirmed after the cancel, it is refunded automatically |
+| Within 5 seconds of payment being confirmed, by the server's clock (`cancel_until`) | Yes | Full refund |
+| After that, until `wait_deadline` | No, `cancel_not_allowed` | No refund |
+| At `no_scooter` | Yes | Full refund |
+| After `wait_deadline`, before the timer starts | Yes | Full refund |
+| From `timer_running` on | No, `cancel_not_allowed` | No refund for a cancel |
+
+- **No rider is contacted until `cancel_until` has passed,** so a cancel inside the window can never waste a rider's time.
+- The 5 seconds is a console setting. The minimum wait cannot be set longer than the maximum wait.
+- **Payment is charged up front,** with no holds (owner decision, 2026-11-04). Every refund goes back to the original payment method.
+- **The boundary is decided by the database:** the server compares its time with `cancel_until` under the order's row lock. A cancel commits together with its stored response, and a cancel of an order this customer already cancelled returns success. Starting the rider search takes the same lock, so exactly one of them wins.
+- **A payment confirmed on an order that has already ended is refunded automatically.**
+- A time-driven change to `cancellable` saves a change and raises `seq`. It happens at set times for every order, so it reveals nothing.
+- A customer who is absent at the gate, or gave a wrong address, is not a failure on Ninzo's side, so there is no refund (**Proposed**).
+- **Failures on Ninzo's side are always refunded,** at any stage: no rider found, timeout, breakdown or accident, missing food, or a failed temperature check.
+- **The customer is told why and how.** `GET /v1/orders/{order_id}/refund` returns `reason_code` (why), `method` (how), `status` and `expected_by`. The wording comes from the copy deck.
+
+**Reason codes for refunds.** Hidden events never appear here: during `looking_for_rider`, a rider's failure uses `no_rider_found`.
+
+| Case | `reason_code` |
+|---|---|
+| Cancel within the 5 seconds, or a payment confirmed after a cancel | `customer_cancelled` |
+| No scooter, timeout, a cancel at `no_scooter`, or any failure before `rider_accepted` was shown | `no_rider_found` |
+| Cancel after `wait_deadline` | `wait_deadline_passed` |
+| Breakdown or accident after `rider_accepted` was shown | `order_failed` |
+| Missing food | `missing_food` |
+| Failed temperature check, after `rider_accepted` was shown | `temperature_failed` |
 
 ## Timer
 `OrderTimer` has `timer_started_at`, `timer_duration_s`, `timer_stopped_at` and `timer_missed`. `rider_accepted_at` is in `OrderInternalTimes`.

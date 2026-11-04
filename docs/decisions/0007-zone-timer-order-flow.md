@@ -22,8 +22,10 @@ Option 2. The flow is defined in `docs/engineering/data_flow.md`, section 1.
 - **Customer stages:** "looking for riders" then "rider has accepted". The wait is shorter, but never zero, for a rider already in the zone.
 - **Rider display:** a calm "1.5 mins", not a bumper-style countdown.
 - **Wording:** marketing and branding own the public claim and copy.
+- **Cancels and refunds:** a full refund if cancelled within 5 seconds of payment being confirmed. After that, no cancel and no refund. Failures on Ninzo's side are always refunded, and the customer is told why and how. The customer can also leave with a refund once the 5 minute maximum wait passes.
+- **Address:** no gate or address change after payment.
 
-Starting values proposed by engineering, changeable in the console: 5 minute maximum wait before the timer; credit if the timer ends before 100 m; free cancel until "rider has accepted" shows, or once the maximum wait passes.
+Starting values proposed by engineering, changeable in the console: 5 minute maximum wait before the timer; credit if the timer ends before 100 m.
 
 ## Consequences
 - `accepted_at` splits into `rider_accepted_at`, `timer_started_at` and `timer_stopped_at`. This changes the customer contract in the KT doc, so Developer 2 must be told.
