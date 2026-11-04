@@ -1,0 +1,13 @@
+[
+  { "name": "type:feature", "color": "0e8a16", "description": "A shippable capability" },
+  { "name": "type:phase", "color": "5319e7", "description": "Step inside a feature" },
+  { "name": "type:bug", "color": "d73a4a", "description": "Differs from the spec" },
+  { "name": "type:docs", "color": "0075ca", "description": "Documentation only" },
+  { "name": "type:chore", "color": "cfd3d7", "description": "Maintenance" },
+  { "name": "priority:P1", "color": "b60205", "description": "Main flows; build first" },
+  { "name": "priority:P2", "color": "fbca04", "description": "After all P1 is shipped" },
+  { "name": "status:ready", "color": "c2e0c6", "description": "Spec clear, can start" },
+  { "name": "status:blocked", "color": "000000", "description": "Waiting on something; say what" },
+  { "name": "status:needs-review", "color": "bfdadc", "description": "Awaiting independent review" },
+  { "name": "status:needs-signoff", "color": "f9d0c4", "description": "Awaiting owner sign-off" }
+]

@@ -1,0 +1,32 @@
+# Local development only. Ports bind to localhost, and the password is not a secret.
+# Keep the Postgres major version the same as the Supabase project (decision 0005).
+name: ninzo-backend
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: ninzo
+      POSTGRES_USER: ninzo
+      POSTGRES_PASSWORD: ninzo_local
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ninzo -d ninzo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:

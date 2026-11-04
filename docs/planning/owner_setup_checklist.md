@@ -1,0 +1,56 @@
+# Owner setup checklist
+
+What the owner must create or supply, so that work does not stop. Updated: 2026-11-04.
+
+## How to hand things over
+- **Safe to send in chat:** repo URLs, account names, project IDs, region names, and public keys.
+- **Never send in chat:** passwords, API secrets, private SSH keys and service account files. Put them in the local `.env` (never committed, and Claude is blocked from reading it). For hosted environments, put them in GitHub or hosting secret stores.
+- Create test or staging keys first. Live keys come only at go-live.
+
+## 1. Needed now
+
+| # | Item | What to do | Unblocks |
+|---|---|---|---|
+| 1 | GitHub repo | Send the `ninzo-backend` repo URL | First commit |
+| 2 | SSH access | Add `~/.ssh/id_ed25519.pub` to the GitHub account that owns the repo. No private key needs to be shared | `git push` |
+| 3 | GitHub CLI | Run `gh auth login` in a terminal on this machine | Issues, PRs, labels |
+| 4 | Docker Desktop | Start it. It is installed but was not running | Local Postgres and Redis |
+
+## 2. Needed for v0.2.0 and v0.3.0
+
+| # | Account | Create | Put in |
+|---|---|---|---|
+| 5 | Supabase | A project in Mumbai, for staging. The free plan is fine for now | `DATABASE_URL`: session pooler string |
+| 6 | Google Maps Platform | A billing-enabled project and a server key restricted by API and IP. Separate restricted keys go to each app | `GOOGLE_MAPS_SERVER_API_KEY` |
+| 7 | Decision | Pilot city, for map data and polygons | Reply in chat or an Issue |
+
+## 3. Needed for v0.4.0 to v0.6.0
+
+| # | Account | Create | Put in |
+|---|---|---|---|
+| 8 | Razorpay | Test mode account and keys. Ask Razorpay whether UPI supports holds | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` |
+| 9 | Firebase | A project with Cloud Messaging, and a service account file kept outside the repo | `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_FILE` |
+| 10 | SMS gateway | An account with an Indian provider (for example MSG91). Start DLT registration early, because approval takes time | `SMS_*` |
+| 11 | Telephony | A masked-calling provider (for example Exotel). Can wait, because masked calls are P2 for now | `TELEPHONY_*` |
+
+## 4. Needed for staging and deployment
+
+| # | Account | Create | Put in |
+|---|---|---|---|
+| 12 | Hosting | Proposed: AWS, Mumbai region. Please confirm first (status open question 1) | Access set up together, not in chat |
+| 13 | Redis | Comes with the hosting choice | `REDIS_URL` |
+| 14 | Domain | A domain with DNS access, for example for `api.` and `staging-api.` | DNS records |
+| 15 | Sentry | One organisation and one project per service | `SENTRY_DSN` |
+
+## 5. Needed before real customers
+
+| # | Item | Notes |
+|---|---|---|
+| 16 | Razorpay live mode | Business verification and live keys |
+| 17 | FSSAI | Food labelling and expiry rules affect lot and label data |
+| 18 | DigiLocker | Rider verification |
+| 19 | Supabase Pro or RDS | Free projects pause when idle. Decide on failover (decision 0004) |
+| 20 | Chatwoot and Metabase | Named in the ops console doc, India-region hosting |
+
+## 6. For the app teams, not this repo
+Apple Developer account, Google Play Console and the Flutter repos belong to the other developers building the apps. Claude does not work on them.

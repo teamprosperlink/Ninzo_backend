@@ -1,0 +1,21 @@
+version: "3"
+
+# Skeleton. Adjust once go.mod exists. `task verify` is what the Stop hook and CI call.
+tasks:
+  build:
+    cmds: ["go build ./..."]
+  test:
+    cmds: ["go test ./..."]
+  vet:
+    cmds: ["go vet ./..."]
+  verify:
+    desc: Everything that must pass before a commit or merge
+    cmds:
+      - task: vet
+      - task: test
+  db:up:
+    desc: Start local Postgres and Redis
+    cmds: ["docker compose -f deploy/compose.yml up -d --wait"]
+  db:down:
+    desc: Stop local Postgres and Redis, keeping their data
+    cmds: ["docker compose -f deploy/compose.yml down"]

@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.env
+.env.*
+*.pem
+*.key
+docs
+tests
+tools
+**/*_test.go
+**/*.md
