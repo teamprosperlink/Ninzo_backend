@@ -12,8 +12,8 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 | # | Item | What to do | Unblocks |
 |---|---|---|---|
 | 1 | GitHub repo and login | Finished on 2026-11-04 | Issues, PRs |
-| 2 | Railway account | Create one for the mock server. The free or cheapest plan is fine. Then run `railway login` in a terminal on this machine | A stable mock URL |
-| 3 | Google Docs connector | Connect it with `/mcp` or in Claude's connector settings, so Claude can edit the shared index in place. Google Drive alone can only create files | Keeping the index updated |
+| 2 | Railway account | Finished on 2026-11-04: signed in as PROSPER LINK | A stable mock URL |
+| 3 | Google Docs connector | Finished on 2026-11-04 | Keeping the index updated |
 | 4 | Share the index | Send the developers the [shared index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) when the mock is ready, and say when their feedback is in | Contract review |
 
 ## 2. Needed for v0.2.0 and v0.3.0
@@ -21,7 +21,7 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 | # | Account | Create | Put in |
 |---|---|---|---|
 | 4a | Docker Desktop | Start it. It is installed but was not running | Local Postgres and Redis |
-| 5 | Supabase | A project in Mumbai, for staging. The free plan is fine for now | `DATABASE_URL`: session pooler string |
+| 5 | Supabase | Connected. Claude creates a new Mumbai project for Ninzo when `v0.2.0` starts, and states any cost first. The existing project belongs to a different app and stays untouched | `DATABASE_URL`: session pooler string |
 | 6 | Google Maps Platform | A billing-enabled project and a server key restricted by API and IP. Separate restricted keys go to each app | `GOOGLE_MAPS_SERVER_API_KEY` |
 | 7 | Decision | Pilot city, for map data and polygons | Reply in chat or an Issue |
 
