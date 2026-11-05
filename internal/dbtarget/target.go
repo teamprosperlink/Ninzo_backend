@@ -80,10 +80,7 @@ func (t Target) Ref() string {
 		return ref
 	}
 	if t.user == "postgres" && strings.HasPrefix(host, "db.") && strings.HasSuffix(host, directSuffix) {
-		ref := strings.TrimSuffix(strings.TrimPrefix(host, "db."), directSuffix)
-		if !strings.Contains(ref, ".") {
-			return ref
-		}
+		return strings.TrimSuffix(strings.TrimPrefix(host, "db."), directSuffix)
 	}
 	return ""
 }
