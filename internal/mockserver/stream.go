@@ -139,6 +139,38 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 	defer life.Stop()
 	next, seq, sentState := 0, 1, 0
 	renewed := false
+	// sendNext sends the next event, and reports whether the stream should stop.
+	sendNext := func() bool {
+		if next >= len(events) {
+			if ended {
+				_ = conn.Close(closeOrderEnded, "the order has ended")
+				return true
+			}
+			return false
+		}
+		event := events[next]
+		next++
+		if event.seq > 0 {
+			seq = event.seq
+			sentState++
+		}
+		if !s.send(ctx, conn, event) {
+			return true
+		}
+		if failOnce && scenario == "socket_drop" && sentState == 2 {
+			_ = conn.CloseNow() // A drop with no close frame, as a real network does.
+			return true
+		}
+		if failOnce && scenario == "token_expiring" && sentState == 2 && !renewed {
+			_ = conn.Close(closeUnauthorized, "the token has expired")
+			return true
+		}
+		return false
+	}
+	// The first event goes out at once, so its times are true when it arrives.
+	if sendNext() {
+		return
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -157,28 +189,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 				return
 			}
 		case <-step.C:
-			if next >= len(events) {
-				if ended {
-					_ = conn.Close(closeOrderEnded, "the order has ended")
-					return
-				}
-				continue
-			}
-			event := events[next]
-			next++
-			if event.seq > 0 {
-				seq = event.seq
-				sentState++
-			}
-			if !s.send(ctx, conn, event) {
-				return
-			}
-			if failOnce && scenario == "socket_drop" && sentState == 2 {
-				_ = conn.CloseNow() // A drop with no close frame, as a real network does.
-				return
-			}
-			if failOnce && scenario == "token_expiring" && sentState == 2 && !renewed {
-				_ = conn.Close(closeUnauthorized, "the token has expired")
+			if sendNext() {
 				return
 			}
 		}

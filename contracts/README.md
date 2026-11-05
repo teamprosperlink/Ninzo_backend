@@ -21,8 +21,8 @@ Values marked **Proposed** are engineering defaults that the owner has not revie
 - Sign-in: any phone number, with the code `123456`. Any non-empty bearer token is accepted, except `mock-expired-token`, which returns `token_expired`.
 - `GET` returns one point in a scenario's story, and the stream replays the whole story, so the two always agree. With no scenario, `GET` is at the first event and the stream carries on from there. For a scenario that names a stage, `GET` is at that stage, and the stream ends there. `cancel`, `gate`, `payment/retry`, `accept-eta` and `call` follow the order's stage in the same scenario.
 - On a stream, order `ord_missing` closes with `4404`, and `ord_forbidden` with `4403`.
-- `socket_drop` and `token_expiring` fail once per token each minute, so an app's normal reconnect then works.
-- A replay can be faster than the real 5-second window, so on a fast stream `cancel_until` is shortened to end before the second event.
+- `socket_drop` and `token_expiring` fail once per token each minute, so an app's normal reconnect then works. Developers sharing a token share that one failure, so use your own token to test them.
+- A replay is faster than the real 5-second window, so on a stream `cancel_until` is shortened to end before the second event. `GET` uses the real 5 seconds.
 - A stream closes after 30 minutes, and at most 200 can be open at once. An app reconnects as usual.
 - `GET /docs/customer` and `GET /docs/rider` show readable API docs. `GET /contracts/<file>` serves the files in `dist/`. The app developers should generate their code from those.
 

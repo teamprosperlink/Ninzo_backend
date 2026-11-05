@@ -854,6 +854,37 @@ func TestStreamsOutliveTheServerReadTimeout(t *testing.T) {
 	}
 }
 
+// TestFirstEventIsTrueWhenItArrives reads the real stream, so it covers event timing too.
+func TestFirstEventIsTrueWhenItArrives(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	conn := dial(t, srv, "/customer/v1/orders/x/stream")
+	defer conn.CloseNow() //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"auth","token":"t"}`))
+	for {
+		_, raw, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var e map[string]any
+		_ = json.Unmarshal(raw, &e)
+		if e["type"] != "order_update" {
+			continue
+		}
+		order := e["data"].(map[string]any)
+		until, err := time.Parse(time.RFC3339Nano, order["cancel_until"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if order["cancellable"] != true || !time.Now().Before(until) {
+			t.Errorf("cancellable %v, with cancel_until %v already at %v", order["cancellable"], until, time.Now())
+		}
+		return
+	}
+}
+
 func TestHeartbeatCarriesSeq(t *testing.T) {
 	s := New()
 	s.heartbeat = 5 * time.Millisecond
