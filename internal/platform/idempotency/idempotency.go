@@ -213,7 +213,12 @@ func (c *claim) finish(pool *pgxpool.Pool, log *slog.Logger, rec *recorder) {
 	if !json.Valid(raw) {
 		raw = []byte("null") // A replay with no body beats acting twice.
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Short when Save ran, because a committed reply must not wait on a stalled pool.
+	wait := 5 * time.Second
+	if c.saved {
+		wait = time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	switch err := store(ctx, pool, c, status, raw); {
 	case err == nil:
@@ -224,7 +229,9 @@ func (c *claim) finish(pool *pgxpool.Pool, log *slog.Logger, rec *recorder) {
 		}
 	default:
 		log.Error("idempotency: could not store the reply", "path", c.path, "error", err.Error())
-		c.release(pool, log)
+		if !c.saved {
+			c.release(pool, log)
+		}
 	}
 }
 
