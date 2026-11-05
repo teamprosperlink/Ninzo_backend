@@ -32,6 +32,7 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 | Non-functional requirements | `docs/engineering/engineering_requirements.md` |
 | Constraints and policies | `docs/engineering/constraints_policies.md` |
 | Fixed scope per version, and build order | `docs/planning/milestones.md` |
+| Questions to answer before v0.3.0, and which algorithms to use | `docs/planning/v0.3.0_open_questions.md` |
 | Current situation | `docs/planning/project_status.md` |
 | Why we chose X | `docs/decisions/` |
 | Test evidence | `docs/testing/test_log.md` |

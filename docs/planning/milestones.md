@@ -20,6 +20,8 @@ Each version is a GitHub Milestone, each phase is an Issue, and each sub-phase i
 | v0.6.0 | Failures handled | Remedies; no-scooter options; rider problems; offline sync; notifications; history and help | Every failure test in the customer EDD passes | planned |
 | v0.7.0 | Customer and rider APIs complete | Restock suggestions and requests; relocation; earnings | All customer and rider P1 features meet "Done when". Hub actions come from a simulator | planned |
 
+**Before `v0.3.0`:** location, availability and matching work waits for the answers in `v0.3.0_open_questions.md` (#34).
+
 ## Partner
 
 | Version | Goal | Phases | Exit criteria | Status |
