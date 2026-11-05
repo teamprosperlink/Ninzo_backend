@@ -4,6 +4,11 @@ name: ninzo-backend
 services:
   postgres:
     image: postgis/postgis:17-3.5
+    # This image has no ARM build, so ARM machines run it under emulation. It is slower, but it is the same image CI uses.
+    platform: linux/amd64
+    # The image's setup script installs PostGIS in public. Migrations install it in extensions, as on Supabase.
+    tmpfs:
+      - /docker-entrypoint-initdb.d
     environment:
       POSTGRES_DB: ninzo
       POSTGRES_USER: ninzo
@@ -13,7 +18,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ninzo -d ninzo"]
+      # Over TCP, because the temporary server during first-time setup only listens on a socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ninzo -d ninzo"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -21,7 +27,8 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "127.0.0.1:6379:6379"
+      # 6380, so it never clashes with a Redis already installed on the machine.
+      - "127.0.0.1:6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
