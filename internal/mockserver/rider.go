@@ -118,7 +118,6 @@ func riderStoryFor(scenario string, now time.Time) riderStory {
 		offer("open")
 		order("RIDER_ACCEPTED", nil)
 		order("PACKED", nil)
-		order("TIMER_RUNNING", nil)
 		order("ARRIVED", func(o map[string]any) { o["otp_available"] = false })
 	case "hub_short":
 		restock("confirmed", false)

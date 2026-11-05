@@ -153,6 +153,10 @@ func customerRoutes() []route {
 		}},
 		{method: "POST", path: "/orders/{order_id}/cancel", handle: func(c *call) {
 			order := currentOrder(c.scenario, c.now)
+			if order["ended_reason"] == "cancelled" {
+				c.json(200, map[string]any{"order": order})
+				return
+			}
 			if order["cancellable"] != true {
 				c.fail(409, "cancel_not_allowed", "This order cannot be cancelled now.", false)
 				return

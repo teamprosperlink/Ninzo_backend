@@ -314,7 +314,7 @@ var stageRules = map[string][]string{
 var stageFields = []string{"payment_request", "wait_deadline", "eta_offer", "rider", "eta_s", "handover_otp", "ended_reason", "remedy", "cancel_until"}
 
 // stageProblems checks one order against the stage table, and returns what is wrong.
-func stageProblems(order map[string]any) []string {
+func stageProblems(order map[string]any, at time.Time) []string {
 	var problems []string
 	stage, _ := order["customer_stage"].(string)
 	allowed, ok := stageRules[stage]
@@ -365,6 +365,18 @@ func stageProblems(order map[string]any) []string {
 			problems = append(problems, stage+" cannot be cancellable")
 		}
 	}
+	if stage == "looking_for_rider" || stage == "rider_accepted" {
+		if !at.IsZero() {
+			until, err1 := time.Parse(time.RFC3339Nano, fmt.Sprint(order["cancel_until"]))
+			deadline, err2 := time.Parse(time.RFC3339Nano, fmt.Sprint(order["wait_deadline"]))
+			if err1 == nil && err2 == nil {
+				want := at.After(deadline) || (stage == "looking_for_rider" && at.Before(until))
+				if cancellable != want {
+					problems = append(problems, fmt.Sprintf("%s has cancellable %v, and the times say %v", stage, cancellable, want))
+				}
+			}
+		}
+	}
 	status := order["payment_status"]
 	want := map[string][]any{
 		"payment": {"pending"}, "payment_failed": {"failed"}, "looking_for_rider": {"paid"}, "no_scooter": {"paid"},
@@ -402,19 +414,23 @@ func TestEveryCustomerOrderFollowsTheStageTable(t *testing.T) {
 		names = append(names, name)
 	}
 	for _, name := range names {
-		for _, p := range stageProblems(normal(t, currentOrder(name, now))) {
+		for _, p := range stageProblems(normal(t, currentOrder(name, now)), now) {
 			t.Errorf("GET, scenario %q: %s", name, p)
 		}
 		checked++
-		events, _ := customerEvents(name, now, time.Second)
-		for i, e := range events {
-			if e.kind != "order_update" {
-				continue
+		for _, step := range []time.Duration{time.Second, 500 * time.Millisecond, 30 * time.Second} {
+			events, _ := customerEvents(name, now, step)
+			index := 0
+			for _, e := range events {
+				if e.kind != "order_update" {
+					continue
+				}
+				for _, p := range stageProblems(normal(t, e.data), now.Add(time.Duration(index)*step)) {
+					t.Errorf("stream, scenario %q, step %v, event %d: %s", name, step, index, p)
+				}
+				index++
+				checked++
 			}
-			for _, p := range stageProblems(normal(t, e.data)) {
-				t.Errorf("stream, scenario %q, event %d: %s", name, i, p)
-			}
-			checked++
 		}
 	}
 	t.Logf("%d orders checked against the stage table", checked)
@@ -436,11 +452,15 @@ func TestStageCheckCatchesBadData(t *testing.T) {
 		{"paid before payment", "awaiting_payment", "payment_status", "paid"},
 		{"pending while looking", "", "payment_status", "pending"},
 		{"not cancellable at payment", "awaiting_payment", "cancellable", false},
+		{"cancellable after the window", "after_cancel_window", "cancellable", true},
+		{"cancellable once the rider is shown", "offer_accepted", "cancellable", true},
+		{"not cancellable inside the window", "", "cancellable", false},
+		{"not cancellable after the deadline", "max_wait_passed", "cancellable", false},
 	}
 	for _, b := range bad {
 		order := normal(t, currentOrder(b.start, now))
 		order[b.key] = b.value
-		if len(stageProblems(order)) == 0 {
+		if len(stageProblems(order, now)) == 0 {
 			t.Errorf("%s must fail the stage check", b.name)
 		}
 	}
@@ -545,7 +565,7 @@ func TestActionsFollowTheOrder(t *testing.T) {
 		}
 		order := currentOrder(name, now)
 		want := 409
-		if order["cancellable"] == true {
+		if order["cancellable"] == true || order["ended_reason"] == "cancelled" {
 			want = 200
 		}
 		if got := act("POST", "/cancel", name, `{}`); got != want {
@@ -700,7 +720,7 @@ func TestCustomerStreamReplaysAnOrder(t *testing.T) {
 			last = seq
 			order := e["data"].(map[string]any)
 			stages = append(stages, order["customer_stage"].(string))
-			for _, p := range stageProblems(order) {
+			for _, p := range stageProblems(order, time.Time{}) {
 				t.Errorf("live stream: %s", p)
 			}
 		}
@@ -753,6 +773,53 @@ func TestNoAuthFrameClosesWith4401(t *testing.T) {
 	_, _, err := conn.Read(ctx)
 	if code := websocket.CloseStatus(err); code != closeUnauthorized {
 		t.Errorf("close code %d, error %v", code, err)
+	}
+}
+
+// TestReconnectingWorks follows what an app does: reconnect with the same token, or a refreshed one.
+func TestReconnectingWorks(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	for _, tc := range []struct {
+		scenario string
+		first    websocket.StatusCode
+	}{{"socket_drop", -1}, {"token_expiring", closeUnauthorized}} {
+		for attempt, want := range []websocket.StatusCode{tc.first, closeOrderEnded} {
+			conn := dial(t, srv, "/customer/v1/orders/x/stream?step_ms=60&scenario="+tc.scenario)
+			_ = conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"auth","token":"mock-access-token"}`))
+			if _, code := readAll(t, conn); code != want {
+				t.Errorf("%s, attempt %d: close code %d, want %d", tc.scenario, attempt+1, code, want)
+			}
+			_ = conn.CloseNow()
+		}
+	}
+}
+
+func TestOneFailurePerMinute(t *testing.T) {
+	s := New()
+	now := time.Unix(1000, 0)
+	if !s.firstTime("k", now) || s.firstTime("k", now.Add(time.Second)) {
+		t.Error("the failure must happen once")
+	}
+	if !s.firstTime("k", now.Add(oneShotReset+time.Second)) {
+		t.Error("the scenario must be repeatable later")
+	}
+}
+
+func TestCancellingTwiceSucceeds(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/customer/v1/orders/x/cancel", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer t")
+	req.Header.Set("Idempotency-Key", "a-new-key-1")
+	req.Header.Set(scenarioHeader, "cancelled")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("got %d", resp.StatusCode)
 	}
 }
 

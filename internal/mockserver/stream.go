@@ -107,6 +107,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 		}
 	}()
 
+	failOnce := false
 	authTimer := time.NewTimer(authWait)
 	defer authTimer.Stop()
 	select {
@@ -120,6 +121,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 			_ = conn.Close(closeUnauthorized, "bad or expired token")
 			return
 		}
+		failOnce = (scenario == "socket_drop" || scenario == "token_expiring") && s.firstTime(scenario+"|"+frame.Token, s.now())
 	}
 	if refuse != 0 {
 		_ = conn.Close(refuse, "this stream is not available")
@@ -133,11 +135,16 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 	defer beat.Stop()
 	step := time.NewTicker(s.stepFor(r))
 	defer step.Stop()
+	life := time.NewTimer(maxStreamLife)
+	defer life.Stop()
 	next, seq, sentState := 0, 1, 0
 	renewed := false
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-life.C:
+			_ = conn.Close(websocket.StatusTryAgainLater, "the mock limits how long a stream stays open")
 			return
 		case frame := <-frames:
 			if !validFrame(frame) {
@@ -166,11 +173,11 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 			if !s.send(ctx, conn, event) {
 				return
 			}
-			if scenario == "socket_drop" && sentState == 2 {
+			if failOnce && scenario == "socket_drop" && sentState == 2 {
 				_ = conn.CloseNow() // A drop with no close frame, as a real network does.
 				return
 			}
-			if scenario == "token_expiring" && sentState == 2 && !renewed {
+			if failOnce && scenario == "token_expiring" && sentState == 2 && !renewed {
 				_ = conn.Close(closeUnauthorized, "the token has expired")
 				return
 			}

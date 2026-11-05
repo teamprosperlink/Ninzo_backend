@@ -29,6 +29,8 @@ const (
 	maxStoredReplies = 10000
 	maxBodyBytes     = 1 << 20
 	maxStreams       = 200
+	maxStreamLife    = 30 * time.Minute
+	oneShotReset     = time.Minute
 )
 
 // Server holds the mock's small amount of state: stored replies for repeated requests.
@@ -41,6 +43,7 @@ type Server struct {
 	stored map[string]storedReply
 
 	streams chan struct{}
+	oneShot map[string]time.Time
 }
 
 type storedReply struct {
@@ -52,7 +55,7 @@ type storedReply struct {
 
 // New returns a mock server.
 func New() *Server {
-	return &Server{now: time.Now, heartbeat: 15 * time.Second, step: 3 * time.Second, stored: map[string]storedReply{}, streams: make(chan struct{}, maxStreams)}
+	return &Server{now: time.Now, heartbeat: 15 * time.Second, step: 3 * time.Second, stored: map[string]storedReply{}, streams: make(chan struct{}, maxStreams), oneShot: map[string]time.Time{}}
 }
 
 type route struct {
@@ -168,6 +171,21 @@ func (s *Server) wrap(rt route) http.HandlerFunc {
 			s.store(storeKey, storedReply{bodyHash: bodyHash, status: rec.status, body: rec.body, at: c.now})
 		}
 	}
+}
+
+// firstTime is true once per key each minute. A stream that drops or expires does it
+// once, so an app's normal reconnect then works, and the scenario can be tried again later.
+func (s *Server) firstTime(key string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if at, ok := s.oneShot[key]; ok && now.Sub(at) < oneShotReset {
+		return false
+	}
+	if len(s.oneShot) >= maxStoredReplies {
+		s.oneShot = map[string]time.Time{}
+	}
+	s.oneShot[key] = now
+	return true
 }
 
 func (s *Server) lookup(key string, now time.Time) (storedReply, bool) {

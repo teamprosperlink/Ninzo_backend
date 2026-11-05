@@ -15,9 +15,8 @@ const (
 )
 
 type orderStep struct {
-	stage       string
-	cancellable bool
-	apply       func(order map[string]any, at time.Time)
+	stage string
+	apply func(order map[string]any, at time.Time)
 }
 
 type orderStory struct {
@@ -29,15 +28,15 @@ type orderStory struct {
 }
 
 var (
-	stepLooking      = orderStep{stage: "looking_for_rider", cancellable: true}
+	stepLooking      = orderStep{stage: "looking_for_rider"}
 	stepAfterWindow  = orderStep{stage: "looking_for_rider"}
 	stepAccepted     = orderStep{stage: "rider_accepted"}
 	stepTimer        = orderStep{stage: "timer_running"}
 	stepArrived      = orderStep{stage: "arrived"}
 	stepHandedOver   = orderStep{stage: "handed_over"}
-	stepPayment      = orderStep{stage: "payment", cancellable: true}
-	stepPaymentFails = orderStep{stage: "payment_failed", cancellable: true}
-	stepNoScooter    = orderStep{stage: "no_scooter", cancellable: true, apply: func(o map[string]any, at time.Time) {
+	stepPayment      = orderStep{stage: "payment"}
+	stepPaymentFails = orderStep{stage: "payment_failed"}
+	stepNoScooter    = orderStep{stage: "no_scooter", apply: func(o map[string]any, at time.Time) {
 		o["eta_offer"] = map[string]any{"id": "eta_mock01", "eta_s": 600, "expires_at": stamp(at.Add(chooseWindow))}
 	}}
 )
@@ -80,7 +79,7 @@ func storyFor(scenario string) orderStory {
 			o["remedy"] = map[string]any{"type": "credit", "amount": money(5000)}
 			o["timer"].(map[string]any)["timer_missed"] = true
 		}}
-		return orderStory{steps: append(accepted, missed), getAt: -1, timerLead: 2 * time.Minute}
+		return orderStory{steps: append(accepted, missed), getAt: -1, age: 3 * time.Minute, timerLead: 2 * time.Minute}
 	case "signal_lost":
 		lost := orderStep{stage: "timer_running", apply: func(o map[string]any, _ time.Time) {
 			o["eta_source"], o["eta_s"] = "unavailable", nil
@@ -88,7 +87,7 @@ func storyFor(scenario string) orderStory {
 			o["remedy"] = map[string]any{"type": "credit", "amount": money(5000)}
 			o["timer"].(map[string]any)["timer_missed"] = true
 		}}
-		return orderStory{steps: append(accepted, lost), getAt: -1, timerLead: 2 * time.Minute}
+		return orderStory{steps: append(accepted, lost), getAt: -1, age: 3 * time.Minute, timerLead: 2 * time.Minute}
 	case "arrived":
 		return orderStory{steps: fullFlow()[:5], getAt: -1}
 	case "rider_inside_perimeter":
@@ -117,11 +116,21 @@ func storyFor(scenario string) orderStory {
 // step is the time between events. Each stored timer value is set once and never changes.
 func buildStory(story orderStory, paid time.Time, step time.Duration) []map[string]any {
 	orders := make([]map[string]any, 0, len(story.steps))
+	// A replay can be faster than the real window, so the window ends before the second event.
+	window := cancelWindow
+	if step <= window {
+		window = step / 2
+	}
+	cancelUntil := paid.Add(window)
+	if story.age > 0 {
+		cancelUntil = paid.Add(cancelWindow)
+	}
+	deadline := paid.Add(maxWait)
 	var timerStart, timerStop any
 	var duration any
 	riderShown := false
 	for i, s := range story.steps {
-		at := paid.Add(time.Duration(i) * step)
+		at := paid.Add(story.age).Add(time.Duration(i) * step)
 		switch s.stage {
 		case "timer_running":
 			if timerStart == nil {
@@ -139,7 +148,7 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 			"gate":  map[string]any{"id": "gate_mock01", "label": "Main gate"},
 			"items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1, "unit_price": money(14900)}},
 			"total": money(14900), "payment_status": "paid", "payment_request": nil,
-			"cancellable": s.cancellable, "cancel_until": stamp(paid.Add(cancelWindow)), "wait_deadline": nil,
+			"cancellable": cancellableAt(s.stage, at, cancelUntil, deadline), "cancel_until": stamp(cancelUntil), "wait_deadline": nil,
 			"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": nil,
 			"timer":  map[string]any{"timer_started_at": timerStart, "timer_duration_s": duration, "timer_stopped_at": timerStop, "timer_missed": false},
 			"remedy": nil, "handover_otp": nil, "created_at": stamp(paid.Add(-time.Minute)),
@@ -153,14 +162,11 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 		case "payment_failed":
 			o["payment_status"], o["cancel_until"] = "failed", nil
 		case "looking_for_rider":
-			o["wait_deadline"] = stamp(paid.Add(maxWait))
-			if story.age > maxWait {
-				o["cancellable"] = true
-			}
+			o["wait_deadline"] = stamp(deadline)
 		case "no_scooter":
 			o["wait_deadline"] = stamp(at.Add(chooseWindow))
 		case "rider_accepted":
-			o["wait_deadline"] = stamp(paid.Add(maxWait))
+			o["wait_deadline"] = stamp(deadline)
 			o["eta_source"], o["eta_s"] = "measured", 150
 		case "timer_running":
 			o["eta_source"], o["eta_s"] = "measured", 60
@@ -177,6 +183,19 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 		orders = append(orders, o)
 	}
 	return orders
+}
+
+// cancellableAt follows Cancels and refunds in contracts/README.md.
+func cancellableAt(stage string, at, cancelUntil, deadline time.Time) bool {
+	switch stage {
+	case "payment", "payment_failed", "no_scooter":
+		return true
+	case "looking_for_rider":
+		return at.Before(cancelUntil) || at.After(deadline)
+	case "rider_accepted":
+		return at.After(deadline)
+	}
+	return false
 }
 
 // currentOrder is the order GET returns for a scenario.
