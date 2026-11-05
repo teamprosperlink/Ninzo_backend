@@ -1,0 +1,23 @@
+meta {
+  name: declineOffer
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/offers/mock_id/decline
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-declineOffer-0001
+}
+
+body:json {
+  {
+    "fencing_token": "mock_value"
+  }
+}

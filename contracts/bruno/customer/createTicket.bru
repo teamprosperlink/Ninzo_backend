@@ -1,0 +1,24 @@
+meta {
+  name: createTicket
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/support/tickets
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-createTicket-0001
+}
+
+body:json {
+  {
+    "text": "mock_value",
+    "type": "missing_item"
+  }
+}

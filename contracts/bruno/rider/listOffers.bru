@@ -1,0 +1,16 @@
+meta {
+  name: listOffers
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{baseUrl}}/riders/me/offers
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

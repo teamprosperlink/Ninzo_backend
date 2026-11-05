@@ -19,13 +19,14 @@ Last updated: 2026-11-04
 | #6 | Customer contract | `v0.1.0` | [reports/6.md](../testing/reports/6.md) |
 | #7 | Rider contract | `v0.1.0` | [reports/7.md](../testing/reports/7.md) |
 | #15 | Cancel and refund rule | `v0.1.0` | [reports/15.md](../testing/reports/15.md) |
+| #8 | Mock server | `v0.1.0` | [reports/8.md](../testing/reports/8.md) |
 
 ## Blocked
 | Issue | Blocker | Since |
 |---|---|---|
 
 ## Next actions
-1. `v0.1.0`, one phase at a time: #8 mock servers, #9 contract review.
+1. `v0.1.0`: #9 contract review. Publish the mock server on Railway, then start `v0.2.0` with #13.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
 

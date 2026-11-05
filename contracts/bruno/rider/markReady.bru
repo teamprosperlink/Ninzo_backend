@@ -1,0 +1,23 @@
+meta {
+  name: markReady
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/offers/mock_id/ready
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-markReady-0001
+}
+
+body:json {
+  {
+    "fencing_token": "mock_value"
+  }
+}

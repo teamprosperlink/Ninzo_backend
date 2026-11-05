@@ -22,3 +22,27 @@ jobs:
         with:
           node-version: 22
       - run: npx --yes @stoplight/spectral-cli@6.17.0 lint --fail-severity=warn 'contracts/**/*.yaml'
+  mock-contract:
+    # Sends generated requests to the real mock server, using the tool the KT docs name.
+    # content_type_conformance is left out, and fuzzing uses valid requests only: Go's
+    # HTTP server answers malformed header names in plain text before any handler runs.
+    # The coverage phase still sends invalid requests, and the Go tests cover real responses.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install schemathesis==4.1.4
+      - run: go build -o mock-server ./cmd/mock-server
+      - run: PORT=8080 ./mock-server &
+      - run: |
+          for i in $(seq 1 20); do curl -sf http://localhost:8080/healthz && break; sleep 1; done
+      - run: |
+          for app in customer rider; do
+            schemathesis run "contracts/dist/$app.openapi.yaml" --url "http://localhost:8080/$app/v1"               -H 'Authorization: Bearer mock-access-token'               --checks response_schema_conformance,status_code_conformance,not_a_server_error               --max-examples 15 --phases examples,coverage
+            schemathesis run "contracts/dist/$app.openapi.yaml" --url "http://localhost:8080/$app/v1"               -H 'Authorization: Bearer mock-access-token'               --checks response_schema_conformance,status_code_conformance,not_a_server_error               --max-examples 15 --phases fuzzing --mode positive
+          done

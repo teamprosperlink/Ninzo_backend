@@ -1,0 +1,17 @@
+meta {
+  name: startRiderMaskedCall
+  type: http
+  seq: 31
+}
+
+post {
+  url: {{baseUrl}}/orders/mock_id/call
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-startRiderMaskedCall-0001
+}

@@ -1,0 +1,24 @@
+meta {
+  name: registerRiderDevice
+  type: http
+  seq: 24
+}
+
+post {
+  url: {{baseUrl}}/riders/me/devices
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-registerRiderDevice-0001
+}
+
+body:json {
+  {
+    "platform": "android",
+    "push_token": "mock_value"
+  }
+}

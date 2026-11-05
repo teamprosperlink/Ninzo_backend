@@ -800,9 +800,11 @@ paths:
         - name: X-Razorpay-Signature
           in: header
           required: true
-          description: Signature of the raw request body.
+          description: Signature of the raw request body, as lowercase hex.
           schema:
             type: string
+            minLength: 1
+            pattern: '^[0-9a-f]+$'
       requestBody:
         required: true
         content:

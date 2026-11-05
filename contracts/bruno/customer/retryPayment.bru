@@ -1,0 +1,17 @@
+meta {
+  name: retryPayment
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/orders/mock_id/payment/retry
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-retryPayment-0001
+}

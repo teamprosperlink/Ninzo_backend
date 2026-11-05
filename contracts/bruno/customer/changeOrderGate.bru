@@ -1,0 +1,23 @@
+meta {
+  name: changeOrderGate
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/orders/mock_id/gate
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-changeOrderGate-0001
+}
+
+body:json {
+  {
+    "gate_id": "ord_01HZX3Q7"
+  }
+}

@@ -1,0 +1,21 @@
+meta {
+  name: declineRestock
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/restock/mock_id/decline
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-declineRestock-0001
+}
+
+body:json {
+  {}
+}

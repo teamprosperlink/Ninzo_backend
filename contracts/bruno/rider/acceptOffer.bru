@@ -1,0 +1,23 @@
+meta {
+  name: acceptOffer
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/offers/mock_id/accept
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-acceptOffer-0001
+}
+
+body:json {
+  {
+    "fencing_token": "mock_value"
+  }
+}

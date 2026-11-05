@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-05 | #8 | `v0.1.0` mock server | See PR | PASS | [reports/8.md](reports/8.md) |
 | 2026-11-04 | #15 | `v0.1.0` cancel and refund rule | See PR | PASS | [reports/15.md](reports/15.md) |
 | 2026-11-04 | #7 | `v0.1.0` rider contract | See PR | PASS | [reports/7.md](reports/7.md) |
 | 2026-11-04 | #6 | `v0.1.0` customer contract | See PR | PASS | [reports/6.md](reports/6.md) |

@@ -1,0 +1,21 @@
+meta {
+  name: cancelOrder
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/orders/mock_id/cancel
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-cancelOrder-0001
+}
+
+body:json {
+  {}
+}

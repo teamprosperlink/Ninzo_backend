@@ -1,0 +1,16 @@
+meta {
+  name: getEarnings
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/riders/me/earnings
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

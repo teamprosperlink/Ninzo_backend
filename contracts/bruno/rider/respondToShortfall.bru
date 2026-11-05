@@ -1,0 +1,23 @@
+meta {
+  name: respondToShortfall
+  type: http
+  seq: 28
+}
+
+post {
+  url: {{baseUrl}}/restock/mock_id/shortfall-response
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-respondToShortfall-0001
+}
+
+body:json {
+  {
+    "accept": true
+  }
+}

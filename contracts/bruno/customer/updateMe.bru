@@ -1,0 +1,23 @@
+meta {
+  name: updateMe
+  type: http
+  seq: 24
+}
+
+patch {
+  url: {{baseUrl}}/me
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-updateMe-0001
+}
+
+body:json {
+  {
+    "name": "mock_value"
+  }
+}

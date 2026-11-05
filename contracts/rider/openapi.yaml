@@ -761,6 +761,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /orders/{order_id}/call:
     post:
       tags:

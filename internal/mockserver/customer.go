@@ -1,0 +1,331 @@
+package mockserver
+
+import (
+	"net/http"
+	"time"
+)
+
+// customerScenarios lists every scenario, with what it shows. The first group comes
+// from the customer KT doc. The rest come from the owner's flow in decision 0007.
+var customerScenarios = map[string]string{
+	"no_scooter":          "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
+	"no_scooter_no_offer": "No scooter available, and no longer ETA on offer",
+	"offer_timeout":       "No rider took the offer in time, so the order is at no_scooter",
+	"offer_accepted":      "The customer is shown rider_accepted",
+	"payment_declined":    "The order is at payment_failed, so the customer can retry",
+	"payment_captured":    "Payment confirmed, inside the 5-second cancel window. This is the same as no scenario",
+	"handed_over":         "The order is at handed_over",
+	"socket_drop":         "The stream drops after two events, with no close frame. GET still works",
+	"last_unit_taken":     "POST order fails with sold_out, and availability shows one left",
+	"gate_not_verified":   "POST order fails with gate_not_verified. Availability offers nothing",
+	"zone_offer_off":      "POST order fails with no_offer. Availability offers nothing",
+
+	"awaiting_payment":         "The order is at payment, so checkout can resume and the gate can change",
+	"after_cancel_window":      "Payment confirmed, and the 5-second window has passed, so a cancel is refused",
+	"cancel_too_late":          "The same as after_cancel_window",
+	"max_wait_passed":          "wait_deadline has passed, so the customer can leave with a refund",
+	"rider_already_near":       "The rider was already in the zone. The stream reaches rider_accepted one event sooner",
+	"rider_inside_perimeter":   "The rider was already inside 100 m, so there is no timer: rider_accepted, then arrived",
+	"timer_running":            "The order is at timer_running",
+	"timer_missed":             "The timer ended before 100 m. timer_missed is true, with a credit remedy",
+	"signal_lost":              "The timer ended, and the rider's signal is lost, so the customer has the OTP",
+	"arrived":                  "The order is at arrived, with the handover OTP",
+	"cancelled":                "The order has ended, cancelled by the customer inside the window, and refunded",
+	"cancelled_after_deadline": "The order has ended, cancelled after wait_deadline, and refunded",
+	"timed_out":                "The order has ended, timed out, and refunded",
+	"failed":                   "The order has ended after a failure, and refunded",
+	"temperature_failed":       "The order has ended after a failed temperature check, and refunded",
+	"missing_food":             "The order was handed over, but food was missing, so it is refunded",
+	"eta_offer_expired":        "POST accept-eta fails with eta_offer_expired, at no_scooter",
+	"invalid_otp":              "POST verify fails with invalid_otp",
+	"otp_expired":              "POST verify fails with otp_expired",
+	"otp_resend_limit":         "POST OTP request fails with otp_resend_limit",
+	"out_of_service_area":      "POST gate fails with out_of_service_area",
+	"duplicate_gate":           "POST gate fails with duplicate_gate",
+	"rate_limited":             "POST OTP request returns 429",
+	"server_error":             "POST order returns a retryable 500",
+	"service_unavailable":      "POST order returns a retryable 503",
+	"idempotency_in_progress":  "Any write with an Idempotency-Key returns a retryable 409, with Retry-After",
+	"token_expiring":           "The stream closes with 4401 after two events, unless the app sends a new auth frame",
+}
+
+func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+
+func money(amount int) map[string]any {
+	return map[string]any{"amount_minor": amount, "currency": "INR"}
+}
+
+func menuItem(id, name string, price int) map[string]any {
+	return map[string]any{
+		"id": id, "name": name, "description": "Sample item for the mock.", "price": money(price),
+		"allergens": []string{"gluten"}, "photo_url": nil,
+	}
+}
+
+func sampleGate() map[string]any {
+	return map[string]any{"id": "gate_mock01", "label": "Main gate", "lat": 12.9716, "lng": 77.5946, "entry_notes": "Near the security desk", "verified": true}
+}
+
+func needsBody(c *call, fields ...string) (map[string]any, bool) {
+	body := map[string]any{}
+	if err := decodeJSON(c.r, &body); err != nil {
+		c.fail(http.StatusBadRequest, "invalid_request", "The body must be JSON.", false)
+		return nil, false
+	}
+	for _, f := range fields {
+		if v, ok := body[f]; !ok || v == nil || v == "" {
+			c.fail(http.StatusBadRequest, "invalid_request", "Missing field: "+f, false)
+			return nil, false
+		}
+	}
+	return body, true
+}
+
+func customerRoutes() []route {
+	return []route{
+		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: otpRequest},
+		{method: "POST", path: "/auth/otp/verify", open: true, noIdempotent: true, handle: func(c *call) {
+			otpVerify(c, "customer_id", "cus_mock0001")
+		}},
+		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
+		{method: "GET", path: "/me", handle: func(c *call) {
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": "Test Customer"}})
+		}},
+		{method: "PATCH", path: "/me", handle: func(c *call) {
+			body, ok := needsBody(c, "name")
+			if !ok {
+				return
+			}
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"]}})
+		}},
+		{method: "POST", path: "/me/devices", handle: registerDevice},
+		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},
+		{method: "GET", path: "/gates", handle: func(c *call) {
+			c.json(200, map[string]any{"gates": []map[string]any{sampleGate()}})
+		}},
+		{method: "POST", path: "/gates", handle: func(c *call) {
+			switch c.scenario {
+			case "out_of_service_area":
+				c.fail(400, "out_of_service_area", "This pin is outside the service area.", false)
+				return
+			case "duplicate_gate":
+				c.fail(409, "duplicate_gate", "This gate is already saved.", false)
+				return
+			}
+			body, ok := needsBody(c, "label", "lat", "lng")
+			if !ok {
+				return
+			}
+			g := sampleGate()
+			g["id"], g["label"], g["lat"], g["lng"], g["verified"] = "gate_mock02", body["label"], body["lat"], body["lng"], false
+			g["entry_notes"] = body["entry_notes"]
+			c.json(201, map[string]any{"gate": g})
+		}},
+		{method: "GET", path: "/menu/items", handle: func(c *call) {
+			c.json(200, map[string]any{"items": []map[string]any{menuItem("item_burger", "Burger", 14900), menuItem("item_chai", "Masala chai", 4900)}})
+		}},
+		{method: "GET", path: "/menu/items/{item_id}", handle: func(c *call) {
+			switch c.param("item_id") {
+			case "item_missing":
+				c.fail(404, "not_found", "No such item.", false)
+			case "item_chai":
+				c.json(200, map[string]any{"item": menuItem("item_chai", "Masala chai", 4900)})
+			default:
+				c.json(200, map[string]any{"item": menuItem("item_burger", "Burger", 14900)})
+			}
+		}},
+		{method: "GET", path: "/availability", handle: availability},
+		{method: "POST", path: "/availability/notify", handle: func(c *call) {
+			if _, ok := needsBody(c, "gate_id"); ok {
+				c.json(201, map[string]any{})
+			}
+		}},
+		{method: "GET", path: "/orders", handle: func(c *call) {
+			c.json(200, map[string]any{"orders": []map[string]any{currentOrder("handed_over", c.now)}, "next_cursor": nil})
+		}},
+		{method: "POST", path: "/orders", handle: createOrder},
+		{method: "GET", path: "/orders/{order_id}", handle: func(c *call) {
+			if c.param("order_id") == "ord_missing" {
+				c.fail(404, "not_found", "No such order.", false)
+				return
+			}
+			c.json(200, map[string]any{"order": currentOrder(c.scenario, c.now)})
+		}},
+		{method: "POST", path: "/orders/{order_id}/cancel", handle: func(c *call) {
+			order := currentOrder(c.scenario, c.now)
+			if order["ended_reason"] == "cancelled" {
+				c.json(200, map[string]any{"order": order})
+				return
+			}
+			if order["cancellable"] != true {
+				c.fail(409, "cancel_not_allowed", "This order cannot be cancelled now.", false)
+				return
+			}
+			c.json(200, map[string]any{"order": cancelledFrom(order)})
+		}},
+		{method: "PATCH", path: "/orders/{order_id}/gate", handle: func(c *call) {
+			order := currentOrder(c.scenario, c.now)
+			if order["customer_stage"] != "payment" {
+				c.fail(409, "gate_change_not_allowed", "The address cannot change after payment.", false)
+				return
+			}
+			if _, ok := needsBody(c, "gate_id"); ok {
+				c.json(200, map[string]any{"order": order, "payment": paymentRequest()})
+			}
+		}},
+		{method: "POST", path: "/orders/{order_id}/payment/retry", handle: func(c *call) {
+			order := currentOrder(c.scenario, c.now)
+			if order["customer_stage"] != "payment_failed" {
+				c.fail(409, "payment_retry_not_allowed", "This order is not at payment_failed.", false)
+				return
+			}
+			next := currentOrder("awaiting_payment", c.now)
+			next["seq"] = order["seq"].(int) + 1
+			c.json(200, map[string]any{"order": next, "payment": paymentRequest()})
+		}},
+		{method: "POST", path: "/orders/{order_id}/accept-eta", handle: func(c *call) {
+			order := currentOrder(c.scenario, c.now)
+			if order["customer_stage"] != "no_scooter" {
+				c.fail(409, "eta_offer_not_available", "There is no longer ETA on offer.", false)
+				return
+			}
+			if c.scenario == "eta_offer_expired" {
+				c.fail(409, "eta_offer_expired", "This offer has expired.", false)
+				return
+			}
+			if _, ok := needsBody(c, "eta_offer_id"); ok {
+				next := currentOrder("after_cancel_window", c.now)
+				next["seq"] = order["seq"].(int) + 1
+				next["wait_deadline"] = stamp(c.now.Add(10 * time.Minute))
+				c.json(200, map[string]any{"order": next})
+			}
+		}},
+		{method: "POST", path: "/orders/{order_id}/call", handle: func(c *call) {
+			if currentOrder(c.scenario, c.now)["rider"] == nil {
+				c.fail(409, "call_not_available", "Calling is available from rider_accepted.", false)
+				return
+			}
+			c.json(200, map[string]any{"phone": "+911140000000", "expires_at": stamp(c.now.Add(5 * time.Minute))})
+		}},
+		{method: "GET", path: "/orders/{order_id}/refund", handle: func(c *call) {
+			reason := storyFor(c.scenario).refund
+			if reason == "" {
+				c.fail(404, "not_found", "This order has no refund.", false)
+				return
+			}
+			c.json(200, map[string]any{"refund": map[string]any{
+				"reason_code": reason, "method": "original_payment_method", "status": "pending",
+				"amount": money(14900), "expected_by": stamp(c.now.Add(5 * 24 * time.Hour)),
+			}})
+		}},
+		{method: "POST", path: "/support/tickets", handle: func(c *call) {
+			if _, ok := needsBody(c, "type", "text"); ok {
+				c.json(201, map[string]any{"ticket": sampleTicket(c.now)})
+			}
+		}},
+		{method: "GET", path: "/support/tickets/{ticket_id}", handle: func(c *call) {
+			c.json(200, map[string]any{"ticket": sampleTicket(c.now)})
+		}},
+		{method: "POST", path: "/webhooks/razorpay", open: true, noIdempotent: true, handle: func(c *call) {
+			if c.r.Header.Get("X-Razorpay-Signature") == "" {
+				c.fail(401, "unauthorized", "Missing signature.", false)
+				return
+			}
+			c.json(200, map[string]any{})
+		}},
+	}
+}
+
+func sampleTicket(now time.Time) map[string]any {
+	return map[string]any{"id": "tkt_mock01", "order_id": orderID, "status": "open", "messages": []map[string]any{
+		{"from": "customer", "text": "My food was cold.", "sent_at": stamp(now.Add(-time.Minute))},
+	}}
+}
+
+func otpRequest(c *call) {
+	switch c.scenario {
+	case "otp_resend_limit":
+		c.fail(429, "otp_resend_limit", "Too many codes requested.", true)
+		return
+	case "rate_limited":
+		c.fail(429, "rate_limited", "Too many requests.", true)
+		return
+	}
+	if _, ok := needsBody(c, "phone"); ok {
+		c.json(200, map[string]any{"request_id": "otp_mock01", "expires_in_s": 300, "resend_after_s": 30})
+	}
+}
+
+func otpVerify(c *call, idField, id string) {
+	body, ok := needsBody(c, "request_id", "otp")
+	if !ok {
+		return
+	}
+	switch {
+	case c.scenario == "invalid_otp" || body["otp"] != TestOTP:
+		c.fail(400, "invalid_otp", "That code is wrong.", false)
+	case c.scenario == "otp_expired":
+		c.fail(400, "otp_expired", "That code has expired.", false)
+	default:
+		c.json(200, map[string]any{"access_token": "mock-access-token", "refresh_token": "mock-refresh-token", "expires_in_s": 900, idField: id})
+	}
+}
+
+func refresh(c *call) {
+	body, ok := needsBody(c, "refresh_token")
+	if !ok {
+		return
+	}
+	if body["refresh_token"] == "mock-revoked-token" {
+		c.fail(401, "unauthorized", "Sign in again.", false)
+		return
+	}
+	c.json(200, map[string]any{"access_token": "mock-access-token", "refresh_token": "mock-refresh-token", "expires_in_s": 900})
+}
+
+func registerDevice(c *call) {
+	if _, ok := needsBody(c, "platform", "push_token"); ok {
+		c.json(201, map[string]any{"device_id": "dev_mock01"})
+	}
+}
+
+func availability(c *call) {
+	if c.r.URL.Query().Get("gate_id") == "" {
+		c.fail(400, "invalid_request", "Missing gate_id.", false)
+		return
+	}
+	body := map[string]any{"offer_available": true, "unavailable_reason": nil, "stale_at": stamp(c.now.Add(30 * time.Second))}
+	reason := map[string]string{"no_scooter": "no_coverage", "no_scooter_no_offer": "no_coverage", "zone_offer_off": "zone_off", "gate_not_verified": "gate_not_verified"}[c.scenario]
+	switch {
+	case reason != "":
+		body["offer_available"], body["unavailable_reason"], body["items"] = false, reason, []map[string]any{}
+	case c.scenario == "last_unit_taken":
+		body["items"] = []map[string]any{{"item": menuItem("item_burger", "Burger", 14900), "qty_left": 1}}
+	default:
+		body["items"] = []map[string]any{{"item": menuItem("item_burger", "Burger", 14900), "qty_left": 4}, {"item": menuItem("item_chai", "Masala chai", 4900), "qty_left": 7}}
+	}
+	c.json(200, body)
+}
+
+func createOrder(c *call) {
+	switch c.scenario {
+	case "last_unit_taken":
+		c.fail(409, "sold_out", "The last unit was taken.", false)
+		return
+	case "gate_not_verified":
+		c.fail(409, "gate_not_verified", "This gate is not verified.", false)
+		return
+	case "zone_offer_off":
+		c.fail(409, "no_offer", "The offer is off in this zone.", false)
+		return
+	case "server_error":
+		c.fail(500, "internal_error", "A sample server error.", true)
+		return
+	case "service_unavailable":
+		c.fail(503, "service_unavailable", "A sample outage.", true)
+		return
+	}
+	if _, ok := needsBody(c, "gate_id", "items"); ok {
+		c.json(201, map[string]any{"order": currentOrder("awaiting_payment", c.now), "payment": paymentRequest()})
+	}
+}

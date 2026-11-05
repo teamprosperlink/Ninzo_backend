@@ -1,0 +1,16 @@
+meta {
+  name: getAvailability
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/availability
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

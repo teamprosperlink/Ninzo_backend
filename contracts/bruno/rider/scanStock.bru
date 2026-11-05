@@ -1,0 +1,24 @@
+meta {
+  name: scanStock
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{baseUrl}}/riders/me/stock/scan
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-scanStock-0001
+}
+
+body:json {
+  {
+    "lot_code": "mock_value",
+    "scanned_at": "2026-11-04T10:00:00Z"
+  }
+}

@@ -17,6 +17,12 @@ tasks:
   contracts:lint:
     desc: Lint the API contracts
     cmds: ["npx --yes @stoplight/spectral-cli@6.17.0 lint --fail-severity=warn 'contracts/**/*.yaml'"]
+  contracts:bundle:
+    desc: Write the single-file contracts and the Bruno collection
+    cmds: ["go run ./cmd/contract-bundle"]
+  mock:
+    desc: Run the mock server on port 8080
+    cmds: ["go run ./cmd/mock-server"]
   db:up:
     desc: Start local Postgres and Redis
     cmds: ["docker compose -f deploy/compose.yml up -d --wait"]

@@ -1,0 +1,16 @@
+meta {
+  name: listMenuItems
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/menu/items
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
