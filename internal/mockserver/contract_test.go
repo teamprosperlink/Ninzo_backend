@@ -995,3 +995,35 @@ func TestDocsAndContractFilesAreServed(t *testing.T) {
 		t.Error("contract files must not serve other paths")
 	}
 }
+
+func TestRiderSignInNeedsExactlyOneID(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	post := func(path, body string) int {
+		t.Helper()
+		resp, err := http.Post(srv.URL+"/rider/v1"+path, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	const phone, code, pass = `"phone":"+919876543210"`, `"rider_code":"RD1024"`, `"password":"long-enough"`
+	for _, c := range []struct {
+		path, body string
+		want       int
+	}{
+		{"/auth/otp/request", "{" + phone + "}", 200},
+		{"/auth/otp/request", "{" + code + "}", 200},
+		{"/auth/otp/request", "{" + phone + "," + code + "}", 400},
+		{"/auth/otp/request", "{}", 400},
+		{"/auth/password/login", "{" + phone + "," + pass + "}", 200},
+		{"/auth/password/login", "{" + code + "," + pass + "}", 200},
+		{"/auth/password/login", "{" + phone + "," + code + "," + pass + "}", 400},
+		{"/auth/password/login", "{" + pass + "}", 400},
+	} {
+		if got := post(c.path, c.body); got != c.want {
+			t.Errorf("%s %s: got %d, want %d", c.path, c.body, got, c.want)
+		}
+	}
+}
