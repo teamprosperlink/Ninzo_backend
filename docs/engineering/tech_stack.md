@@ -60,6 +60,7 @@ The ops doc says chi comes from "the backend handover". That handover is not in 
 |---|---|---|---|
 | Backend and Redis hosting | Proposed: AWS Mumbai | Proposed | Status open question 1 |
 | Observability | OpenTelemetry, Prometheus, Grafana; Sentry for errors | KT | Architecture doc; Sentry from the earlier plan |
+| Mock server hosting | Railway, trial plan | Live | Not the production host |
 | CI | GitHub Actions (`.github/workflows/ci.yml`) | Skeleton, never run | Needs the GitHub repo and `go.mod` |
 
 ## Not used

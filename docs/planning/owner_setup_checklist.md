@@ -14,7 +14,8 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 | 1 | GitHub repo and login | Finished on 2026-11-04 | Issues, PRs |
 | 2 | Railway account | Finished on 2026-11-04: signed in as PROSPER LINK | A stable mock URL |
 | 3 | Google Docs connector | Finished on 2026-11-04 | Keeping the index updated |
-| 4 | Share the index | Send the developers the [shared index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) when the mock is ready, and say when their feedback is in | Contract review |
+| 4 | Railway plan | The trial has $5 credit and lasts up to 30 days. Choose a paid plan before it ends, or the mock's URL may stop working | Keeping the mock online |
+| 4a | Share the index | Send the developers the [shared index](https://docs.google.com/document/d/1p5sGHeYSo4cCCLlAErqLLqEMnOPkZvk2-gEA4fKgO6M/edit) when the mock is ready, and say when their feedback is in | Contract review |
 
 ## 2. Needed for v0.2.0 and v0.3.0
 
