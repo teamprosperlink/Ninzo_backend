@@ -12,6 +12,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### Endpoint data map (#13)
+- Added: `docs/engineering/endpoint_data_map.md`, and a test that keeps it complete.
+
 ### Mock server (#8)
 - Added: `cmd/mock-server` and `internal/mockserver`: every customer and rider endpoint, all scenarios and live stream replay.
 - Added: `cmd/contract-bundle`, `contracts/dist` and `contracts/bruno`.
