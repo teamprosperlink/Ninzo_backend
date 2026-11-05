@@ -45,6 +45,9 @@ func (t Target) String() string { return "database at " + t.Host() }
 // GoString is the same as String.
 func (t Target) GoString() string { return t.String() }
 
+// Format covers every fmt verb, such as %d and %x, which skip String.
+func (t Target) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte(t.String())) }
+
 // Parse reads a database URL.
 func Parse(dsn string) (Target, error) {
 	cfg, err := pgconn.ParseConfig(dsn)

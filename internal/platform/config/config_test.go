@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -103,6 +105,32 @@ func TestPrintingConfigHidesThePassword(t *testing.T) {
 		if got := fmt.Sprintf(format, c); strings.Contains(got, "S3CRET") {
 			t.Errorf("%s shows the password: %s", format, got)
 		}
+	}
+}
+
+func TestSecretIsHiddenEveryWay(t *testing.T) {
+	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q", "%d", "%x"} {
+		for name, value := range map[string]any{"config": c, "secret": c.DatabaseURL, "target": c.Database} {
+			got := fmt.Sprintf(format, value)
+			if strings.Contains(got, "S3CRET") || strings.Contains(got, fmt.Sprintf("%x", "S3CRET")) {
+				t.Errorf("%s with %s shows the password: %s", name, format, got)
+			}
+		}
+	}
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	log.Info("x", "config", c, "secret", c.DatabaseURL, "target", c.Database)
+	log.With("secret", c.DatabaseURL).Info("y", slog.Group("g", "config", c))
+	if out := logs.String(); strings.Contains(out, "S3CRET") || !strings.Contains(out, `"msg":"y"`) {
+		t.Errorf("logs: %s", out)
+	}
+	raw, err := json.Marshal(c)
+	if err != nil || strings.Contains(string(raw), "S3CRET") {
+		t.Errorf("JSON: %s, %v", raw, err)
 	}
 }
 

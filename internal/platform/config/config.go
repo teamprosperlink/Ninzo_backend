@@ -24,6 +24,15 @@ type Secret string
 func (Secret) String() string   { return "***" }
 func (Secret) GoString() string { return "***" }
 
+// Format covers every fmt verb, such as %d and %x, which skip String.
+func (Secret) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte("***")) }
+
+// LogValue covers a Secret logged directly.
+func (Secret) LogValue() slog.Value { return slog.StringValue("***") }
+
+// MarshalJSON covers a Secret inside a struct, which JSON logs encode with encoding/json.
+func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"***"`), nil }
+
 // Config holds what every service needs. Order timer values are not here: they are console
 // settings stored in the database.
 type Config struct {

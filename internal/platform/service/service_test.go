@@ -16,7 +16,6 @@ import (
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/dbtarget"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
-	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 )
 
 func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
@@ -149,7 +148,7 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 }
 
-func TestCheckRoleAppliesOutsideLocal(t *testing.T) {
+func TestConnectChecksTheLoginOutsideLocal(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		if os.Getenv("REQUIRE_DB_TESTS") == "yes" {
@@ -158,17 +157,14 @@ func TestCheckRoleAppliesOutsideLocal(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL is not set. Run: task test:db")
 	}
 	ctx := context.Background()
-	pool, err := database.Open(ctx, url, 1)
+	pool, err := connect(ctx, config.Config{Env: config.EnvLocal, DatabaseURL: config.Secret(url), DBMaxConns: 1})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("local: %v", err)
 	}
-	defer pool.Close()
-	if err := checkRole(ctx, config.Config{Env: config.EnvLocal}, pool); err != nil {
-		t.Errorf("local: %v", err)
-	}
+	pool.Close()
 	// The local login is not ninzo_service, so these must refuse it.
 	for _, env := range []string{config.EnvStaging, config.EnvProduction} {
-		err := checkRole(ctx, config.Config{Env: env}, pool)
+		_, err := connect(ctx, config.Config{Env: env, DatabaseURL: config.Secret(url), DBMaxConns: 1})
 		if err == nil || !strings.Contains(err.Error(), "services must use") {
 			t.Errorf("%s: got %v", env, err)
 		}

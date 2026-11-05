@@ -150,12 +150,16 @@ func TestPanicAfterAPartialReplyLooksLikeAFailure(t *testing.T) {
 		r.Get("/half", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Length", "100")
 			_, _ = w.Write([]byte(`{"order_id":"abc","total":`))
-			w.(http.Flusher).Flush()
+			if err := http.NewResponseController(w).Flush(); err != nil {
+				t.Errorf("flush: %v", err)
+			}
 			panic("boom")
 		})
 		r.Get("/half-chunked", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte(`{"order_id":"abc","total":`))
-			w.(http.Flusher).Flush()
+			if err := http.NewResponseController(w).Flush(); err != nil {
+				t.Errorf("flush: %v", err)
+			}
 			panic("boom")
 		})
 	})

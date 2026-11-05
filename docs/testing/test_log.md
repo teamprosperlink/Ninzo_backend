@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-05 | #32 | `v0.2.0` service skeleton, local only | See PR | PASS | [reports/32.md](reports/32.md) |
 | 2026-11-05 | #30 | `v0.2.0` migrations 0007 and 0008 applied to Supabase | See PR | PASS | [reports/30.md](reports/30.md) |
 | 2026-11-05 | #28 | `v0.2.0` sign-in contract, mock and tables | See PR | PASS | [reports/28.md](reports/28.md) |
 | 2026-11-05 | #22 | `v0.2.0` migrations applied to Supabase | See PR | PASS | [reports/22.md](reports/22.md) |
