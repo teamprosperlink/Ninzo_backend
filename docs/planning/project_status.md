@@ -26,7 +26,7 @@ Last updated: 2026-11-04
 |---|---|---|
 
 ## Next actions
-1. `v0.2.0`: start with #13, the map of endpoints to tables, for the owner to review before any migration.
+1. `v0.2.0`: database migrations, built version by version from `docs/engineering/endpoint_data_map.md`. The owner reviews the map before anything is applied to Supabase.
 2. #9 stays open for developer feedback. The owner shares the shared index with them.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.

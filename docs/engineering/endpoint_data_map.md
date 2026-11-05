@@ -116,7 +116,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `getOrderRefund` | `orders`, `refunds` | | | |
 | `createTicket` | `orders` | `support_tickets`, `ticket_messages`, `outbox_events`, `idempotency_keys` | | |
 | `getTicket` | `support_tickets`, `ticket_messages` | | | |
-| `razorpayWebhook` | `webhook_events`, `payments`, `orders`, `reservations`, `scooter_stock`, `zone_settings` | `webhook_events`, `payments`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `refunds`, `scheduled_tasks`, `outbox_events`, `audit_events` | Fan-out | None: any refund runs from a task |
+| `razorpayWebhook` | `webhook_events`, `payments`, `orders`, `reservations`, `scooter_stock`, `scooters`, `zone_settings`, `location_zones` | `webhook_events`, `payments`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `refunds`, `scheduled_tasks`, `outbox_events`, `audit_events` | Positions, fan-out | None: any refund runs from a task |
 
 ## 4. Rider API
 
@@ -149,7 +149,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `getRoute` | `offers`, `orders`, `gates` | | Position | Routing engine |
 | `handOver` | `rider_events`, `offers`, `orders`, `order_items`, `gates`, `payments`, `location_pings`, `reservations` | `rider_events`, `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `arrival_reviews`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Position, fan-out | None: a partial refund runs from a task |
 | `startRiderMaskedCall` | `offers`, `orders`, `customers` | `audit_events`, `idempotency_keys` | | Telephony |
-| `locationPing` | `offers`, `orders`, `location_zones`, `location_pings` | `location_pings`, `orders`, `order_events`, `scheduled_tasks`, `outbox_events` | Position, cells, rate limit, fan-out | |
+| `locationPing` | `offers`, `orders`, `location_zones`, `location_pings`, `arrival_reviews` | `location_pings`, `orders`, `order_events`, `rider_state`, `remedies`, `arrival_reviews`, `scheduled_tasks`, `outbox_events` | Position, cells, rate limit, fan-out | |
 | `sendEventBatch` | `rider_events`, `offers`, `orders`, `order_items`, `gates`, `payments`, `location_pings`, `lots`, `scooters`, `scooter_stock`, `reservations`, `restock_requests`, `restock_lots` | `rider_events`, `location_pings`, `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `arrival_reviews`, `problem_reports`, `restock_requests`, `restock_lines`, `scheduled_tasks`, `outbox_events`, `audit_events` | Fan-out | None |
 | `listRestockSuggestions` | `restock_requests`, `restock_lines`, `hubs` | | | |
 | `confirmRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `restock_lines`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
@@ -166,17 +166,17 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 
 | Task | Reads | Writes | Runs when | Outside calls |
 |---|---|---|---|---|
-| `start_rider_search` | `orders`, `reservations`, `scooters`, `scooter_stock`, `zone_settings` | `offers`, `orders`, `order_events`, `rider_state`, `scheduled_tasks`, `outbox_events` | `cancel_until` passes, or a longer ETA is accepted | Routing engine |
+| `start_rider_search` | `orders`, `reservations`, `scooters`, `scooter_stock`, `zone_settings` | `offers`, `orders`, `order_events`, `eta_offers`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `scheduled_tasks`, `outbox_events` | `cancel_until` passes, or a longer ETA is accepted. If the pre-selected rider is gone, it moves stock to another scooter, or moves to `NO_SCOOTER` | Routing engine |
 | `offer_expires` | `offers`, `orders`, `reservations`, `scooters`, `scooter_stock` | `offers`, `orders`, `order_events`, `eta_offers`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `scheduled_tasks`, `outbox_events` | An offer's `expires_at` passes: try the next rider, or move to `NO_SCOOTER` | Routing engine |
 | `min_wait_passes` | `orders`, `reservations` | `orders`, `order_events`, `reservations`, `stock_ledger`, `outbox_events` | `min_wait_until` passes: show `rider_accepted`, commit the reservation, raise `customer_seq` | |
 | `cancel_window_closes` | `orders` | `orders`, `outbox_events` | `cancel_until` passes: `cancellable` changes, and `customer_seq` rises | |
 | `wait_deadline_passes` | `orders` | `orders`, `outbox_events` | `wait_deadline` passes: the same, with cancelling allowed again | |
 | `no_scooter_timeout` | `orders`, `reservations`, `payments` | `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `refunds`, `scheduled_tasks`, `outbox_events` | The time to choose passes: `TIMED_OUT`, with a refund | |
 | `packing_limit` | `orders`, `offers`, `zone_settings` | `orders`, `offers`, `order_events`, `rider_state`, `outbox_events` | The packing limit passes: `PACKED`, with no rider action | |
-| `reservation_expires` | `reservations`, `orders` | `reservations`, `scooter_stock`, `stock_ledger`, `orders`, `order_events`, `outbox_events` | A reservation's expiry passes | |
+| `reservation_expires` | `reservations`, `orders`, `payments` | `reservations`, `scooter_stock`, `stock_ledger`, `orders`, `order_events`, `refunds`, `scheduled_tasks`, `outbox_events` | A reservation's expiry passes. A paid order is refunded, so no customer pays with no stock held | |
 | `send_refund` | `refunds`, `payments` | `refunds`, `payments`, `orders`, `outbox_events`, `audit_events` | A refund is created. Retried, then raises an ops alert | Razorpay |
-| `timer_ends` | `orders` | `orders`, `order_events`, `remedies`, `outbox_events` | The timer's length passes: `timer_missed`, and a remedy | |
-| `signal_lost_check` | `orders`, `location_pings` | `orders`, `order_events`, `outbox_events` | No ping for 30 seconds, after the timer or deadline: release the OTP | |
+| `timer_ends` | `orders`, `location_pings` | `orders`, `order_events`, `remedies`, `arrival_reviews`, `scheduled_tasks`, `outbox_events` | The timer's length passes: `timer_missed`. A remedy follows if pings are fresh. If the signal is lost, the remedy waits until it returns or the limit passes | |
+| `signal_lost_check` | `orders`, `location_pings` | `orders`, `order_events`, `rider_state`, `scheduled_tasks`, `outbox_events` | No ping for 30 seconds, after the timer or deadline: release the OTP. Otherwise it reschedules itself until the order moves on | |
 | `arrival_review_limit` | `arrival_reviews`, `orders` | `arrival_reviews`, `remedies`, `outbox_events`, `audit_events` | 10 minutes pass with no decision | |
 | `problem_followup` | `problem_reports`, `orders`, `offers`, `reservations`, `payments` | `problem_reports`, `orders`, `order_events`, `offers`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `scheduled_tasks`, `outbox_events` | A problem affects an order: rematch silently during the wait, or fail and refund | Routing engine |
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
