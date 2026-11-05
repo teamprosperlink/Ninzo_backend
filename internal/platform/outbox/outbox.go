@@ -10,14 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/teamprosperlink/Ninzo_backend/internal/platform/secrets"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/sensitive"
 )
 
 // Add saves an event. It takes a transaction, so it commits or fails with the change.
@@ -29,7 +28,7 @@ func Add(ctx context.Context, tx pgx.Tx, topic string, payload any) error {
 	if err != nil {
 		return fmt.Errorf("outbox: %w", err)
 	}
-	if found := secrets.Find(raw); len(found) > 0 {
+	if found := sensitive.Find(raw); len(found) > 0 {
 		return fmt.Errorf("outbox: refusing secret fields: %s", strings.Join(found, ", "))
 	}
 	if _, err := tx.Exec(ctx, "INSERT INTO outbox_events (topic, payload) VALUES ($1, $2)", topic, raw); err != nil {
@@ -92,52 +91,50 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-// RunOnce claims and delivers one batch, and returns how many it claimed.
+// RunOnce delivers up to Batch events, and returns how many it claimed. Each is claimed only when
+// its turn comes, so its lease covers one delivery and never a queue of slow ones.
 func (w *Worker) RunOnce(ctx context.Context) (int, error) {
-	events, err := w.claim(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for _, e := range events {
-		w.deliver(ctx, e)
-	}
-	return len(events), nil
-}
-
-func (w *Worker) claim(ctx context.Context) ([]Event, error) {
 	batch := w.Batch
 	if batch == 0 {
 		batch = defaultBatch
 	}
-	rows, err := w.Pool.Query(ctx, `UPDATE outbox_events
-		SET attempts = attempts + 1, next_attempt_at = now() + make_interval(secs => $2)
-		WHERE id IN (
+	n := 0
+	for n < batch && ctx.Err() == nil {
+		e, ok, err := w.claim(ctx)
+		if err != nil {
+			return n, err
+		}
+		if !ok {
+			break
+		}
+		n++
+		w.deliver(ctx, e)
+	}
+	return n, nil
+}
+
+func (w *Worker) claim(ctx context.Context) (Event, bool, error) {
+	var e Event
+	err := w.Pool.QueryRow(ctx, `UPDATE outbox_events
+		SET attempts = attempts + 1, next_attempt_at = now() + make_interval(secs => $1)
+		WHERE id = (
 			SELECT id FROM outbox_events
 			WHERE delivered_at IS NULL AND next_attempt_at <= now()
 			ORDER BY next_attempt_at, id
-			LIMIT $1
+			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, topic, payload, attempts`, batch, lease.Seconds())
-	if err != nil {
-		return nil, err
+		RETURNING id, topic, payload, attempts`, lease.Seconds()).Scan(&e.ID, &e.Topic, &e.Payload, &e.Attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Event{}, false, nil
 	}
-	events, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Event, error) {
-		var e Event
-		err := row.Scan(&e.ID, &e.Topic, &e.Payload, &e.Attempts)
-		return e, err
-	})
 	if err != nil {
-		return nil, err
+		return Event{}, false, err
 	}
-	sort.Slice(events, func(i, j int) bool { return events[i].ID < events[j].ID })
-	return events, nil
+	return e, true, nil
 }
 
 func (w *Worker) deliver(ctx context.Context, e Event) {
-	if ctx.Err() != nil {
-		return // The lease ends, and the event is picked up again.
-	}
 	err := w.call(ctx, e)
 	// Not on ctx: a delivery that worked must be recorded even if shutdown has begun.
 	save, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -150,8 +147,10 @@ func (w *Worker) deliver(ctx context.Context, e Event) {
 	}
 	// The payload is not logged, because it can hold personal data.
 	w.Log.Warn("outbox: delivery failed", "id", e.ID, "topic", e.Topic, "attempts", e.Attempts, "error", err.Error())
-	if _, dbErr := w.Pool.Exec(save, "UPDATE outbox_events SET next_attempt_at = now() + make_interval(secs => $2) WHERE id = $1",
-		e.ID, backoff(e.Attempts).Seconds()); dbErr != nil {
+	// attempts is the guard: if another worker has since claimed this event, its lease stands.
+	if _, dbErr := w.Pool.Exec(save, `UPDATE outbox_events SET next_attempt_at = now() + make_interval(secs => $2)
+		WHERE id = $1 AND attempts = $3 AND delivered_at IS NULL`,
+		e.ID, backoff(e.Attempts).Seconds(), e.Attempts); dbErr != nil {
 		w.Log.Error("outbox: could not schedule a retry, so the lease will", "id", e.ID, "topic", e.Topic, "error", dbErr.Error())
 	}
 }

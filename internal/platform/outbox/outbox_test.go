@@ -230,9 +230,8 @@ func TestADeadWorkersEventIsPickedUpAfterTheLease(t *testing.T) {
 	ctx := context.Background()
 	w := &Worker{Pool: pool, Log: quiet, Handle: func(context.Context, Event) error { return nil }}
 	// Claim as a worker that dies before delivering.
-	events, err := w.claim(ctx)
-	if err != nil || len(events) != 1 {
-		t.Fatalf("%v, %v", events, err)
+	if _, ok, err := w.claim(ctx); err != nil || !ok {
+		t.Fatalf("claim: %v, %v", ok, err)
 	}
 	if n, _ := w.RunOnce(ctx); n != 0 {
 		t.Error("another worker took an event still under lease")
@@ -242,6 +241,50 @@ func TestADeadWorkersEventIsPickedUpAfterTheLease(t *testing.T) {
 	}
 	if n, err := w.RunOnce(ctx); err != nil || n != 1 {
 		t.Errorf("after the lease: %d, %v", n, err)
+	}
+}
+
+func TestAnEventIsClaimedOnlyWhenItsTurnComes(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	add(t, pool, "a", 1)
+	add(t, pool, "b", 2)
+	w := &Worker{Pool: pool, Log: quiet, Handle: func(ctx context.Context, e Event) error {
+		if e.Topic == "a" {
+			// While the first is slow, the second holds no lease, so no other worker can repeat it
+			// and its own lease has not started running out.
+			var attempts int
+			if err := pool.QueryRow(ctx, "SELECT attempts FROM outbox_events WHERE topic = 'b'").Scan(&attempts); err != nil {
+				t.Error(err)
+			}
+			if attempts != 0 {
+				t.Errorf("the second event was claimed while the first ran: %d", attempts)
+			}
+		}
+		return nil
+	}}
+	if n, err := w.RunOnce(context.Background()); err != nil || n != 2 {
+		t.Errorf("%d, %v", n, err)
+	}
+}
+
+func TestAStaleFailureCannotShortenAnotherWorkersLease(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	add(t, pool, "a", 1)
+	ctx := context.Background()
+	w := &Worker{Pool: pool, Log: quiet, Handle: func(ctx context.Context, _ Event) error {
+		// Another worker claims the event while this slow one is still running.
+		if _, err := pool.Exec(ctx, "UPDATE outbox_events SET attempts = attempts + 1, next_attempt_at = now() + interval '50 seconds'"); err != nil {
+			t.Error(err)
+		}
+		return errors.New("failed late")
+	}}
+	if _, err := w.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var kept bool
+	scalar(t, pool, "SELECT next_attempt_at > now() + interval '40 seconds' FROM outbox_events", &kept)
+	if !kept {
+		t.Error("a stale failure shortened the other worker's lease, so the event could repeat")
 	}
 }
 

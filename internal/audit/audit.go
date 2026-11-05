@@ -10,8 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/teamprosperlink/Ninzo_backend/internal/platform/secrets"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/sensitive"
 )
+
+// ActorSystem is the actor type for work no person started.
+const ActorSystem = "system"
 
 // Event is one audited change. Before and After are JSON-encoded, and must hold no secrets.
 type Event struct {
@@ -31,6 +34,9 @@ type Event struct {
 func Record(ctx context.Context, tx pgx.Tx, e Event) error {
 	if e.ActorType == "" || e.Action == "" || e.EntityType == "" || e.EntityID == "" {
 		return errors.New("audit: actor type, action, entity type and entity ID are required")
+	}
+	if e.ActorID == "" && e.ActorType != ActorSystem {
+		return errors.New("audit: an actor ID is required, except for system actions")
 	}
 	before, err := encode(e.Before)
 	if err != nil {
@@ -57,7 +63,7 @@ func encode(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if found := secrets.Find(raw); len(found) > 0 {
+	if found := sensitive.Find(raw); len(found) > 0 {
 		return nil, fmt.Errorf("refusing secret fields: %s", strings.Join(found, ", "))
 	}
 	return raw, nil

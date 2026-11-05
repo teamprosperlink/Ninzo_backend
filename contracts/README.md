@@ -88,6 +88,8 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 | Same key, same body, first request still running | 409 `idempotency_in_progress`, with `Retry-After` |
 | Same key, different body | 422 `idempotency_key_reused` |
 
+**A replayed order:** `handover_otp` is null in a replay, because the code is never stored. Get the live code from `GET` or the stream.
+
 **What gets stored:** only `2xx` responses. A rejected request had no effect, so a retry with the same key is checked again against the current state. For example, a cancel rejected with `cancel_not_allowed` can succeed once the maximum wait has passed.
 
 **When to change the key:** keep the same key after a timeout, a network error, a `5xx`, a 401 or 429, or `idempotency_in_progress`, including when the user taps again, because the first request may have worked. Use a new key only after a final `4xx` rejection, or for a new action.

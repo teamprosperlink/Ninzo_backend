@@ -92,6 +92,7 @@ func TestRecordRefusesSecretsAndMissingFields(t *testing.T) {
 		"a password in after":    {ActorType: "system", Action: "a", EntityType: "e", EntityID: "1", After: map[string]any{"password": "P1"}},
 		"a token in before":      {ActorType: "system", Action: "a", EntityType: "e", EntityID: "1", Before: map[string]any{"session": map[string]any{"refresh_token": "T1"}}},
 		"a handover code":        {ActorType: "system", Action: "a", EntityType: "e", EntityID: "1", After: []any{map[string]any{"handover_otp": "4821"}}},
+		"a rider with no ID":     {ActorType: "rider", Action: "a", EntityType: "e", EntityID: "1"},
 		"no actor type":          {Action: "a", EntityType: "e", EntityID: "1"},
 		"no action":              {ActorType: "system", EntityType: "e", EntityID: "1"},
 		"no entity type":         {ActorType: "system", Action: "a", EntityID: "1"},

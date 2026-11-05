@@ -216,9 +216,14 @@ func TestOnlySuccessIsStored(t *testing.T) {
 
 func TestSecondRequestWhileRunningGetsInProgress(t *testing.T) {
 	started, finish := make(chan struct{}), make(chan struct{})
+	var once sync.Once
 	e := newEnv(t, Options{}, func(e *env, w http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-finish
+		// Once, so a second run fails the checks below and does not panic or hang.
+		once.Do(func() { close(started) })
+		select {
+		case <-finish:
+		case <-time.After(5 * time.Second):
+		}
 		effectAndSave(e, w, r)
 	})
 	done := make(chan reply, 1)
@@ -248,7 +253,7 @@ func TestSecondRequestWhileRunningGetsInProgress(t *testing.T) {
 
 func TestManyTapsAtOnceActOnce(t *testing.T) {
 	e := newEnv(t, Options{}, func(e *env, w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond) // Long enough for the taps to overlap.
 		effectAndSave(e, w, r)
 	})
 	const taps = 20
@@ -267,8 +272,8 @@ func TestManyTapsAtOnceActOnce(t *testing.T) {
 	for status := range results {
 		counts[status]++
 	}
-	if counts[201] < 1 || counts[201]+counts[409] != taps {
-		t.Errorf("replies: %v", counts)
+	if counts[201] < 1 || counts[409] < 1 || counts[201]+counts[409] != taps {
+		t.Errorf("the taps must overlap, with some told to wait: %v", counts)
 	}
 	if e.effects() != 1 || e.runs.Load() != 1 {
 		t.Errorf("%d taps acted %d times, ran %d", taps, e.effects(), e.runs.Load())
@@ -441,13 +446,13 @@ func TestStoredRepliesHoldNoSecrets(t *testing.T) {
 	if err := e.pool.QueryRow(context.Background(), "SELECT response::text FROM idempotency_keys").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"4821", "T1", "P1", "handover_otp"} {
+	for _, secret := range []string{"4821", "T1", "P1", "refresh_token"} {
 		if strings.Contains(stored, secret) {
 			t.Errorf("the stored row holds %s: %s", secret, stored)
 		}
 	}
-	if !strings.Contains(stored, `"id": "o1"`) {
-		t.Errorf("the rest was lost: %s", stored)
+	if !strings.Contains(stored, `"id": "o1"`) || !strings.Contains(stored, `"handover_otp": null`) {
+		t.Errorf("the rest was lost, or the required field is missing: %s", stored)
 	}
 	again := e.post("/orders", userA, key, `{}`)
 	if again.header.Get("Idempotency-Replayed") != "true" || strings.Contains(again.raw, "4821") {
@@ -515,6 +520,50 @@ func TestSaveOnlyStoresSuccessAndOnlyInsideTheMiddleware(t *testing.T) {
 	err := database.InTx(context.Background(), e.pool, func(tx pgx.Tx) error { return Save(context.Background(), tx, 200, map[string]any{}) })
 	if err == nil {
 		t.Error("Save outside the middleware must fail")
+	}
+}
+
+func TestAFailedClaimSaysWhenToRetry(t *testing.T) {
+	e := newEnv(t, Options{}, effectAndSave)
+	e.pool.Close()
+	r := e.post("/orders", userA, key, `{}`)
+	if r.status != 503 || r.body["code"] != "service_unavailable" || r.body["retryable"] != true || r.header.Get("Retry-After") == "" {
+		t.Errorf("got %d %v %v", r.status, r.body, r.header)
+	}
+	if e.runs.Load() != 0 {
+		t.Error("the handler ran with no key held")
+	}
+}
+
+func TestARollbackThatStillRepliesSuccessIsNotRepeated(t *testing.T) {
+	e := newEnv(t, Options{}, func(e *env, w http.ResponseWriter, r *http.Request) {
+		_ = database.InTx(r.Context(), e.pool, func(tx pgx.Tx) error {
+			if err := Save(r.Context(), tx, 200, map[string]any{"ok": true}); err != nil {
+				return err
+			}
+			return errors.New("rolled back")
+		})
+		httpserver.WriteJSON(w, 200, map[string]any{"ok": true}) // A handler bug.
+	})
+	e.post("/x", userA, key, `{}`)
+	if r := e.post("/x", userA, key, `{}`); r.status != 200 || r.header.Get("Idempotency-Replayed") != "true" {
+		t.Errorf("got %d %v", r.status, r.header)
+	}
+	if e.runs.Load() != 1 {
+		t.Errorf("ran %d times", e.runs.Load())
+	}
+}
+
+func TestANonJSONReplyIsNotRepeated(t *testing.T) {
+	e := newEnv(t, Options{}, func(e *env, w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("plain text"))
+	})
+	e.post("/x", userA, key, `{}`)
+	if r := e.post("/x", userA, key, `{}`); r.status != 200 || r.header.Get("Idempotency-Replayed") != "true" {
+		t.Errorf("got %d %v", r.status, r.header)
+	}
+	if e.runs.Load() != 1 {
+		t.Errorf("ran %d times", e.runs.Load())
 	}
 }
 

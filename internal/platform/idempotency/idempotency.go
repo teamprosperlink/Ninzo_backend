@@ -10,6 +10,9 @@
 //	    return idempotency.Save(ctx, tx, http.StatusOK, reply)
 //	})
 //	if err == nil { httpserver.WriteJSON(w, http.StatusOK, reply) }
+//
+// Rider actions that can be queued offline do not use this: their key is the event_id, tracked
+// per rider across the direct and queued paths (contracts/README.md, Rider offline events).
 package idempotency
 
 import (
@@ -32,7 +35,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
-	"github.com/teamprosperlink/Ninzo_backend/internal/platform/secrets"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/sensitive"
 )
 
 const (
@@ -66,8 +69,8 @@ type claim struct {
 type claimKey struct{}
 
 // Save stores the reply in the handler's transaction. Secret fields are left out of the stored
-// copy, so a replay does not have them. A reply needing handover_otp must fill it in from the
-// order on replay (data map, section 7).
+// copy. handover_otp stays, as null, so a replayed Order is still valid: the app gets the live
+// code from GET or the stream, and a stored copy can never outlive the order clearing it.
 func Save(ctx context.Context, tx pgx.Tx, status int, body any) error {
 	c, ok := ctx.Value(claimKey{}).(*claim)
 	if !ok {
@@ -93,7 +96,7 @@ func store(ctx context.Context, tx txExec, c *claim, status int, raw []byte) err
 	if status < 200 || status > 299 {
 		return fmt.Errorf("idempotency: only 2xx replies are stored, got %d", status)
 	}
-	stored, err := secrets.Strip(raw)
+	stored, err := sensitive.Strip(raw)
 	if err != nil {
 		return fmt.Errorf("idempotency: the reply is not JSON: %w", err)
 	}
@@ -158,6 +161,7 @@ func Middleware(pool *pgxpool.Pool, opts Options) func(http.Handler) http.Handle
 			outcome, err := c.acquire(r.Context(), pool, hashBody(body, opts.IgnoreBodyFields))
 			if err != nil {
 				opts.Log.Error("idempotency: claim failed", "request_id", httpserver.RequestID(r.Context()), "error", err.Error())
+				w.Header().Set("Retry-After", "5")
 				httpserver.WriteError(w, http.StatusServiceUnavailable, "service_unavailable", "Try again shortly.", true)
 				return
 			}
@@ -201,19 +205,24 @@ func (c *claim) finish(pool *pgxpool.Pool, log *slog.Logger, rec *recorder) {
 		c.release(pool, log)
 		return
 	}
-	if c.saved {
-		return
-	}
-	// A handler should save in its own transaction. This is a fallback: a crash before this line
-	// would repeat the action on retry, so it is logged as a bug to fix.
-	log.Error("idempotency: a handler replied 2xx without Save", "path", c.path, "status", status)
+	// Normally the handler's Save committed, so this changes nothing and returns ErrClaimLost. It
+	// matters when a handler forgot Save, or rolled back and still replied 2xx: without a stored
+	// reply, a retry would act again. A crash before this line can still repeat the action, which
+	// is why handlers must save in their own transaction.
 	raw := rec.body.Bytes()
-	if len(raw) == 0 {
-		raw = []byte("null")
+	if !json.Valid(raw) {
+		raw = []byte("null") // A replay with no body beats acting twice.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := store(ctx, pool, c, status, raw); err != nil {
+	switch err := store(ctx, pool, c, status, raw); {
+	case err == nil:
+		log.Error("idempotency: a handler replied 2xx with no committed Save, which is a bug to fix", "path", c.path, "status", status)
+	case errors.Is(err, ErrClaimLost):
+		if !c.saved {
+			log.Error("idempotency: a handler lost its key and still replied 2xx", "path", c.path, "status", status)
+		}
+	default:
 		log.Error("idempotency: could not store the reply", "path", c.path, "error", err.Error())
 		c.release(pool, log)
 	}
