@@ -202,6 +202,10 @@ func riderRoutes() []route {
 				c.fail(400, "invalid_otp", "That code is wrong.", false)
 			case c.scenario == "otp_expired":
 				c.fail(400, "otp_expired", "That code has expired.", false)
+			case c.scenario == "account_blocked":
+				accountBlocked(c)
+			case c.scenario == "rider_not_approved":
+				c.fail(409, "rider_not_approved", "This rider is not approved yet.", false)
 			default:
 				c.json(200, sessionReply(riderSessionFields(c)))
 			}
@@ -211,7 +215,7 @@ func riderRoutes() []route {
 				return
 			}
 			if _, ok := needsBody(c, "new_password"); ok {
-				c.json(200, sessionReply(riderSessionFields(c)))
+				c.json(200, map[string]any{})
 			}
 		}},
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
@@ -493,6 +497,8 @@ func riderPasswordLogin(c *call) {
 	switch c.scenario {
 	case "invalid_credentials":
 		c.fail(401, "invalid_credentials", "That sign-in did not work.", false)
+	case "account_blocked":
+		accountBlocked(c)
 	case "rate_limited":
 		c.fail(429, "otp_attempts_exceeded", "Too many attempts.", true)
 	default:

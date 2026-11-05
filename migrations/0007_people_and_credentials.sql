@@ -47,12 +47,14 @@ CREATE TABLE rider_credentials (
 );
 ALTER TABLE rider_credentials ENABLE ROW LEVEL SECURITY;
 
--- A code works only for the purpose it was sent for.
+-- A code works only for the purpose it was sent for, and verify_phone codes only in the
+-- session that asked for them.
 ALTER TABLE otp_requests
+    ADD COLUMN requested_by uuid,
     ADD COLUMN purpose text NOT NULL CHECK (purpose IN ('sign_in', 'verify_phone', 'password_reset', 'rider_application'));
 
 -- +goose Down
-ALTER TABLE otp_requests DROP COLUMN purpose;
+ALTER TABLE otp_requests DROP COLUMN purpose, DROP COLUMN requested_by;
 DROP TABLE rider_credentials;
 ALTER TABLE riders
     DROP CONSTRAINT riders_status_check,

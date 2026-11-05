@@ -1290,7 +1290,7 @@ openapi: 3.1.0
 paths:
     /auth/otp/request:
         post:
-            description: 'Send a phone or a rider ID, not both. The reply is the same whether or not the account exists, and no SMS is sent if it does not. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+            description: 'Send a phone or a rider ID, not both. The reply is the same whether or not the account exists, and no SMS is sent if it does not. Later errors on that request_id behave the same either way. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
             operationId: requestOtp
             requestBody:
                 content:
@@ -1342,7 +1342,7 @@ paths:
                 - auth
     /auth/otp/verify:
         post:
-            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). After a correct code, a blocked person or suspended rider gets account_blocked (403).'
             operationId: verifyOtp
             requestBody:
                 content:
@@ -1369,6 +1369,8 @@ paths:
                     description: Signed in.
                 "400":
                     $ref: '#/components/responses/BadRequest'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -1381,7 +1383,7 @@ paths:
                 - auth
     /auth/password/login:
         post:
-            description: 'Send a phone or a rider ID, not both. Errors: invalid_credentials (401), the same for a wrong password and an unknown account. Too many attempts return otp_attempts_exceeded (429).'
+            description: 'Send a phone or a rider ID, not both. Errors: invalid_credentials (401), the same for a wrong password, an unknown account, and an account with no password. Too many attempts on that phone or rider ID return otp_attempts_exceeded (429), for any account. After a correct password, a blocked person or suspended rider gets account_blocked (403).'
             operationId: signInWithPassword
             requestBody:
                 content:
@@ -1422,6 +1424,8 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -1434,7 +1438,7 @@ paths:
                 - auth
     /auth/password/reset:
         post:
-            description: 'Uses a code requested with purpose password_reset. Signs the rider out everywhere, and returns a new session. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+            description: 'Uses a code requested with purpose password_reset. Signs the rider out everywhere, and returns a new session. If the reply is lost, the retry returns invalid_otp, though the password has changed, so try signing in with the new password. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), rider_not_approved (409) for an applicant. After a correct code, a blocked person or suspended rider gets account_blocked (403).'
             operationId: resetPassword
             requestBody:
                 content:
@@ -1466,6 +1470,10 @@ paths:
                     description: Reset, with a new session.
                 "400":
                     $ref: '#/components/responses/BadRequest'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -2236,7 +2244,7 @@ paths:
                 - offers
     /riders/me/password:
         post:
-            description: 'Only an approved rider can set one. current_password is needed if one is already set. Other sessions are signed out, and this one continues with the new pair. Errors, all 409: rider_not_approved, wrong_password.'
+            description: 'Only an approved rider can set one. current_password is needed if one is already set. Other sessions are signed out, and this session keeps its tokens. The reply holds no tokens, so a stored reply never holds a secret, and the request hash leaves out passwords. Errors, all 409: rider_not_approved, wrong_password.'
             operationId: setRiderPassword
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2262,8 +2270,8 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/RiderSession'
-                    description: Changed, with a new pair.
+                                $ref: '#/components/schemas/Done'
+                    description: Changed.
                 "400":
                     $ref: '#/components/responses/BadRequest'
                 "401":

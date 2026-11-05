@@ -71,6 +71,7 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 
 | Endpoint | Why |
 |---|---|
+| `signInWithGoogle`, `signInWithPassword`, `requestPhoneOtp`, `verifyPhone`, `resetPassword` | A stored reply would hold tokens or secrets. Each operation says how to recover from a lost reply |
 | OTP request, OTP verify, token refresh | Limited by rate and by single-use codes |
 | Location ping | Pings are not repeated actions |
 | Offline event batch | Each event has its own `event_id` |
@@ -99,14 +100,14 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - Cursors are opaque. There is no offset paging.
 
 ## Sign-in
-- Requests send `Authorization: Bearer <access_token>`, except OTP, refresh and webhook endpoints.
+- Requests send `Authorization: Bearer <access_token>`, except sign-in, password reset, refresh and webhook endpoints.
 - Access tokens last 15 minutes by default.
 - Refresh tokens are single use. Each refresh returns a new pair.
 - A client sends only one refresh at a time. Other requests wait for its result.
 - If a used token comes back and the pair issued from it has not been used, the response was probably lost, so the server returns a valid pair (**Proposed**).
 - If that pair has been used, the token may have been stolen, so that token's chain is revoked and the user signs in again (**Proposed**).
 - Refresh tokens last 90 days for customers and riders, restarting at each use, so a working rider is not signed out (**Proposed**).
-- Customers sign in with phone OTP or Google. Apple comes later. A phone must be verified before the first order: `createOrder` returns `phone_required`.
+- Customers sign in with phone OTP or Google. Apple comes later. Until a phone is verified, a customer can only browse: `createOrder`, `createGate`, `notifyWhenAvailable` and `createTicket` return `phone_required`.
 - `verifyPhone` returns a new session, and the old tokens stop working. `customer_id` can change, if that phone already has an account.
 - Riders sign in with a phone or a rider ID, using OTP or a password. A failed rider sign-in never says whether the account exists.
 - A rider with status `applicant` can sign in, but cannot start a shift: `startShift` returns `rider_not_approved`.

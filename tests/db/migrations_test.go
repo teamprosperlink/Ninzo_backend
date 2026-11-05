@@ -599,9 +599,30 @@ func TestServiceRole(t *testing.T) {
 	if err := asService("DELETE FROM audit_events"); err == nil || !strings.Contains(err.Error(), "append-only") {
 		t.Errorf("audit rows must stay append-only for the service: %v", err)
 	}
+	var history bool
+	if err := db.QueryRow("SELECT has_sequence_privilege('ninzo_service', pg_get_serial_sequence('goose_db_version', 'id'), 'USAGE,UPDATE')").Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if history {
+		t.Error("the service can use the migration history sequence")
+	}
 	// A table from a later migration must work without a new grant.
-	mustExec(t, db, "CREATE TABLE later_table (id integer GENERATED ALWAYS AS IDENTITY)")
+	mustExec(t, db, "CREATE TABLE later_table (id serial)")
 	if err := asService("INSERT INTO later_table DEFAULT VALUES"); err != nil {
 		t.Errorf("default grants: %v", err)
+	}
+}
+
+// The role belongs to the whole server, so it may exist already, without the right settings.
+func TestServiceRoleIsFixedIfItAlreadyExists(t *testing.T) {
+	db, p := freshDB(t)
+	mustExec(t, db, "CREATE ROLE ninzo_service NOLOGIN NOBYPASSRLS CREATEDB")
+	up(t, p)
+	var login, bypass, createDB bool
+	if err := db.QueryRow("SELECT rolcanlogin, rolbypassrls, rolcreatedb FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&login, &bypass, &createDB); err != nil {
+		t.Fatal(err)
+	}
+	if !login || !bypass || createDB {
+		t.Errorf("login %v, bypassrls %v, createdb %v", login, bypass, createDB)
 	}
 }

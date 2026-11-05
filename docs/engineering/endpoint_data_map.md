@@ -87,6 +87,8 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | Riders by map cell | `cell:{h3}` | `locationPing` |
 | Live stream fan-out | Pub/sub per order and per rider | Any change a stream reader can see |
 | Rate limits | OTP and ping counters | `requestOtp`, `verifyOtp`, `locationPing` |
+| Sign-in attempts | Per submitted phone or rider ID, so an unknown account locks like a real one | `signInWithPassword`, `verifyOtp`, `resetPassword` |
+| Decoy OTP requests | For an unknown rider account: expiry and attempts, so later errors match a real request | `requestOtp`, `verifyOtp`, `resetPassword` |
 | Availability cache | Short-lived, per gate | `getAvailability` |
 
 `locationPing` writes every ping to `location_pings`. The zone check uses that table, `location_zones` and `orders`, so a Redis failure cannot change a timer. If Redis is down, no new offers go out, because rider positions are unknown.
@@ -100,19 +102,19 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `signInWithGoogle` | `person_identities`, `people`, `customers` | `people`, `person_identities`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | Google's public keys |
 | `requestPhoneOtp` | `customers`, `people` | `otp_requests` | Rate limit | SMS gateway |
 | `verifyPhone` | `otp_requests`, `customers`, `people`, `person_identities`, `refresh_tokens` | `otp_requests`, `people`, `person_identities`, `customers`, `refresh_tokens`, `devices`, `outbox_events`, `audit_events` | Rate limit | |
-| `refreshToken` | `refresh_tokens` | `refresh_tokens` | | |
+| `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens` | | |
 | `getMe` | `customers`, `people` | | | |
 | `updateMe` | `customers`, `people` | `customers`, `audit_events`, `idempotency_keys` | | |
 | `registerDevice` | `devices` | `devices`, `idempotency_keys` | | |
 | `removeDevice` | `devices` | `devices`, `idempotency_keys` | | |
 | `listGates` | `gates` | | | |
-| `createGate` | `zones`, `gates` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` | | |
+| `createGate` | `customers`, `people`, `zones`, `gates` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` | | |
 | `listMenuItems` | `menu_items` | | | |
 | `getMenuItem` | `menu_items` | | | |
 | `getAvailability` | `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooter_stock`, `lots`, `scooters`, `orders` | | Positions, cells, cache | Routing engine |
-| `notifyWhenAvailable` | `gates` | `availability_notifications`, `idempotency_keys` | | |
+| `notifyWhenAvailable` | `customers`, `people`, `gates` | `availability_notifications`, `idempotency_keys` | | |
 | `listOrders` | `orders`, `order_items`, `payments`, `gates`, `riders`, `remedies` | | | |
-| `createOrder` | `people`, `orders`, `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooters`, `scooter_stock`, `lots` | `orders`, `order_items`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |
+| `createOrder` | `people`, `customers`, `orders`, `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooters`, `scooter_stock`, `lots` | `orders`, `order_items`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |
 | `getOrder` | `orders`, `order_items`, `payments`, `gates`, `riders`, `eta_offers`, `remedies` | | | |
 | `cancelOrder` | `orders`, `payments`, `reservations`, `offers` | `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `offers`, `rider_state`, `refunds`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | None: the refund runs from a task |
 | `changeOrderGate` | `orders`, `gates`, `zones`, `zone_settings`, `scooters`, `scooter_stock`, `lots`, `reservations`, `payments` | `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |
@@ -120,7 +122,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `acceptLongerEta` | `orders`, `eta_offers`, `scooters`, `scooter_stock`, `zone_settings` | `orders`, `order_events`, `eta_offers`, `reservations`, `scooter_stock`, `stock_ledger`, `scheduled_tasks`, `outbox_events`, `idempotency_keys` | Fan-out | |
 | `startMaskedCall` | `orders`, `riders`, `customers` | `audit_events`, `idempotency_keys` | | Telephony |
 | `getOrderRefund` | `orders`, `refunds` | | | |
-| `createTicket` | `orders` | `support_tickets`, `ticket_messages`, `outbox_events`, `idempotency_keys` | | |
+| `createTicket` | `customers`, `people`, `orders` | `support_tickets`, `ticket_messages`, `outbox_events`, `idempotency_keys` | | |
 | `getTicket` | `support_tickets`, `ticket_messages` | | | |
 | `razorpayWebhook` | `webhook_events`, `payments`, `orders`, `reservations`, `scooter_stock`, `scooters`, `zone_settings`, `location_zones` | `webhook_events`, `payments`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `refunds`, `scheduled_tasks`, `outbox_events`, `audit_events` | Positions, fan-out | None: any refund runs from a task |
 
@@ -136,8 +138,8 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `verifyOtp` | `otp_requests`, `riders`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `signInWithPassword` | `riders`, `people`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `resetPassword` | `otp_requests`, `riders`, `people` | `otp_requests`, `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
-| `setRiderPassword` | `riders`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events`, `idempotency_keys` | | |
-| `refreshToken` | `refresh_tokens` | `refresh_tokens` | | |
+| `setRiderPassword` | `riders`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events`, `idempotency_keys`, holding no tokens or passwords | | |
+| `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens` | | |
 | `getRider` | `riders` | | | |
 | `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
 | `getVerification` | `rider_verifications` | | | |
@@ -191,7 +193,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
 | `suggest_relocations` | `scooters`, `staging_nodes`, `orders`, `zone_settings` | `relocations`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
 | `suggest_restocks` | `scooters`, `scooter_stock`, `lots`, `zone_settings` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
-| `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided | |
+| `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided. `ninzo_service` cannot create tables, so this needs a narrow function made by a migration, in v0.5.0 | |
 
 ## 6. What must happen in one transaction
 

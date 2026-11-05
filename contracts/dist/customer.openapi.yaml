@@ -840,7 +840,7 @@ openapi: 3.1.0
 paths:
     /auth/google:
         post:
-            description: 'The app gets an ID token from Google and sends it here. The first sign-in creates the account. Check phone_verified in the reply, because a phone must be verified before the first order. Errors: invalid_google_token (401). A blocked person gets account_blocked (403).'
+            description: 'The app gets an ID token from Google, requested for Ninzo''s Google web client ID, and sends it here. That ID is in the shared Doc once created. The server checks the token''s audience against it. The first sign-in creates the account. Check phone_verified in the reply, because a phone must be verified before the first order. Errors: invalid_google_token (401). A blocked person gets account_blocked (403).'
             operationId: signInWithGoogle
             requestBody:
                 content:
@@ -916,7 +916,7 @@ paths:
                 - auth
     /auth/otp/verify:
         post:
-            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). A blocked person gets account_blocked (403).'
             operationId: verifyOtp
             requestBody:
                 content:
@@ -943,6 +943,8 @@ paths:
                     description: Signed in.
                 "400":
                     $ref: '#/components/responses/BadRequest'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -1020,7 +1022,7 @@ paths:
                 - menu
     /availability/notify:
         post:
-            description: Sends one push when the gate has an offer again.
+            description: 'Sends one push when the gate has an offer again. Needs a verified phone. Errors: phone_required (409).'
             operationId: notifyWhenAvailable
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1078,7 +1080,7 @@ paths:
             tags:
                 - gates
         post:
-            description: 'Errors: out_of_service_area (400), duplicate_gate (409).'
+            description: 'Needs a verified phone. Errors: out_of_service_area (400), duplicate_gate and phone_required (both 409).'
             operationId: createGate
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1296,7 +1298,7 @@ paths:
                 - auth
     /me/phone/verify:
         post:
-            description: 'Returns a new session, and the old tokens stop working, so replace them. customer_id can change, if this phone already has an account. Verifying the same phone again returns 200. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), phone_already_linked (409) if that account already has a different Google account, and account_blocked (403).'
+            description: 'Use the request_id from requestPhoneOtp in this same session. Returns a new session, and the old tokens stop working. Replace them, and replace customer_id, which can change if this phone already has an account. Reload anything that holds the old ID. Verifying the phone already on this account with a new code returns 200. If the reply is lost, the old token returns 401, so sign in again: the phone is already verified. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). All 409: phone_already_set if this account has a different verified phone, phone_already_linked if that phone''s account has a different Google account.'
             operationId: verifyPhone
             requestBody:
                 content:
@@ -1674,7 +1676,7 @@ paths:
                 - support
     /support/tickets:
         post:
-            description: For example, missing or cold food.
+            description: 'For example, missing or cold food. Needs a verified phone. Errors: phone_required (409).'
             operationId: createTicket
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'

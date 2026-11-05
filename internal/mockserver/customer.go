@@ -9,9 +9,10 @@ import (
 // from the customer KT doc. The rest come from the owner's flow in decision 0007.
 var customerScenarios = map[string]string{
 	"invalid_google_token": "Google sign-in fails with invalid_google_token",
-	"account_blocked":      "Google sign-in and phone verification fail with account_blocked",
-	"phone_not_verified":   "GET me has no phone. POST order fails with phone_required",
+	"account_blocked":      "Every sign-in and phone verification fail with account_blocked",
+	"phone_not_verified":   "GET me has no phone. Orders, gates, notify requests and tickets fail with phone_required",
 	"phone_already_linked": "Phone verification fails with phone_already_linked",
+	"phone_already_set":    "Phone verification fails with phone_already_set",
 	"no_scooter":           "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
 	"no_scooter_no_offer":  "No scooter available, and no longer ETA on offer",
 	"offer_timeout":        "No rider took the offer in time, so the order is at no_scooter",
@@ -115,6 +116,9 @@ func customerRoutes() []route {
 			c.json(200, map[string]any{"gates": []map[string]any{sampleGate()}})
 		}},
 		{method: "POST", path: "/gates", handle: func(c *call) {
+			if phoneRequired(c) {
+				return
+			}
 			switch c.scenario {
 			case "out_of_service_area":
 				c.fail(400, "out_of_service_area", "This pin is outside the service area.", false)
@@ -147,6 +151,9 @@ func customerRoutes() []route {
 		}},
 		{method: "GET", path: "/availability", handle: availability},
 		{method: "POST", path: "/availability/notify", handle: func(c *call) {
+			if phoneRequired(c) {
+				return
+			}
 			if _, ok := needsBody(c, "gate_id"); ok {
 				c.json(201, map[string]any{})
 			}
@@ -155,8 +162,7 @@ func customerRoutes() []route {
 			c.json(200, map[string]any{"orders": []map[string]any{currentOrder("handed_over", c.now)}, "next_cursor": nil})
 		}},
 		{method: "POST", path: "/orders", handle: func(c *call) {
-			if c.scenario == "phone_not_verified" {
-				c.fail(409, "phone_required", "Verify a phone before ordering.", false)
+			if phoneRequired(c) {
 				return
 			}
 			createOrder(c)
@@ -236,6 +242,9 @@ func customerRoutes() []route {
 			}})
 		}},
 		{method: "POST", path: "/support/tickets", handle: func(c *call) {
+			if phoneRequired(c) {
+				return
+			}
 			if _, ok := needsBody(c, "type", "text"); ok {
 				c.json(201, map[string]any{"ticket": sampleTicket(c.now)})
 			}
@@ -283,6 +292,8 @@ func otpVerify(c *call, session map[string]any) {
 		c.fail(400, "invalid_otp", "That code is wrong.", false)
 	case c.scenario == "otp_expired":
 		c.fail(400, "otp_expired", "That code has expired.", false)
+	case c.scenario == "account_blocked":
+		accountBlocked(c)
 	default:
 		c.json(200, sessionReply(session))
 	}
@@ -376,13 +387,23 @@ func googleSignIn(c *call) {
 
 func verifyPhone(c *call) {
 	switch c.scenario {
-	case "account_blocked":
-		accountBlocked(c)
 	case "phone_already_linked":
 		if _, ok := needsBody(c, "request_id", "otp"); ok {
 			c.fail(409, "phone_already_linked", "This phone already has a different Google account. Sign in with OTP.", false)
 		}
+	case "phone_already_set":
+		if _, ok := needsBody(c, "request_id", "otp"); ok {
+			c.fail(409, "phone_already_set", "This account already has a different verified phone.", false)
+		}
 	default:
 		otpVerify(c, map[string]any{"customer_id": "cus_mock0001", "phone_verified": true})
 	}
+}
+
+func phoneRequired(c *call) bool {
+	if c.scenario != "phone_not_verified" {
+		return false
+	}
+	c.fail(409, "phone_required", "Verify a phone first.", false)
+	return true
 }

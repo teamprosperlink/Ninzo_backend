@@ -40,9 +40,11 @@ paths:
       - auth
       operationId: requestOtp
       summary: Send a sign-in code
-      description: 'Send a phone or a rider ID, not both. The reply is the same whether or not the account
-        exists, and no SMS is sent if it does not. Errors: invalid_request for a bad phone number, otp_resend_limit
-        (429) when the resend limit is reached.'
+      description: >-
+        Send a phone or a rider ID, not both. The reply is the same whether or not the account
+        exists, and no SMS is sent if it does not. Later errors on that request_id behave the same
+        either way. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the
+        resend limit is reached.
       security: []
       requestBody:
         required: true
@@ -94,7 +96,9 @@ paths:
       - auth
       operationId: verifyOtp
       summary: Sign in with the code
-      description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+      description: >-
+        Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). After a
+        correct code, a blocked person or suspended rider gets account_blocked (403).
       security: []
       requestBody:
         required: true
@@ -121,6 +125,8 @@ paths:
                 $ref: '#/components/schemas/RiderSession'
         '400':
           $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '429':
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
@@ -169,8 +175,11 @@ paths:
       - auth
       operationId: signInWithPassword
       summary: Sign in with a password
-      description: 'Send a phone or a rider ID, not both. Errors: invalid_credentials (401), the same for
-        a wrong password and an unknown account. Too many attempts return otp_attempts_exceeded (429).'
+      description: >-
+        Send a phone or a rider ID, not both. Errors: invalid_credentials (401), the same for a
+        wrong password, an unknown account, and an account with no password. Too many attempts on
+        that phone or rider ID return otp_attempts_exceeded (429), for any account. After a correct
+        password, a blocked person or suspended rider gets account_blocked (403).
       security: []
       requestBody:
         required: true
@@ -211,6 +220,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '429':
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
@@ -223,8 +234,13 @@ paths:
       - auth
       operationId: resetPassword
       summary: Reset a forgotten password
-      description: 'Uses a code requested with purpose password_reset. Signs the rider out everywhere, and
-        returns a new session. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+      description: >-
+        Uses a code requested with purpose password_reset. Signs the rider out everywhere, and
+        returns a new session. If the reply is lost, the retry returns invalid_otp, though the
+        password has changed, so try signing in with the new password. Errors: invalid_otp and
+        otp_expired (both 400), otp_attempts_exceeded (429), rider_not_approved (409) for an
+        applicant. After a correct code, a blocked person or suspended rider gets account_blocked
+        (403).
       security: []
       requestBody:
         required: true
@@ -256,6 +272,10 @@ paths:
                 $ref: '#/components/schemas/RiderSession'
         '400':
           $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
         '429':
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
@@ -268,9 +288,11 @@ paths:
       - auth
       operationId: setRiderPassword
       summary: Set or change the password
-      description: 'Only an approved rider can set one. current_password is needed if one is already set.
-        Other sessions are signed out, and this one continues with the new pair. Errors, all 409:
-        rider_not_approved, wrong_password.'
+      description: >-
+        Only an approved rider can set one. current_password is needed if one is already set. Other
+        sessions are signed out, and this session keeps its tokens. The reply holds no tokens, so a
+        stored reply never holds a secret, and the request hash leaves out passwords. Errors, all
+        409: rider_not_approved, wrong_password.
       parameters:
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
@@ -292,11 +314,11 @@ paths:
                   maxLength: 128
       responses:
         '200':
-          description: Changed, with a new pair.
+          description: Changed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RiderSession'
+                $ref: '#/components/schemas/Done'
         '400':
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':

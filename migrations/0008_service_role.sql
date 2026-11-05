@@ -10,11 +10,12 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ninzo_service') THEN
-        CREATE ROLE ninzo_service LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
+        CREATE ROLE ninzo_service;
     END IF;
 END;
 $$;
 -- +goose StatementEnd
+ALTER ROLE ninzo_service LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
 
 GRANT USAGE ON SCHEMA public TO ninzo_service;
 GRANT USAGE ON SCHEMA extensions TO ninzo_service;
@@ -23,6 +24,26 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ninzo_service;
 REVOKE ALL ON goose_db_version FROM ninzo_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ninzo_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ninzo_service;
+
+-- GRANT only warns when it lacks the right, and a role that already existed could differ, so
+-- check the result and stop if it is wrong. Migration history stays out of the role's reach.
+-- +goose StatementBegin
+DO $$
+DECLARE
+    history_sequence text := pg_get_serial_sequence('goose_db_version', 'id');
+BEGIN
+    IF history_sequence IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM ninzo_service', history_sequence);
+    END IF;
+    IF NOT has_schema_privilege('ninzo_service', 'extensions', 'USAGE') THEN
+        RAISE EXCEPTION 'ninzo_service has no USAGE on schema extensions';
+    END IF;
+    IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service') THEN
+        RAISE EXCEPTION 'ninzo_service cannot bypass Row Level Security';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
 
 -- +goose Down
 -- The role stays, because it belongs to the whole server. It keeps no access here.
