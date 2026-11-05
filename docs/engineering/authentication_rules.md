@@ -181,13 +181,13 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | A customer becomes a rider | Applies. A rider profile is added to the same person, and nothing is copied |
 | A customer tries the rider app with no application | Offered the application. No rider data or orders are shown |
 | Support is also a rider | One person with two separate sessions |
-| Google sign-in for a new person | A person with no phone, and a customer profile. Until the phone is verified they can only browse: orders, gates, notify requests and tickets return `phone_required`. So an unverified profile holds nothing that a move would lose, except its name |
+| Google sign-in for a new person | A person with no phone, and a customer profile. Until the phone is verified they can only view the menu: orders, gates, notify requests and tickets return `phone_required`, and availability needs a saved gate. So an unverified profile holds nothing that a move would lose, except its name |
 | Google sign-in, then the phone proves to be an existing person | The Google identity moves to that person, and the new person is removed. It cannot have orders, because ordering needs a verified phone. See the rules below |
 | That existing person already has a different Google identity | Refused with a clear error, asking them to sign in with OTP. **Proposed** |
 | An SMS outage | People already signed in are not affected. Riders, partners and staff can use passwords. New customers can use Google or Apple, but cannot verify a phone until it returns |
 | A Google or Apple outage | Those users can sign in with phone OTP, if their phone is verified |
 | A customer with a verified phone verifies a different number | Refused with `phone_already_set`. Changing a phone is a separate flow, because it moves every role |
-| The reply to `verifyPhone` is lost | The old token returns 401, so they sign in again, and the phone is already verified |
+| The reply to `verifyPhone` is lost | A retry returns 401 or `invalid_otp`, because the old access token can last 15 minutes. They sign in again, and the phone is already verified |
 | The reply to a password reset is lost | The retry returns `invalid_otp`, so they try the new password |
 | A weak network during renewal | The retry returns a valid pair, and the rider is not signed out |
 

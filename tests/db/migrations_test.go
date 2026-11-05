@@ -410,6 +410,7 @@ func TestDatabaseRefusesBadData(t *testing.T) {
 		{"two Google accounts on one person", "INSERT INTO person_identities (person_id, provider, subject) VALUES ('" + personA + "', 'google', 'sub-b')", uniqueViolation, "person_identities_one_per_provider"},
 		{"an unknown provider", "INSERT INTO person_identities (person_id, provider, subject) VALUES ('" + personB + "', 'facebook', 'sub-c')", checkViolation, "person_identities_provider_check"},
 		{"an OTP with an unknown purpose", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at) VALUES ('customer', 'other', '+919876543210', '" + hash + "', now())", checkViolation, "otp_requests_purpose_check"},
+		{"a phone verification code with no session", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at) VALUES ('customer', 'verify_phone', '+919876543210', '" + hash + "', now())", checkViolation, "otp_requests_verify_phone_has_requester"},
 		{"an OTP with no purpose", "INSERT INTO otp_requests (actor_type, phone, code_hash, expires_at) VALUES ('customer', '+919876543210', '" + hash + "', now())", "23502", ""},
 		{"a plain sign-in code", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at) VALUES ('customer', 'sign_in', '+919876543210', '123456', now())", checkViolation, "otp_requests_code_hash_check"},
 		{"a plain refresh token", "INSERT INTO refresh_tokens (actor_type, actor_id, chain_id, token_hash, expires_at) VALUES ('rider', '" + actorA + "', '" + actorA + "', 'short', now())", checkViolation, "refresh_tokens_token_hash_check"},
@@ -616,13 +617,66 @@ func TestServiceRole(t *testing.T) {
 // The role belongs to the whole server, so it may exist already, without the right settings.
 func TestServiceRoleIsFixedIfItAlreadyExists(t *testing.T) {
 	db, p := freshDB(t)
-	mustExec(t, db, "CREATE ROLE ninzo_service NOLOGIN NOBYPASSRLS CREATEDB")
+	mustExec(t, db, "CREATE ROLE ninzo_service NOLOGIN NOBYPASSRLS")
 	up(t, p)
-	var login, bypass, createDB bool
-	if err := db.QueryRow("SELECT rolcanlogin, rolbypassrls, rolcreatedb FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&login, &bypass, &createDB); err != nil {
+	var login, bypass bool
+	if err := db.QueryRow("SELECT rolcanlogin, rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&login, &bypass); err != nil {
 		t.Fatal(err)
 	}
-	if !login || !bypass || createDB {
-		t.Errorf("login %v, bypassrls %v, createdb %v", login, bypass, createDB)
+	if !login || !bypass {
+		t.Errorf("login %v, bypassrls %v", login, bypass)
+	}
+}
+
+func TestMigrationStopsIfTheServiceRoleHasTooMuchPower(t *testing.T) {
+	db, p := freshDB(t)
+	mustExec(t, db, "CREATE ROLE ninzo_service CREATEDB")
+	if _, err := p.Up(context.Background()); err == nil || !strings.Contains(err.Error(), "more power") {
+		t.Errorf("expected a refusal, got %v", err)
+	}
+}
+
+// TestMigrationsRunLikeOnSupabase runs them as a role with the powers postgres really has
+// there, read from the live project on 2026-11-05: not a superuser, but CREATEROLE, CREATEDB
+// and BYPASSRLS, and owner of the extensions schema. PostGIS is already installed, as a
+// non-superuser could not install it here.
+func TestMigrationsRunLikeOnSupabase(t *testing.T) {
+	// Registered first, so it runs last, once the database this role owns has been dropped.
+	t.Cleanup(func() {
+		admin, err := sql.Open("pgx", os.Getenv("TEST_DATABASE_URL"))
+		if err != nil {
+			t.Errorf("drop role: %v", err)
+			return
+		}
+		defer admin.Close()
+		if _, err := admin.Exec("DROP ROLE IF EXISTS ninzo_test_supabase"); err != nil {
+			t.Errorf("drop role: %v", err)
+		}
+	})
+	db, p := freshDB(t)
+	db.SetMaxOpenConns(1)
+	mustExec(t, db, "CREATE ROLE ninzo_test_supabase NOLOGIN")
+	var name string
+	if err := db.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"ALTER ROLE ninzo_test_supabase CREATEROLE CREATEDB BYPASSRLS",
+		"CREATE SCHEMA extensions AUTHORIZATION ninzo_test_supabase",
+		"CREATE EXTENSION postgis SCHEMA extensions",
+		"ALTER DATABASE " + name + " OWNER TO ninzo_test_supabase",
+		"SET SESSION AUTHORIZATION ninzo_test_supabase",
+	} {
+		mustExec(t, db, stmt)
+	}
+	if _, err := p.Up(context.Background()); err != nil {
+		t.Fatalf("migrations failed for a non-superuser: %v", err)
+	}
+	var bypass bool
+	if err := db.QueryRow("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&bypass); err != nil {
+		t.Fatal(err)
+	}
+	if !bypass {
+		t.Error("ninzo_service cannot bypass Row Level Security")
 	}
 }

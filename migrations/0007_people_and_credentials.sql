@@ -51,7 +51,8 @@ ALTER TABLE rider_credentials ENABLE ROW LEVEL SECURITY;
 -- session that asked for them.
 ALTER TABLE otp_requests
     ADD COLUMN requested_by uuid,
-    ADD COLUMN purpose text NOT NULL CHECK (purpose IN ('sign_in', 'verify_phone', 'password_reset', 'rider_application'));
+    ADD COLUMN purpose text NOT NULL CHECK (purpose IN ('sign_in', 'verify_phone', 'password_reset', 'rider_application')),
+    ADD CONSTRAINT otp_requests_verify_phone_has_requester CHECK (purpose <> 'verify_phone' OR requested_by IS NOT NULL);
 
 -- +goose Down
 ALTER TABLE otp_requests DROP COLUMN purpose, DROP COLUMN requested_by;

@@ -10,12 +10,15 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ninzo_service') THEN
-        CREATE ROLE ninzo_service;
+        CREATE ROLE ninzo_service LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
+    ELSE
+        -- A non-superuser, like postgres on Supabase, cannot remove powers from a role, so a
+        -- role that has too many stops the migration below.
+        ALTER ROLE ninzo_service LOGIN BYPASSRLS;
     END IF;
 END;
 $$;
 -- +goose StatementEnd
-ALTER ROLE ninzo_service LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
 
 GRANT USAGE ON SCHEMA public TO ninzo_service;
 GRANT USAGE ON SCHEMA extensions TO ninzo_service;
@@ -40,6 +43,9 @@ BEGIN
     END IF;
     IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service') THEN
         RAISE EXCEPTION 'ninzo_service cannot bypass Row Level Security';
+    END IF;
+    IF (SELECT rolsuper OR rolcreatedb OR rolcreaterole FROM pg_roles WHERE rolname = 'ninzo_service') THEN
+        RAISE EXCEPTION 'ninzo_service has more power than it should';
     END IF;
 END;
 $$;

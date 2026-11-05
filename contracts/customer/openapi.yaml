@@ -149,7 +149,7 @@ paths:
         The app gets an ID token from Google, requested for Ninzo's Google web client ID, and sends
         it here. That ID is in the shared Doc once created. The server checks the token's audience
         against it. The first sign-in creates the account. Check phone_verified in the reply,
-        because a phone must be verified before the first order. Errors: invalid_google_token
+        because a phone must be verified before anything but viewing the menu. Errors: invalid_google_token
         (401). A blocked person gets account_blocked (403).
       security: []
       requestBody:
@@ -227,8 +227,7 @@ paths:
         Use the request_id from requestPhoneOtp in this same session. Returns a new session, and
         the old tokens stop working. Replace them, and replace customer_id, which can change if
         this phone already has an account. Reload anything that holds the old ID. Verifying the
-        phone already on this account with a new code returns 200. If the reply is lost, the old
-        token returns 401, so sign in again: the phone is already verified. Errors: invalid_otp and
+        phone already on this account with a new code returns 200. If the reply is lost, a retry returns 401 or invalid_otp, because the old access token can last 15 minutes. Either way, sign in again: the phone is already verified. Errors: invalid_otp and
         otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). All 409:
         phone_already_set if this account has a different verified phone, phone_already_linked if
         that phone's account has a different Google account.
@@ -495,7 +494,7 @@ paths:
       tags: [menu]
       operationId: getAvailability
       summary: See what is in reach of a gate
-      description: Returns only items truly in reach, with quantity left.
+      description: Returns only items truly in reach, with quantity left. This needs a saved gate, and saving a gate needs a verified phone.
       parameters:
         - name: gate_id
           in: query
@@ -1031,7 +1030,7 @@ components:
           $ref: '../shared/common.yaml#/components/schemas/Id'
         phone_verified:
           type: boolean
-          description: False means the customer must verify a phone before ordering.
+          description: False means the customer must verify a phone before doing anything but viewing the menu.
         server_time:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     Customer:

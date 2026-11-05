@@ -238,8 +238,7 @@ paths:
         Uses a code requested with purpose password_reset. Signs the rider out everywhere, and
         returns a new session. If the reply is lost, the retry returns invalid_otp, though the
         password has changed, so try signing in with the new password. Errors: invalid_otp and
-        otp_expired (both 400), otp_attempts_exceeded (429), rider_not_approved (409) for an
-        applicant. After a correct code, a blocked person or suspended rider gets account_blocked
+        otp_expired (both 400), otp_attempts_exceeded (429), After a correct code, an applicant gets rider_not_approved (409), and a blocked person or suspended rider gets account_blocked
         (403).
       security: []
       requestBody:
@@ -1456,7 +1455,7 @@ components:
           $ref: ../shared/common.yaml#/components/schemas/Id
         status:
           type: string
-          description: Open list, including applicant, active, suspended. An applicant can only apply and see progress.
+          description: Open list, including applicant and active. A suspended rider gets account_blocked instead of a session. An applicant can only apply and see progress.
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
     Rider:
