@@ -19,6 +19,8 @@ Values marked **Proposed** are engineering defaults that the owner has not revie
 - Customer APIs are under `/customer/v1`, and rider APIs under `/rider/v1`.
 - `X-Mock-Scenario: <name>` chooses a scenario. `GET /scenarios` lists them all. On a live stream, `?scenario=<name>` works too, and `?step_ms=500` changes the replay speed.
 - Sign-in: any phone number, with the code `123456`. Any non-empty bearer token is accepted, except `mock-expired-token`, which returns `token_expired`.
+- `GET` returns one point in a scenario's story, and the stream replays the whole story, so the two always agree. With no scenario, `GET` is at the first event and the stream carries on from there. For a scenario that names a stage, `GET` is at that stage, and the stream ends there. `cancel`, `gate`, `payment/retry`, `accept-eta` and `call` follow the order's stage in the same scenario.
+- On a stream, order `ord_missing` closes with `4404`, and `ord_forbidden` with `4403`.
 - `GET /docs/customer` and `GET /docs/rider` show readable API docs. `GET /contracts/<file>` serves the files in `dist/`. The app developers should generate their code from those.
 
 ## General
@@ -173,7 +175,7 @@ True times are always kept in `order_events`.
 The handover OTP is sent to the customer at `arrived`, or in the signal-lost case under Rider offline events. Neither can happen during the wait, because the signal-lost case needs `rider_accepted`.
 
 ### What the customer order carries at each stage
-These fields are always present, and are `null` when not listed as set. Fields not shown here, such as `timer`, follow their own rules.
+These fields are always present, and are `null` when not listed as set. Fields not shown here, such as `timer`, follow their own rules. `cancel_until` stays set once payment is confirmed.
 
 | Stage | Set | `cancellable` |
 |---|---|---|

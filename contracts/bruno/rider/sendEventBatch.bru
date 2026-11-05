@@ -17,5 +17,19 @@ headers {
 }
 
 body:json {
-  {}
+  {
+    "events": [
+      {
+        "device_time": "2026-11-04T10:00:00Z",
+        "event_id": "mock_value",
+        "payload": {
+          "accuracy_m": 1.5,
+          "lat": 1.5,
+          "lng": 1.5,
+          "speed_mps": 1.5
+        },
+        "type": "location"
+      }
+    ]
+  }
 }

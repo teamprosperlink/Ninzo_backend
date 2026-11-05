@@ -4,15 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/go-chi/chi/v5"
 )
 
 const (
 	closeUnauthorized websocket.StatusCode = 4401
+	closeForbidden    websocket.StatusCode = 4403
+	closeNotFound     websocket.StatusCode = 4404
 	closeOrderEnded   websocket.StatusCode = 4410
 	authWait                               = 5 * time.Second
+	minStep                                = 50 * time.Millisecond
 )
 
 // streamEvent is one replayed event. Events with no seq are passing updates.
@@ -22,53 +27,31 @@ type streamEvent struct {
 	data any
 }
 
-// customerTimeline replays an order's stages for a scenario, as the customer would see them.
-func customerTimeline(scenario string, now time.Time) (events []streamEvent, ended bool) {
-	stages := []string{"looking_for_rider", "rider_accepted", "timer_running", "arrived", "handed_over"}
-	switch scenario {
-	case "no_scooter", "offer_timeout":
-		stages = []string{"looking_for_rider", "no_scooter"}
-	case "payment_declined":
-		stages = []string{"payment", "payment_failed"}
-	case "rider_inside_perimeter":
-		stages = []string{"looking_for_rider", "rider_accepted", "arrived", "handed_over"}
-	case "cancelled", "timed_out", "failed":
-		stages = []string{"looking_for_rider", "ended"}
-	}
-	for i, stage := range stages {
-		order := customerOrder(stage, i+1, now)
-		if scenario == "rider_inside_perimeter" && stage == "arrived" {
-			order["timer"] = map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false}
-		}
-		if stage == "ended" && scenario != "cancelled" {
-			order["ended_reason"] = map[string]string{"timed_out": "timed_out", "failed": "failed"}[scenario]
-		}
-		events = append(events, streamEvent{kind: "order_update", seq: i + 1, data: order})
-		if stage == "rider_accepted" || stage == "timer_running" || stage == "arrived" {
+// customerEvents replays a scenario's story. ended means the stream closes afterwards.
+func customerEvents(scenario string, now time.Time, step time.Duration) (events []streamEvent, ended bool) {
+	story := storyFor(scenario)
+	orders := buildStory(story, now.Add(-story.age), step)
+	for i, order := range orders {
+		events = append(events, streamEvent{kind: "order_update", seq: order["seq"].(int), data: order})
+		switch story.steps[i].stage {
+		case "rider_accepted", "timer_running", "arrived":
 			events = append(events, streamEvent{kind: "rider_position", data: map[string]any{"lat": 12.9716, "lng": 77.5946, "recorded_at": stamp(now)}})
 		}
 	}
-	last := stages[len(stages)-1]
+	last := story.steps[len(story.steps)-1].stage
 	return events, last == "handed_over" || last == "ended"
-}
-
-func riderTimeline(now time.Time) []streamEvent {
-	states := []string{"RIDER_ACCEPTED", "PACKED", "TIMER_RUNNING", "ARRIVED", "HANDED_OVER"}
-	events := []streamEvent{{kind: "offer", seq: 1, data: sampleOffer("open", now)}}
-	for i, state := range states {
-		events = append(events, streamEvent{kind: "order_state", seq: i + 2, data: riderOrder(state, i+2, now)})
-	}
-	return append(events, streamEvent{kind: "restock", seq: len(states) + 2, data: sampleRestock("ready", now, false)})
 }
 
 func (s *Server) customerStream(w http.ResponseWriter, r *http.Request) {
 	scenario := scenarioOf(r)
-	events, ended := customerTimeline(scenario, s.now())
-	s.serveStream(w, r, scenario, events, ended)
+	events, ended := customerEvents(scenario, s.now(), s.stepFor(r))
+	refuse := map[string]websocket.StatusCode{"ord_missing": closeNotFound, "ord_forbidden": closeForbidden}[chi.URLParam(r, "order_id")]
+	s.serveStream(w, r, scenario, events, ended, refuse)
 }
 
 func (s *Server) riderStream(w http.ResponseWriter, r *http.Request) {
-	s.serveStream(w, r, scenarioOf(r), riderTimeline(s.now()), false)
+	scenario := scenarioOf(r)
+	s.serveStream(w, r, scenario, riderStoryFor(scenario, s.now()).events, false, 0)
 }
 
 func scenarioOf(r *http.Request) string {
@@ -78,52 +61,92 @@ func scenarioOf(r *http.Request) string {
 	return r.Header.Get(scenarioHeader)
 }
 
+type streamFrame struct {
+	Type  string `json:"type"`
+	Token string `json:"token"`
+}
+
 // serveStream follows the Live streams rules in contracts/README.md.
-func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario string, events []streamEvent, ended bool) {
+func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario string, events []streamEvent, ended bool, refuse websocket.StatusCode) {
+	select {
+	case s.streams <- struct{}{}:
+		defer func() { <-s.streams }()
+	default:
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "too many streams", http.StatusServiceUnavailable)
+		return
+	}
+	// The mock has no real data, and the tokens are samples, so any web origin may connect.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}
 	defer conn.CloseNow() //nolint:errcheck
-	ctx := r.Context()
-
-	authCtx, cancel := context.WithTimeout(ctx, authWait)
+	conn.SetReadLimit(64 * 1024)
+	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	_, raw, err := conn.Read(authCtx)
-	if err != nil {
+
+	// One reader handles every frame: the first auth, and renewed tokens after it.
+	frames := make(chan streamFrame, 1)
+	go func() {
+		defer cancel()
+		for {
+			_, raw, err := conn.Read(ctx)
+			if err != nil {
+				return
+			}
+			var frame streamFrame
+			if json.Unmarshal(raw, &frame) != nil {
+				frame = streamFrame{}
+			}
+			select {
+			case frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	authTimer := time.NewTimer(authWait)
+	defer authTimer.Stop()
+	select {
+	case <-authTimer.C:
 		_ = conn.Close(closeUnauthorized, "no auth frame in time")
 		return
+	case <-ctx.Done():
+		return
+	case frame := <-frames:
+		if !validFrame(frame) {
+			_ = conn.Close(closeUnauthorized, "bad or expired token")
+			return
+		}
 	}
-	var frame struct {
-		Type  string `json:"type"`
-		Token string `json:"token"`
-	}
-	if json.Unmarshal(raw, &frame) != nil || frame.Type != "auth" || frame.Token == "" || frame.Token == ExpiredToken {
-		_ = conn.Close(closeUnauthorized, "bad or expired token")
+	if refuse != 0 {
+		_ = conn.Close(refuse, "this stream is not available")
 		return
 	}
 	if !s.send(ctx, conn, streamEvent{kind: "auth_ok", data: map[string]any{}}) {
 		return
 	}
 
-	// Keep reading, so a renewed auth frame is accepted and a closed client is noticed.
-	readCtx := conn.CloseRead(ctx)
-
 	beat := time.NewTicker(s.heartbeat)
 	defer beat.Stop()
 	step := time.NewTicker(s.stepFor(r))
 	defer step.Stop()
-	next, seq, sentState := 0, 0, 0
+	next, seq, sentState := 0, 1, 0
+	renewed := false
 	for {
 		select {
-		case <-readCtx.Done():
+		case <-ctx.Done():
 			return
-		case <-beat.C:
-			current := seq
-			if current == 0 {
-				current = 1
+		case frame := <-frames:
+			if !validFrame(frame) {
+				_ = conn.Close(closeUnauthorized, "bad or expired token")
+				return
 			}
-			if !s.send(ctx, conn, streamEvent{kind: "heartbeat", seq: current, data: map[string]any{}}) {
+			renewed = true
+		case <-beat.C:
+			if !s.send(ctx, conn, streamEvent{kind: "heartbeat", seq: seq, data: map[string]any{}}) {
 				return
 			}
 		case <-step.C:
@@ -147,14 +170,25 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, scenario st
 				_ = conn.CloseNow() // A drop with no close frame, as a real network does.
 				return
 			}
+			if scenario == "token_expiring" && sentState == 2 && !renewed {
+				_ = conn.Close(closeUnauthorized, "the token has expired")
+				return
+			}
 		}
 	}
 }
 
+func validFrame(f streamFrame) bool {
+	return f.Type == "auth" && f.Token != "" && f.Token != ExpiredToken
+}
+
 func (s *Server) stepFor(r *http.Request) time.Duration {
 	if v := r.URL.Query().Get("step_ms"); v != "" {
-		if d, err := time.ParseDuration(v + "ms"); err == nil && d > 0 {
-			return d
+		if ms, err := strconv.Atoi(v); err == nil {
+			if d := time.Duration(ms) * time.Millisecond; d >= minStep {
+				return d
+			}
+			return minStep
 		}
 	}
 	return s.step

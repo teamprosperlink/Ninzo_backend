@@ -8,37 +8,50 @@ import (
 
 // riderScenarios lists every rider scenario, from the rider KT doc and decision 0007.
 var riderScenarios = map[string]string{
-	"offer_arrives":        "GET offers has an open offer. The stream sends it",
-	"offer_expired":        "Accept and decline fail with offer_expired",
-	"offer_taken":          "Accept fails with offer_taken",
-	"stale_fencing_token":  "Accept, decline and Ready fail with stale_fencing_token",
-	"rider_moving":         "Ready fails with rider_moving, because the rider is moving",
-	"order_cancelled":      "Ready fails with order_cancelled, because the customer cancelled while packing",
-	"route_unavailable":    "GET route returns 503, so the app keeps the last route",
-	"wrong_otp":            "Handover fails with wrong_otp",
-	"rider_not_near":       "Handover fails with rider_not_near",
-	"partial_quantity":     "Handover succeeds. Send a quantity below the ordered one",
-	"network_down":         "Handover returns a retryable 503. The queued copy can be replayed",
-	"restock_suggestion":   "GET restock suggestions has a drafted request",
-	"suggestion_expired":   "Restock confirm fails with suggestion_expired",
-	"hub_short":            "GET restock has a short fill with a substitute",
-	"hub_out_of_stock":     "Restock confirm and create fail with hub_out_of_stock",
-	"verification_pending": "GET verification is pending. Shift start fails with rider_not_verified",
-	"verification_failed":  "GET verification failed. Shift start fails with rider_not_verified",
-	"verification_expired": "GET verification expired. Shift start fails with rider_not_verified",
-	"shift_limit_reached":  "Shift start fails with shift_limit_reached",
-	"shift_already_open":   "Shift start fails with shift_already_open",
-	"rider_suspended":      "Shift start returns 403",
-	"lot_expired":          "Stock scan fails with lot_expired",
-	"bad_scan":             "Stock scan fails with bad_scan",
-	"temperature_alert":    "Stock scan returns temp_status alert",
-	"relocation_suggested": "GET nodes has a relocation suggestion",
-	"node_full":            "GET nodes shows a full node",
-	"no_nodes":             "GET nodes returns an empty list",
-	"reassigned":           "GET order has ended for this rider, reason reassigned",
-	"otp_not_available":    "GET order has otp_available false, at ARRIVED during the wait",
-	"event_rejected":       "POST events rejects every event with wrong_otp",
-	"socket_drop":          "The stream drops after two events",
+	"offer_arrives":           "An open offer. This is the same as no scenario",
+	"on_delivery":             "The rider has an order, packed and on the way",
+	"offer_expired":           "The offer has expired, on the stream too. Accept and decline fail with offer_expired",
+	"offer_taken":             "Another rider took the offer, on the stream too. Accept fails with offer_taken",
+	"stale_fencing_token":     "Accept, decline and Ready fail with stale_fencing_token",
+	"rider_moving":            "Ready fails with rider_moving, because the rider is moving",
+	"order_cancelled":         "The order was cancelled while packing, on the stream too. Ready fails with order_cancelled",
+	"route_unavailable":       "GET route returns 503, so the app keeps the last route",
+	"wrong_otp":               "Handover fails with wrong_otp",
+	"rider_not_near":          "Handover fails with rider_not_near",
+	"partial_quantity":        "Handover succeeds. Send a quantity below the ordered one",
+	"network_down":            "Handover returns a retryable 503. The queued copy can be replayed",
+	"restock_suggestion":      "GET restock suggestions has a drafted request",
+	"suggestion_expired":      "Restock confirm fails with suggestion_expired",
+	"hub_short":               "The restock has a short fill with a substitute, on the stream too",
+	"hub_out_of_stock":        "Restock confirm and create fail with hub_out_of_stock",
+	"verification_pending":    "GET verification is pending. Shift start fails with rider_not_verified",
+	"verification_failed":     "GET verification failed. Shift start fails with rider_not_verified",
+	"verification_expired":    "GET verification expired. Shift start fails with rider_not_verified",
+	"shift_limit_reached":     "Shift start fails with shift_limit_reached",
+	"shift_already_open":      "Shift start fails with shift_already_open",
+	"rider_suspended":         "Shift start returns 403",
+	"lot_expired":             "Stock scan fails with lot_expired",
+	"bad_scan":                "Stock scan fails with bad_scan",
+	"temperature_alert":       "Stock scan returns temp_status alert",
+	"relocation_suggested":    "GET nodes has a relocation suggestion",
+	"node_full":               "GET nodes shows a full node",
+	"no_nodes":                "GET nodes returns an empty list",
+	"reassigned":              "This rider no longer has the order, reason reassigned, on the stream too",
+	"otp_not_available":       "The order is at ARRIVED with otp_available false, on the stream too",
+	"event_rejected":          "POST events rejects every event with wrong_otp",
+	"socket_drop":             "The stream drops after two events",
+	"token_expiring":          "The stream closes with 4401 after two events, unless the app sends a new auth frame",
+	"idempotency_in_progress": "Any write with an Idempotency-Key returns a retryable 409, with Retry-After",
+}
+
+// riderStory is one scenario's events, with what GET returns.
+type riderStory struct {
+	events  []streamEvent
+	getAt   int // The event GET state reflects. -1 means the last.
+	offers  []map[string]any
+	order   map[string]any
+	restock map[string]any
+	seq     int
 }
 
 func riderOrder(state string, seq int, now time.Time) map[string]any {
@@ -46,15 +59,84 @@ func riderOrder(state string, seq int, now time.Time) map[string]any {
 		"id": orderID, "offer_id": "off_mock01", "fencing_token": "ft_mock01", "state": state, "seq": seq, "ended_reason": nil,
 		"items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1}},
 		"gate":  riderGate(), "timer_label": "1.5 mins", "rider_accepted_at": stamp(now.Add(-time.Minute)),
-		"otp_available": false, "handed_over_at": nil,
+		"otp_available": state == "ARRIVED", "handed_over_at": nil,
 	}
-	switch state {
-	case "ARRIVED":
-		o["otp_available"] = true
-	case "HANDED_OVER":
+	if state == "HANDED_OVER" {
 		o["handed_over_at"] = stamp(now)
 	}
 	return o
+}
+
+// riderStoryFor builds a scenario's events in order. GET state and the stream both come from these.
+func riderStoryFor(scenario string, now time.Time) riderStory {
+	var story riderStory
+	offer := func(state string) {
+		story.seq++
+		o := sampleOffer(state, now)
+		story.offers = nil
+		if state == "open" {
+			story.offers = []map[string]any{o}
+		}
+		story.events = append(story.events, streamEvent{kind: "offer", seq: story.seq, data: o})
+	}
+	order := func(state string, change func(map[string]any)) {
+		story.seq++
+		o := riderOrder(state, story.seq, now)
+		if change != nil {
+			change(o)
+		}
+		story.offers, story.order = nil, o
+		story.events = append(story.events, streamEvent{kind: "order_state", seq: story.seq, data: o})
+	}
+	restock := func(state string, short bool) {
+		story.seq++
+		r := sampleRestock(state, now, short)
+		story.restock = r
+		story.events = append(story.events, streamEvent{kind: "restock", seq: story.seq, data: r})
+	}
+	story.getAt = -1
+	switch scenario {
+	case "offer_expired":
+		offer("open")
+		offer("expired")
+	case "offer_taken":
+		offer("open")
+		offer("taken")
+	case "order_cancelled":
+		offer("open")
+		order("RIDER_ACCEPTED", nil)
+		order("CANCELLED", func(o map[string]any) { o["ended_reason"] = "cancelled" })
+	case "reassigned":
+		offer("open")
+		order("RIDER_ACCEPTED", nil)
+		order("RIDER_ACCEPTED", func(o map[string]any) { o["ended_reason"] = "reassigned" })
+	case "on_delivery":
+		offer("open")
+		order("RIDER_ACCEPTED", nil)
+		order("PACKED", nil)
+	case "otp_not_available":
+		offer("open")
+		order("RIDER_ACCEPTED", nil)
+		order("PACKED", nil)
+		order("TIMER_RUNNING", nil)
+		order("ARRIVED", func(o map[string]any) { o["otp_available"] = false })
+	case "hub_short":
+		restock("confirmed", false)
+		restock("partial", true)
+	default:
+		offer("open")
+		story.getAt = 0
+		first := story.offers
+		order("RIDER_ACCEPTED", nil)
+		order("PACKED", nil)
+		order("TIMER_RUNNING", nil)
+		order("ARRIVED", nil)
+		order("HANDED_OVER", nil)
+		restock("ready", false)
+		story.offers, story.order, story.restock = first, nil, nil
+		story.seq = 1
+	}
+	return story
 }
 
 func riderGate() map[string]any {
@@ -112,14 +194,19 @@ func riderRoutes() []route {
 			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01"}})
 		}},
 		{method: "GET", path: "/riders/me/state", handle: func(c *call) {
-			offers := []map[string]any{}
-			var current any
-			if c.scenario == "offer_arrives" {
-				offers = append(offers, sampleOffer("open", c.now))
-			} else {
-				current = riderOrder("PACKED", 7, c.now)
+			story := riderStoryFor(c.scenario, c.now)
+			offers := story.offers
+			if offers == nil {
+				offers = []map[string]any{}
 			}
-			c.json(200, map[string]any{"seq": 7, "shift": sampleShift(c.now, false), "offers": offers, "current_order": current, "restock_request": nil})
+			var current, request any
+			if story.order != nil && story.order["ended_reason"] == nil && story.order["state"] != "HANDED_OVER" {
+				current = story.order
+			}
+			if story.restock != nil {
+				request = story.restock
+			}
+			c.json(200, map[string]any{"seq": story.seq, "shift": sampleShift(c.now, false), "offers": offers, "current_order": current, "restock_request": request})
 		}},
 		{method: "GET", path: "/riders/me/verification", handle: func(c *call) {
 			status, reason := map[string]string{"verification_pending": "pending", "verification_failed": "failed", "verification_expired": "expired"}[c.scenario], any(nil)
@@ -194,11 +281,11 @@ func riderRoutes() []route {
 			c.json(200, map[string]any{"lots": []map[string]any{{"lot_id": "lot_mock01", "item_id": "item_burger", "qty": 6, "expiry": stamp(c.now.Add(4 * time.Hour)), "temp_status": "ok"}}})
 		}},
 		{method: "GET", path: "/riders/me/offers", handle: func(c *call) {
-			state := "open"
-			if c.scenario == "offer_expired" {
-				state = "expired"
+			offers := riderStoryFor(c.scenario, c.now).offers
+			if offers == nil {
+				offers = []map[string]any{}
 			}
-			c.json(200, map[string]any{"offers": []map[string]any{sampleOffer(state, c.now)}})
+			c.json(200, map[string]any{"offers": offers})
 		}},
 		{method: "POST", path: "/offers/{offer_id}/accept", handle: func(c *call) {
 			if offerError(c, "offer_expired", "offer_taken", "stale_fencing_token") {
@@ -225,16 +312,9 @@ func riderRoutes() []route {
 			}
 		}},
 		{method: "GET", path: "/orders/{order_id}", handle: func(c *call) {
-			var o map[string]any
-			switch c.scenario {
-			case "reassigned":
-				o = riderOrder("RIDER_ACCEPTED", 4, c.now)
-				o["ended_reason"] = "reassigned"
-			case "otp_not_available":
-				o = riderOrder("ARRIVED", 5, c.now)
-				o["otp_available"] = false
-			default:
-				o = riderOrder("PACKED", 3, c.now)
+			o := riderStoryFor(c.scenario, c.now).order
+			if o == nil {
+				o = riderOrder("RIDER_ACCEPTED", 2, c.now)
 			}
 			c.json(200, map[string]any{"order": o})
 		}},

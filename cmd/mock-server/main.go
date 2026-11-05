@@ -19,6 +19,8 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           mockserver.New().Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 	log.Printf("mock server listening on :%s", port)
 	log.Fatal(server.ListenAndServe())

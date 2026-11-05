@@ -8,50 +8,46 @@ import (
 // customerScenarios lists every scenario, with what it shows. The first group comes
 // from the customer KT doc. The rest come from the owner's flow in decision 0007.
 var customerScenarios = map[string]string{
-	"no_scooter":          "No scooter available. GET order is at no_scooter with a longer ETA on offer. Availability offers nothing",
+	"no_scooter":          "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
 	"no_scooter_no_offer": "No scooter available, and no longer ETA on offer",
-	"offer_timeout":       "No rider took the offer in time: GET order is at no_scooter",
-	"offer_accepted":      "A rider was accepted: GET order is at rider_accepted",
-	"payment_declined":    "GET order is at payment_failed, so the customer can retry",
-	"payment_captured":    "Payment confirmed, inside the 5-second cancel window",
-	"handed_over":         "GET order is at handed_over",
-	"socket_drop":         "The stream drops after two events. GET order still works",
+	"offer_timeout":       "No rider took the offer in time, so the order is at no_scooter",
+	"offer_accepted":      "The customer is shown rider_accepted",
+	"payment_declined":    "The order is at payment_failed, so the customer can retry",
+	"payment_captured":    "Payment confirmed, inside the 5-second cancel window. This is the same as no scenario",
+	"handed_over":         "The order is at handed_over",
+	"socket_drop":         "The stream drops after two events, with no close frame. GET still works",
 	"last_unit_taken":     "POST order fails with sold_out, and availability shows one left",
 	"gate_not_verified":   "POST order fails with gate_not_verified. Availability offers nothing",
 	"zone_offer_off":      "POST order fails with no_offer. Availability offers nothing",
 
-	"after_cancel_window":    "Payment confirmed, and the 5-second window has passed, so cancel is refused",
-	"cancel_too_late":        "POST cancel fails with cancel_not_allowed",
-	"max_wait_passed":        "wait_deadline has passed, so the customer can leave with a refund",
-	"rider_already_near":     "The rider was already in the zone. The stream has a shorter wait",
-	"rider_inside_perimeter": "The rider was already inside 100 m, so there is no timer: rider_accepted, then arrived",
-	"timer_running":          "GET order is at timer_running",
-	"timer_missed":           "The timer ended before 100 m. timer_missed is true, with a credit remedy",
-	"signal_lost":            "The timer ended, and the rider's signal is lost, so the customer has the OTP",
-	"arrived":                "GET order is at arrived, with the handover OTP",
-	"cancelled":              "GET order has ended, cancelled by the customer, and refunded",
-	"timed_out":              "GET order has ended, timed out, and refunded",
-	"failed":                 "GET order has ended after a failure, and refunded",
-	"gate_change_refused":    "PATCH gate fails with gate_change_not_allowed",
-	"eta_offer_expired":      "POST accept-eta fails with eta_offer_expired",
-	"payment_retry_refused":  "POST payment retry fails with payment_retry_not_allowed",
-	"no_refund":              "GET refund returns 404",
-	"invalid_otp":            "POST verify fails with invalid_otp",
-	"otp_expired":            "POST verify fails with otp_expired",
-	"otp_resend_limit":       "POST OTP request fails with otp_resend_limit",
-	"out_of_service_area":    "POST gate fails with out_of_service_area",
-	"duplicate_gate":         "POST gate fails with duplicate_gate",
-	"call_not_available":     "POST call fails with call_not_available",
-	"rate_limited":           "POST OTP request returns 429",
-	"server_error":           "POST order returns a retryable 500",
-	"service_unavailable":    "POST order returns a retryable 503",
+	"awaiting_payment":         "The order is at payment, so checkout can resume and the gate can change",
+	"after_cancel_window":      "Payment confirmed, and the 5-second window has passed, so a cancel is refused",
+	"cancel_too_late":          "The same as after_cancel_window",
+	"max_wait_passed":          "wait_deadline has passed, so the customer can leave with a refund",
+	"rider_already_near":       "The rider was already in the zone. The stream reaches rider_accepted one event sooner",
+	"rider_inside_perimeter":   "The rider was already inside 100 m, so there is no timer: rider_accepted, then arrived",
+	"timer_running":            "The order is at timer_running",
+	"timer_missed":             "The timer ended before 100 m. timer_missed is true, with a credit remedy",
+	"signal_lost":              "The timer ended, and the rider's signal is lost, so the customer has the OTP",
+	"arrived":                  "The order is at arrived, with the handover OTP",
+	"cancelled":                "The order has ended, cancelled by the customer inside the window, and refunded",
+	"cancelled_after_deadline": "The order has ended, cancelled after wait_deadline, and refunded",
+	"timed_out":                "The order has ended, timed out, and refunded",
+	"failed":                   "The order has ended after a failure, and refunded",
+	"temperature_failed":       "The order has ended after a failed temperature check, and refunded",
+	"missing_food":             "The order was handed over, but food was missing, so it is refunded",
+	"eta_offer_expired":        "POST accept-eta fails with eta_offer_expired, at no_scooter",
+	"invalid_otp":              "POST verify fails with invalid_otp",
+	"otp_expired":              "POST verify fails with otp_expired",
+	"otp_resend_limit":         "POST OTP request fails with otp_resend_limit",
+	"out_of_service_area":      "POST gate fails with out_of_service_area",
+	"duplicate_gate":           "POST gate fails with duplicate_gate",
+	"rate_limited":             "POST OTP request returns 429",
+	"server_error":             "POST order returns a retryable 500",
+	"service_unavailable":      "POST order returns a retryable 503",
+	"idempotency_in_progress":  "Any write with an Idempotency-Key returns a retryable 409, with Retry-After",
+	"token_expiring":           "The stream closes with 4401 after two events, unless the app sends a new auth frame",
 }
-
-const (
-	orderID      = "ord_mock0001"
-	cancelWindow = 5 * time.Second
-	maxWait      = 5 * time.Minute
-)
 
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
@@ -68,123 +64,6 @@ func menuItem(id, name string, price int) map[string]any {
 
 func sampleGate() map[string]any {
 	return map[string]any{"id": "gate_mock01", "label": "Main gate", "lat": 12.9716, "lng": 77.5946, "entry_notes": "Near the security desk", "verified": true}
-}
-
-// customerOrder builds an order that follows the stage table in contracts/README.md.
-func customerOrder(stage string, seq int, now time.Time, opts ...func(map[string]any)) map[string]any {
-	paidAt := now.Add(-time.Minute)
-	o := map[string]any{
-		"id": orderID, "seq": seq, "customer_stage": stage, "ended_reason": nil,
-		"gate":  map[string]any{"id": "gate_mock01", "label": "Main gate"},
-		"items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1, "unit_price": money(14900)}},
-		"total": money(14900), "payment_status": "paid", "payment_request": nil,
-		"cancellable": false, "cancel_until": stamp(paidAt.Add(cancelWindow)), "wait_deadline": nil,
-		"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": nil,
-		"timer":  map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false},
-		"remedy": nil, "handover_otp": nil, "created_at": stamp(now.Add(-2 * time.Minute)),
-	}
-	rider := map[string]any{"first_name": "Ravi"}
-	switch stage {
-	case "payment":
-		o["payment_status"], o["cancellable"], o["cancel_until"] = "pending", true, nil
-		o["payment_request"] = paymentRequest()
-	case "payment_failed":
-		o["payment_status"], o["cancellable"], o["cancel_until"] = "failed", true, nil
-	case "looking_for_rider":
-		o["cancel_until"] = stamp(now.Add(cancelWindow))
-		o["cancellable"] = true
-		o["wait_deadline"] = stamp(now.Add(maxWait))
-	case "no_scooter":
-		o["cancellable"] = true
-		o["wait_deadline"] = stamp(now.Add(2 * time.Minute))
-		o["eta_offer"] = map[string]any{"id": "eta_mock01", "eta_s": 600, "expires_at": stamp(now.Add(2 * time.Minute))}
-	case "rider_accepted":
-		o["rider"] = rider
-		o["wait_deadline"] = stamp(paidAt.Add(maxWait))
-		o["eta_source"], o["eta_s"] = "measured", 150
-	case "timer_running":
-		o["rider"] = rider
-		o["eta_source"], o["eta_s"] = "measured", 60
-		o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-10 * time.Second)), "timer_duration_s": 90, "timer_stopped_at": nil, "timer_missed": false}
-	case "arrived":
-		o["rider"] = rider
-		o["eta_source"] = "unavailable"
-		o["handover_otp"] = "4821"
-		o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-70 * time.Second)), "timer_duration_s": 90, "timer_stopped_at": stamp(now.Add(-5 * time.Second)), "timer_missed": false}
-	case "handed_over":
-		o["rider"] = rider
-		o["eta_source"] = "unavailable"
-		o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-3 * time.Minute)), "timer_duration_s": 90, "timer_stopped_at": stamp(now.Add(-2 * time.Minute)), "timer_missed": false}
-	case "ended":
-		o["eta_source"] = "unavailable"
-		o["ended_reason"] = "cancelled"
-		o["payment_status"] = "refunded"
-	}
-	for _, opt := range opts {
-		opt(o)
-	}
-	return o
-}
-
-func paymentRequest() map[string]any {
-	return map[string]any{"razorpay_key_id": "rzp_test_mockkey", "razorpay_order_id": "order_mock0001", "amount": money(14900)}
-}
-
-// orderForScenario picks the order GET returns.
-func orderForScenario(scenario string, now time.Time) map[string]any {
-	switch scenario {
-	case "payment_declined":
-		return customerOrder("payment_failed", 2, now)
-	case "no_scooter", "offer_timeout":
-		return customerOrder("no_scooter", 3, now)
-	case "no_scooter_no_offer":
-		return customerOrder("no_scooter", 3, now, func(o map[string]any) { o["eta_offer"] = nil })
-	case "offer_accepted", "rider_already_near":
-		return customerOrder("rider_accepted", 3, now)
-	case "after_cancel_window":
-		return customerOrder("looking_for_rider", 2, now, func(o map[string]any) {
-			o["cancellable"] = false
-			o["cancel_until"] = stamp(now.Add(-time.Minute))
-		})
-	case "max_wait_passed":
-		return customerOrder("looking_for_rider", 3, now, func(o map[string]any) {
-			o["cancel_until"] = stamp(now.Add(-6 * time.Minute))
-			o["wait_deadline"] = stamp(now.Add(-time.Minute))
-		})
-	case "timer_running":
-		return customerOrder("timer_running", 4, now)
-	case "timer_missed":
-		return customerOrder("timer_running", 5, now, func(o map[string]any) {
-			o["eta_source"], o["eta_s"] = "unavailable", nil
-			o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-2 * time.Minute)), "timer_duration_s": 90, "timer_stopped_at": nil, "timer_missed": true}
-			o["remedy"] = map[string]any{"type": "credit", "amount": money(5000)}
-		})
-	case "signal_lost":
-		return customerOrder("timer_running", 5, now, func(o map[string]any) {
-			o["eta_source"], o["eta_s"] = "unavailable", nil
-			o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-2 * time.Minute)), "timer_duration_s": 90, "timer_stopped_at": nil, "timer_missed": true}
-			o["handover_otp"] = "4821"
-			o["remedy"] = map[string]any{"type": "credit", "amount": money(5000)}
-		})
-	case "arrived":
-		return customerOrder("arrived", 5, now)
-	case "rider_inside_perimeter":
-		return customerOrder("arrived", 4, now, func(o map[string]any) {
-			o["timer"] = map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false}
-		})
-	case "handed_over":
-		return customerOrder("handed_over", 6, now)
-	case "cancelled":
-		return customerOrder("ended", 3, now)
-	case "timed_out":
-		return customerOrder("ended", 4, now, func(o map[string]any) { o["ended_reason"] = "timed_out" })
-	case "failed":
-		return customerOrder("ended", 5, now, func(o map[string]any) {
-			o["ended_reason"] = "failed"
-			o["rider"] = map[string]any{"first_name": "Ravi"}
-		})
-	}
-	return customerOrder("looking_for_rider", 2, now)
 }
 
 func needsBody(c *call, fields ...string) (map[string]any, bool) {
@@ -262,7 +141,7 @@ func customerRoutes() []route {
 			}
 		}},
 		{method: "GET", path: "/orders", handle: func(c *call) {
-			c.json(200, map[string]any{"orders": []map[string]any{customerOrder("handed_over", 6, c.now)}, "next_cursor": nil})
+			c.json(200, map[string]any{"orders": []map[string]any{currentOrder("handed_over", c.now)}, "next_cursor": nil})
 		}},
 		{method: "POST", path: "/orders", handle: createOrder},
 		{method: "GET", path: "/orders/{order_id}", handle: func(c *call) {
@@ -270,58 +149,68 @@ func customerRoutes() []route {
 				c.fail(404, "not_found", "No such order.", false)
 				return
 			}
-			c.json(200, map[string]any{"order": orderForScenario(c.scenario, c.now)})
+			c.json(200, map[string]any{"order": currentOrder(c.scenario, c.now)})
 		}},
 		{method: "POST", path: "/orders/{order_id}/cancel", handle: func(c *call) {
-			if c.scenario == "cancel_too_late" || c.scenario == "after_cancel_window" {
-				c.fail(409, "cancel_not_allowed", "The cancel window has closed.", false)
+			order := currentOrder(c.scenario, c.now)
+			if order["cancellable"] != true {
+				c.fail(409, "cancel_not_allowed", "This order cannot be cancelled now.", false)
 				return
 			}
-			c.json(200, map[string]any{"order": customerOrder("ended", 3, c.now)})
+			c.json(200, map[string]any{"order": cancelledFrom(order)})
 		}},
 		{method: "PATCH", path: "/orders/{order_id}/gate", handle: func(c *call) {
-			if c.scenario == "gate_change_refused" {
+			order := currentOrder(c.scenario, c.now)
+			if order["customer_stage"] != "payment" {
 				c.fail(409, "gate_change_not_allowed", "The address cannot change after payment.", false)
 				return
 			}
 			if _, ok := needsBody(c, "gate_id"); ok {
-				c.json(200, map[string]any{"order": customerOrder("payment", 1, c.now), "payment": paymentRequest()})
+				c.json(200, map[string]any{"order": order, "payment": paymentRequest()})
 			}
 		}},
 		{method: "POST", path: "/orders/{order_id}/payment/retry", handle: func(c *call) {
-			if c.scenario == "payment_retry_refused" {
+			order := currentOrder(c.scenario, c.now)
+			if order["customer_stage"] != "payment_failed" {
 				c.fail(409, "payment_retry_not_allowed", "This order is not at payment_failed.", false)
 				return
 			}
-			c.json(200, map[string]any{"order": customerOrder("payment", 3, c.now), "payment": paymentRequest()})
+			next := currentOrder("awaiting_payment", c.now)
+			next["seq"] = order["seq"].(int) + 1
+			c.json(200, map[string]any{"order": next, "payment": paymentRequest()})
 		}},
 		{method: "POST", path: "/orders/{order_id}/accept-eta", handle: func(c *call) {
+			order := currentOrder(c.scenario, c.now)
+			if order["customer_stage"] != "no_scooter" {
+				c.fail(409, "eta_offer_not_available", "There is no longer ETA on offer.", false)
+				return
+			}
 			if c.scenario == "eta_offer_expired" {
 				c.fail(409, "eta_offer_expired", "This offer has expired.", false)
 				return
 			}
 			if _, ok := needsBody(c, "eta_offer_id"); ok {
-				c.json(200, map[string]any{"order": customerOrder("looking_for_rider", 4, c.now, func(o map[string]any) {
-					o["cancellable"] = false
-					o["cancel_until"] = stamp(c.now.Add(-time.Minute))
-					o["wait_deadline"] = stamp(c.now.Add(10 * time.Minute))
-				})})
+				next := currentOrder("after_cancel_window", c.now)
+				next["seq"] = order["seq"].(int) + 1
+				next["wait_deadline"] = stamp(c.now.Add(10 * time.Minute))
+				c.json(200, map[string]any{"order": next})
 			}
 		}},
 		{method: "POST", path: "/orders/{order_id}/call", handle: func(c *call) {
-			if c.scenario == "call_not_available" {
+			if currentOrder(c.scenario, c.now)["rider"] == nil {
 				c.fail(409, "call_not_available", "Calling is available from rider_accepted.", false)
 				return
 			}
 			c.json(200, map[string]any{"phone": "+911140000000", "expires_at": stamp(c.now.Add(5 * time.Minute))})
 		}},
 		{method: "GET", path: "/orders/{order_id}/refund", handle: func(c *call) {
-			if c.scenario == "no_refund" {
+			reason := storyFor(c.scenario).refund
+			if reason == "" {
 				c.fail(404, "not_found", "This order has no refund.", false)
 				return
 			}
 			c.json(200, map[string]any{"refund": map[string]any{
-				"reason_code": "customer_cancelled", "method": "original_payment_method", "status": "pending",
+				"reason_code": reason, "method": "original_payment_method", "status": "pending",
 				"amount": money(14900), "expected_by": stamp(c.now.Add(5 * 24 * time.Hour)),
 			}})
 		}},
@@ -433,6 +322,6 @@ func createOrder(c *call) {
 		return
 	}
 	if _, ok := needsBody(c, "gate_id", "items"); ok {
-		c.json(201, map[string]any{"order": customerOrder("payment", 1, c.now), "payment": paymentRequest()})
+		c.json(201, map[string]any{"order": currentOrder("awaiting_payment", c.now), "payment": paymentRequest()})
 	}
 }

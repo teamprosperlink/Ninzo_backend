@@ -19,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/teamprosperlink/Ninzo_backend/contracts"
+	"github.com/teamprosperlink/Ninzo_backend/internal/contractbundle"
 )
 
 type apiContract struct {
@@ -244,6 +245,15 @@ func TestBadDatesAreRefused(t *testing.T) {
 
 func isDeclaredNotFound(body []byte) bool { return bytes.Contains(body, []byte(`"not_found"`)) }
 
+// scenariosWithNoVisibleChange are the only ones allowed to look like the default.
+var scenariosWithNoVisibleChange = map[string]string{
+	"payment_captured": "documented as the same as no scenario",
+	"offer_arrives":    "documented as the same as no scenario",
+	"partial_quantity": "the difference is what the client sends",
+	"socket_drop":      "checked by TestStreamClosesAsDocumented",
+	"token_expiring":   "checked by TestStreamClosesAsDocumented",
+}
+
 // TestEveryScenarioChangesSomething stops a listed scenario from silently doing nothing.
 func TestEveryScenarioChangesSomething(t *testing.T) {
 	srv := httptest.NewServer(New().Handler())
@@ -251,9 +261,15 @@ func TestEveryScenarioChangesSomething(t *testing.T) {
 	apps := []struct {
 		c         *apiContract
 		scenarios map[string]string
+		stream    func(string) string
 	}{
-		{loadContract(t, "customer", "customer.openapi.yaml", "/customer/v1"), customerScenarios},
-		{loadContract(t, "rider", "rider.openapi.yaml", "/rider/v1"), riderScenarios},
+		{loadContract(t, "customer", "customer.openapi.yaml", "/customer/v1"), customerScenarios, func(name string) string {
+			events, ended := customerEvents(name, time.Unix(0, 0), time.Second)
+			return fmt.Sprintf("%d%v", len(events), ended)
+		}},
+		{loadContract(t, "rider", "rider.openapi.yaml", "/rider/v1"), riderScenarios, func(name string) string {
+			return fmt.Sprint(len(riderStoryFor(name, time.Unix(0, 0)).events))
+		}},
 	}
 	volatile := regexp.MustCompile(`\d{4}-\d{2}-\d{2}T[0-9:.]+Z`)
 	for _, app := range apps {
@@ -264,10 +280,10 @@ func TestEveryScenarioChangesSomething(t *testing.T) {
 			base[o.id] = fmt.Sprint(status) + volatile.ReplaceAllString(string(body), "T")
 		}
 		for name := range app.scenarios {
-			if name == "socket_drop" || name == "partial_quantity" || name == "rider_already_near" || name == "payment_captured" {
-				continue // These differ on the stream, or by what the client sends.
+			if _, ok := scenariosWithNoVisibleChange[name]; ok {
+				continue
 			}
-			changed := false
+			changed := app.stream(name) != app.stream("")
 			for _, o := range ops {
 				status, body, _ := doRequest(t, srv, app.c, o, name, "s-"+name+"-"+o.id)
 				if fmt.Sprint(status)+volatile.ReplaceAllString(string(body), "T") != base[o.id] {
@@ -297,13 +313,13 @@ var stageRules = map[string][]string{
 
 var stageFields = []string{"payment_request", "wait_deadline", "eta_offer", "rider", "eta_s", "handover_otp", "ended_reason", "remedy", "cancel_until"}
 
-func checkStage(t *testing.T, where string, order map[string]any) {
-	t.Helper()
+// stageProblems checks one order against the stage table, and returns what is wrong.
+func stageProblems(order map[string]any) []string {
+	var problems []string
 	stage, _ := order["customer_stage"].(string)
 	allowed, ok := stageRules[stage]
 	if !ok {
-		t.Errorf("%s: unknown stage %q", where, stage)
-		return
+		return []string{"unknown stage " + stage}
 	}
 	permitted := map[string]bool{}
 	for _, f := range allowed {
@@ -311,56 +327,93 @@ func checkStage(t *testing.T, where string, order map[string]any) {
 	}
 	for _, f := range stageFields {
 		if order[f] != nil && !permitted[f] {
-			t.Errorf("%s: stage %s must not set %s", where, stage, f)
+			problems = append(problems, stage+" must not set "+f)
 		}
 	}
 	// Nothing may reveal a rider before rider_accepted.
-	if stage == "looking_for_rider" || stage == "no_scooter" || stage == "payment" || stage == "payment_failed" {
+	switch stage {
+	case "looking_for_rider", "no_scooter", "payment", "payment_failed":
 		if order["rider"] != nil || order["eta_s"] != nil || order["eta_source"] != "placeholder" {
-			t.Errorf("%s: stage %s reveals a rider", where, stage)
+			problems = append(problems, stage+" reveals a rider")
 		}
 	}
-	required := map[string][]string{"payment": {"payment_request"}, "looking_for_rider": {"wait_deadline", "cancel_until"}, "no_scooter": {"wait_deadline"},
-		"rider_accepted": {"rider", "wait_deadline"}, "arrived": {"rider", "handover_otp"}, "ended": {"ended_reason"}}[stage]
+	required := map[string][]string{
+		"payment": {"payment_request"}, "looking_for_rider": {"wait_deadline", "cancel_until"}, "no_scooter": {"wait_deadline", "cancel_until"},
+		"rider_accepted": {"rider", "wait_deadline", "cancel_until"}, "timer_running": {"rider", "cancel_until"},
+		"arrived": {"rider", "handover_otp", "cancel_until"}, "handed_over": {"rider", "cancel_until"}, "ended": {"ended_reason"},
+	}[stage]
 	for _, f := range required {
 		if order[f] == nil {
-			t.Errorf("%s: stage %s must set %s", where, stage, f)
+			problems = append(problems, stage+" must set "+f)
 		}
 	}
 	timer, _ := order["timer"].(map[string]any)
-	if (stage == "payment" || stage == "looking_for_rider" || stage == "no_scooter" || stage == "rider_accepted") && timer["timer_started_at"] != nil {
-		t.Errorf("%s: no timer can have started at %s", where, stage)
+	switch stage {
+	case "payment", "payment_failed", "looking_for_rider", "no_scooter", "rider_accepted":
+		if timer["timer_started_at"] != nil {
+			problems = append(problems, "no timer can have started at "+stage)
+		}
 	}
-	if order["cancellable"] == true && (stage == "timer_running" || stage == "arrived" || stage == "handed_over" || stage == "ended") {
-		t.Errorf("%s: stage %s cannot be cancellable", where, stage)
+	cancellable := order["cancellable"] == true
+	switch stage {
+	case "payment", "payment_failed", "no_scooter":
+		if !cancellable {
+			problems = append(problems, stage+" must be cancellable")
+		}
+	case "timer_running", "arrived", "handed_over", "ended":
+		if cancellable {
+			problems = append(problems, stage+" cannot be cancellable")
+		}
 	}
-	if stage != "payment" && stage != "payment_failed" && order["payment_status"] == "pending" {
-		t.Errorf("%s: stage %s cannot have a pending payment", where, stage)
+	status := order["payment_status"]
+	want := map[string][]any{
+		"payment": {"pending"}, "payment_failed": {"failed"}, "looking_for_rider": {"paid"}, "no_scooter": {"paid"},
+		"rider_accepted": {"paid"}, "timer_running": {"paid"}, "arrived": {"paid"}, "handed_over": {"paid", "refunded"},
+		"ended": {"refunded", "not_paid"},
+	}[stage]
+	matched := false
+	for _, w := range want {
+		matched = matched || w == status
 	}
+	if !matched {
+		problems = append(problems, fmt.Sprintf("%s cannot have payment_status %v", stage, status))
+	}
+	return problems
+}
+
+func normal(t *testing.T, v any) map[string]any {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func TestEveryCustomerOrderFollowsTheStageTable(t *testing.T) {
 	now := time.Now()
 	checked := 0
+	names := []string{""}
 	for name := range customerScenarios {
-		var raw map[string]any
-		data, _ := json.Marshal(orderForScenario(name, now))
-		if err := json.Unmarshal(data, &raw); err != nil {
-			t.Fatal(err)
+		names = append(names, name)
+	}
+	for _, name := range names {
+		for _, p := range stageProblems(normal(t, currentOrder(name, now))) {
+			t.Errorf("GET, scenario %q: %s", name, p)
 		}
-		checkStage(t, "scenario "+name, raw)
 		checked++
-		events, _ := customerTimeline(name, now)
+		events, _ := customerEvents(name, now, time.Second)
 		for i, e := range events {
 			if e.kind != "order_update" {
 				continue
 			}
-			var o map[string]any
-			data, _ := json.Marshal(e.data)
-			if err := json.Unmarshal(data, &o); err != nil {
-				t.Fatal(err)
+			for _, p := range stageProblems(normal(t, e.data)) {
+				t.Errorf("stream, scenario %q, event %d: %s", name, i, p)
 			}
-			checkStage(t, fmt.Sprintf("stream %s event %d", name, i), o)
 			checked++
 		}
 	}
@@ -368,11 +421,168 @@ func TestEveryCustomerOrderFollowsTheStageTable(t *testing.T) {
 }
 
 func TestStageCheckCatchesBadData(t *testing.T) {
-	bad := customerOrder("looking_for_rider", 2, time.Now(), func(o map[string]any) { o["rider"] = map[string]any{"first_name": "Ravi"} })
-	inner := &testing.T{}
-	checkStage(inner, "bad", bad)
-	if !inner.Failed() {
-		t.Error("a rider at looking_for_rider must fail the stage check")
+	now := time.Now()
+	bad := []struct {
+		name  string
+		start string
+		key   string
+		value any
+	}{
+		{"a rider during the wait", "", "rider", map[string]any{"first_name": "Ravi"}},
+		{"no rider while the timer runs", "timer_running", "rider", nil},
+		{"no rider after handover", "handed_over", "rider", nil},
+		{"cancellable while the timer runs", "timer_running", "cancellable", true},
+		{"no OTP at arrived", "arrived", "handover_otp", nil},
+		{"paid before payment", "awaiting_payment", "payment_status", "paid"},
+		{"pending while looking", "", "payment_status", "pending"},
+		{"not cancellable at payment", "awaiting_payment", "cancellable", false},
+	}
+	for _, b := range bad {
+		order := normal(t, currentOrder(b.start, now))
+		order[b.key] = b.value
+		if len(stageProblems(order)) == 0 {
+			t.Errorf("%s must fail the stage check", b.name)
+		}
+	}
+}
+
+// TestStreamAndGetTellTheSameStory is the rule that stops the two drifting apart.
+func TestStreamAndGetTellTheSameStory(t *testing.T) {
+	now := time.Now()
+	names := []string{""}
+	for name := range customerScenarios {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		story := storyFor(name)
+		events, _ := customerEvents(name, now, time.Second)
+		var orders []map[string]any
+		for _, e := range events {
+			if e.kind == "order_update" {
+				orders = append(orders, normal(t, e.data))
+			}
+		}
+		get := normal(t, currentOrder(name, now))
+		at := story.getAt
+		if at < 0 {
+			at = len(orders) - 1
+		}
+		if orders[at]["customer_stage"] != get["customer_stage"] || orders[at]["seq"] != get["seq"] {
+			t.Errorf("%q: GET is %v at seq %v, the stream has %v at seq %v", name, get["customer_stage"], get["seq"], orders[at]["customer_stage"], orders[at]["seq"])
+		}
+		var deadline, started, stopped any
+		for i, o := range orders {
+			if o["seq"] != float64(i+1) {
+				t.Errorf("%q: event %d has seq %v", name, i, o["seq"])
+			}
+			timer := o["timer"].(map[string]any)
+			for _, pair := range []struct {
+				field string
+				held  *any
+			}{{"timer_started_at", &started}, {"timer_stopped_at", &stopped}} {
+				v := timer[pair.field]
+				if *pair.held != nil && v != *pair.held {
+					t.Errorf("%q: %s changed from %v to %v", name, pair.field, *pair.held, v)
+				}
+				if v != nil {
+					*pair.held = v
+				}
+			}
+			if o["customer_stage"] == "looking_for_rider" {
+				deadline = o["wait_deadline"]
+			}
+			if o["customer_stage"] == "rider_accepted" && deadline != nil && o["wait_deadline"] != deadline {
+				t.Errorf("%q: wait_deadline changed when the rider accepted", name)
+			}
+		}
+	}
+}
+
+func TestRiderGetAndStreamTellTheSameStory(t *testing.T) {
+	now := time.Now()
+	names := []string{""}
+	for name := range riderScenarios {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		story := riderStoryFor(name, now)
+		last := 0
+		for _, e := range story.events {
+			if e.seq != last+1 {
+				t.Errorf("%q: seq jumped from %d to %d", name, last, e.seq)
+			}
+			last = e.seq
+		}
+		if story.getAt == 0 && story.seq >= last {
+			t.Errorf("%q: GET at seq %d would make the app ignore the stream, which ends at %d", name, story.seq, last)
+		}
+		if story.getAt != 0 && story.seq != last {
+			t.Errorf("%q: GET is at seq %d, and the stream ends at %d", name, story.seq, last)
+		}
+	}
+}
+
+// TestActionsFollowTheOrder checks each action against the same scenario's order.
+func TestActionsFollowTheOrder(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	act := func(method, path, scenario, body string) int {
+		req, _ := http.NewRequest(method, srv.URL+"/customer/v1/orders/ord_mock0001"+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer t")
+		req.Header.Set("Idempotency-Key", "action-"+scenario+path)
+		req.Header.Set(scenarioHeader, scenario)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	now := time.Now()
+	for name := range customerScenarios {
+		if name == "idempotency_in_progress" {
+			continue
+		}
+		order := currentOrder(name, now)
+		want := 409
+		if order["cancellable"] == true {
+			want = 200
+		}
+		if got := act("POST", "/cancel", name, `{}`); got != want {
+			t.Errorf("%q at %v: cancel returned %d, cancellable is %v", name, order["customer_stage"], got, order["cancellable"])
+		}
+		want = 409
+		if order["customer_stage"] == "payment" {
+			want = 200
+		}
+		if got := act("PATCH", "/gate", name, `{"gate_id":"g"}`); got != want {
+			t.Errorf("%q at %v: gate change returned %d", name, order["customer_stage"], got)
+		}
+		want = 409
+		if order["rider"] != nil {
+			want = 200
+		}
+		if got := act("POST", "/call", name, ""); got != want {
+			t.Errorf("%q at %v: call returned %d", name, order["customer_stage"], got)
+		}
+	}
+	cancelled := cancelledFrom(currentOrder("payment_declined", now))
+	if cancelled["payment_status"] != "not_paid" {
+		t.Errorf("cancelling before payment must be not_paid, got %v", cancelled["payment_status"])
+	}
+	if cancelledFrom(currentOrder("", now))["payment_status"] != "refunded" {
+		t.Error("cancelling after payment must be refunded")
+	}
+}
+
+func TestRefundsAreOnlyForRefundedOrders(t *testing.T) {
+	now := time.Now()
+	for name := range customerScenarios {
+		story := storyFor(name)
+		refunded := currentOrder(name, now)["payment_status"] == "refunded"
+		if refunded != (story.refund != "") {
+			t.Errorf("%q: payment_status refunded is %v, and refund reason is %q", name, refunded, story.refund)
+		}
 	}
 }
 
@@ -417,9 +627,18 @@ func TestSharedRules(t *testing.T) {
 	if status, _, _ := post(fail, body); status != 409 {
 		t.Errorf("rejection: got %d", status)
 	}
-	fail[scenarioHeader] = ""
+	fail[scenarioHeader] = "payment_captured"
 	if status, _, _ := post(fail, body); status != 201 {
-		t.Errorf("retry after a rejection must run again: got %d", status)
+		t.Errorf("a different scenario must run again: got %d", status)
+	}
+	// A very large body is refused, not stored.
+	big := map[string]string{"Authorization": "Bearer t", "Idempotency-Key": "order-key-3"}
+	if status, _, _ := post(big, `{"gate_id":"`+strings.Repeat("x", maxBodyBytes+1)+`"}`); status != 400 {
+		t.Errorf("large body: got %d", status)
+	}
+	progress := map[string]string{"Authorization": "Bearer t", "Idempotency-Key": "order-key-4", scenarioHeader: "idempotency_in_progress"}
+	if status, data, header := post(progress, body); status != 409 || !strings.Contains(data, "idempotency_in_progress") || header.Get("Retry-After") == "" {
+		t.Errorf("in progress: got %d %s", status, data)
 	}
 }
 
@@ -455,7 +674,7 @@ func readAll(t *testing.T, conn *websocket.Conn) ([]map[string]any, websocket.St
 func TestCustomerStreamReplaysAnOrder(t *testing.T) {
 	srv := httptest.NewServer(New().Handler())
 	defer srv.Close()
-	conn := dial(t, srv, "/customer/v1/orders/ord_mock0001/stream?step_ms=5")
+	conn := dial(t, srv, "/customer/v1/orders/ord_mock0001/stream?step_ms=60")
 	defer conn.CloseNow() //nolint:errcheck
 	if err := conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"auth","token":"t"}`)); err != nil {
 		t.Fatal(err)
@@ -481,37 +700,90 @@ func TestCustomerStreamReplaysAnOrder(t *testing.T) {
 			last = seq
 			order := e["data"].(map[string]any)
 			stages = append(stages, order["customer_stage"].(string))
-			checkStage(t, "live stream", order)
+			for _, p := range stageProblems(order) {
+				t.Errorf("live stream: %s", p)
+			}
 		}
 		if e["type"] == "rider_position" && (len(stages) == 0 || stages[len(stages)-1] == "looking_for_rider") {
 			t.Error("a rider position must not appear during looking_for_rider")
 		}
 	}
-	want := "looking_for_rider,rider_accepted,timer_running,arrived,handed_over"
+	want := "looking_for_rider,looking_for_rider,rider_accepted,timer_running,arrived,handed_over"
 	if got := strings.Join(stages, ","); got != want {
 		t.Errorf("stages: got %s", got)
 	}
 }
 
-func TestStreamRefusesBadAuthAndCanDrop(t *testing.T) {
+func TestStreamClosesAsDocumented(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	auth := `{"type":"auth","token":"t"}`
+	cases := []struct {
+		name, path, first string
+		code              websocket.StatusCode
+	}{
+		{"expired token", "/customer/v1/orders/x/stream", `{"type":"auth","token":"` + ExpiredToken + `"}`, closeUnauthorized},
+		{"not an auth frame", "/customer/v1/orders/x/stream", `{"type":"hello"}`, closeUnauthorized},
+		{"missing order", "/customer/v1/orders/ord_missing/stream", auth, closeNotFound},
+		{"another customer's order", "/customer/v1/orders/ord_forbidden/stream", auth, closeForbidden},
+		{"token not renewed", "/customer/v1/orders/x/stream?scenario=token_expiring&step_ms=60", auth, closeUnauthorized},
+		{"a drop", "/customer/v1/orders/x/stream?scenario=socket_drop&step_ms=60", auth, -1},
+		{"ended order", "/customer/v1/orders/x/stream?scenario=cancelled&step_ms=60", auth, closeOrderEnded},
+	}
+	for _, tc := range cases {
+		conn := dial(t, srv, tc.path)
+		_ = conn.Write(context.Background(), websocket.MessageText, []byte(tc.first))
+		if _, code := readAll(t, conn); code != tc.code {
+			t.Errorf("%s: close code %d, want %d", tc.name, code, tc.code)
+		}
+		_ = conn.CloseNow()
+	}
+}
+
+func TestNoAuthFrameClosesWith4401(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits for the 5-second limit")
+	}
 	srv := httptest.NewServer(New().Handler())
 	defer srv.Close()
 	conn := dial(t, srv, "/customer/v1/orders/x/stream")
 	defer conn.CloseNow() //nolint:errcheck
-	_ = conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"auth","token":"`+ExpiredToken+`"}`))
-	if _, code := readAll(t, conn); code != closeUnauthorized {
-		t.Errorf("expired token: close code %d", code)
+	ctx, cancel := context.WithTimeout(context.Background(), authWait+3*time.Second)
+	defer cancel()
+	_, _, err := conn.Read(ctx)
+	if code := websocket.CloseStatus(err); code != closeUnauthorized {
+		t.Errorf("close code %d, error %v", code, err)
 	}
+}
 
-	drop := dial(t, srv, "/customer/v1/orders/x/stream?scenario=socket_drop&step_ms=5")
-	defer drop.CloseNow() //nolint:errcheck
-	_ = drop.Write(context.Background(), websocket.MessageText, []byte(`{"type":"auth","token":"t"}`))
-	events, code := readAll(t, drop)
-	if code != -1 {
-		t.Errorf("a drop must have no close frame: code %d", code)
+func TestRenewingATokenKeepsTheStreamOpen(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	conn := dial(t, srv, "/customer/v1/orders/x/stream?scenario=token_expiring&step_ms=200")
+	defer conn.CloseNow() //nolint:errcheck
+	ctx := context.Background()
+	_ = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"auth","token":"t"}`))
+	_ = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"auth","token":"t2"}`))
+	events, code := readAll(t, conn)
+	if code != closeOrderEnded {
+		t.Errorf("a renewed stream must run to its end: close code %d", code)
 	}
-	if len(events) < 3 {
-		t.Errorf("expected auth_ok and two events before the drop, got %d", len(events))
+	if len(events) < 6 {
+		t.Errorf("got only %d events", len(events))
+	}
+}
+
+// TestStreamsOutliveTheServerReadTimeout matches the timeouts in cmd/mock-server.
+func TestStreamsOutliveTheServerReadTimeout(t *testing.T) {
+	srv := httptest.NewUnstartedServer(New().Handler())
+	srv.Config.ReadTimeout = 100 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+	conn := dial(t, srv, "/customer/v1/orders/x/stream?step_ms=60")
+	defer conn.CloseNow() //nolint:errcheck
+	_ = conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"auth","token":"t"}`))
+	if _, code := readAll(t, conn); code != closeOrderEnded {
+		t.Errorf("the stream must run to its end: close code %d", code)
 	}
 }
 
@@ -541,10 +813,61 @@ func TestHeartbeatCarriesSeq(t *testing.T) {
 }
 
 func TestRiderStreamNeverSendsACountdown(t *testing.T) {
-	data, _ := json.Marshal(riderTimeline(time.Now())[1].data)
-	for _, banned := range []string{"timer_started_at", "timer_duration_s", "timer_stopped_at", "handover_otp"} {
-		if strings.Contains(string(data), banned) {
-			t.Errorf("rider stream exposes %s", banned)
+	names := []string{""}
+	for name := range riderScenarios {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		for _, e := range riderStoryFor(name, time.Now()).events {
+			data, _ := json.Marshal(e.data)
+			for _, banned := range []string{"timer_started_at", "timer_duration_s", "timer_stopped_at", "timer_missed", "handover_otp", "customer_phone"} {
+				if strings.Contains(string(data), banned) {
+					t.Errorf("%q, %s event: exposes %s", name, e.kind, banned)
+				}
+			}
+		}
+	}
+}
+
+func TestBrunoBodiesAreAccepted(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	for _, app := range []struct{ name, file string }{{"customer", "customer.openapi.yaml"}, {"rider", "rider.openapi.yaml"}} {
+		c := loadContract(t, app.name, app.file, "/"+app.name+"/v1")
+		raw, err := contracts.Dist.ReadFile("dist/" + app.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, err := contractbundle.Bruno(app.name, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range c.operations() {
+			content, ok := files[app.name+"/"+o.id+".bru"]
+			if !ok {
+				t.Errorf("no Bruno request for %s", o.id)
+				continue
+			}
+			if o.node["requestBody"] == nil {
+				continue
+			}
+			_, after, found := strings.Cut(content, "body:json {\n")
+			if !found {
+				t.Errorf("%s has no body", o.id)
+				continue
+			}
+			body := strings.TrimSuffix(strings.TrimSpace(after), "}")
+			if !json.Valid([]byte(body)) {
+				t.Errorf("%s: body is not JSON: %s", o.id, body)
+				continue
+			}
+			saved := sampleBodies[o.id]
+			sampleBodies[o.id] = body
+			status, data, _ := doRequest(t, srv, c, o, "", "bruno-"+o.id)
+			sampleBodies[o.id] = saved
+			if status == 400 {
+				t.Errorf("%s: mock refused the Bruno body: %s", o.id, data)
+			}
 		}
 	}
 }

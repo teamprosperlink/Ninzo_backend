@@ -4,6 +4,9 @@
 package mockserver
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -24,6 +27,8 @@ const (
 	replayHeader     = "Idempotency-Replayed"
 	idempotencyTTL   = 24 * time.Hour
 	maxStoredReplies = 10000
+	maxBodyBytes     = 1 << 20
+	maxStreams       = 200
 )
 
 // Server holds the mock's small amount of state: stored replies for repeated requests.
@@ -34,6 +39,8 @@ type Server struct {
 
 	mu     sync.Mutex
 	stored map[string]storedReply
+
+	streams chan struct{}
 }
 
 type storedReply struct {
@@ -45,7 +52,7 @@ type storedReply struct {
 
 // New returns a mock server.
 func New() *Server {
-	return &Server{now: time.Now, heartbeat: 15 * time.Second, step: 3 * time.Second, stored: map[string]storedReply{}}
+	return &Server{now: time.Now, heartbeat: 15 * time.Second, step: 3 * time.Second, stored: map[string]storedReply{}, streams: make(chan struct{}, maxStreams)}
 }
 
 type route struct {
@@ -75,7 +82,7 @@ func (c *call) json(status int, body map[string]any) {
 
 func (c *call) fail(status int, code, message string, retryable bool) {
 	body := map[string]any{"code": code, "message": message, "retryable": retryable}
-	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable {
+	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable || code == "idempotency_in_progress" {
 		c.w.Header().Set("Retry-After", "5")
 	}
 	c.json(status, body)
@@ -108,6 +115,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) wrap(rt route) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c := &call{w: w, r: r, s: s, scenario: r.Header.Get(scenarioHeader), now: s.now()}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		if !rt.open {
 			token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			switch token {
@@ -128,11 +136,22 @@ func (s *Server) wrap(rt route) http.HandlerFunc {
 			c.fail(http.StatusBadRequest, "idempotency_key_required", "Send an Idempotency-Key of 8 to 128 characters.", false)
 			return
 		}
-		raw, _ := io.ReadAll(r.Body)
-		r.Body = io.NopCloser(strings.NewReader(string(raw)))
-		storeKey := r.Header.Get("Authorization") + "|" + r.Method + "|" + r.URL.Path + "|" + key
+		if c.scenario == "idempotency_in_progress" {
+			c.fail(http.StatusConflict, "idempotency_in_progress", "This key is still being processed.", true)
+			return
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			c.fail(http.StatusBadRequest, "invalid_request", "The body is too large.", false)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		sum := sha256.Sum256(raw)
+		bodyHash := hex.EncodeToString(sum[:])
+		// The scenario is part of the key, so trying another scenario never replays an old answer.
+		storeKey := r.Header.Get("Authorization") + "|" + c.scenario + "|" + r.Method + "|" + r.URL.Path + "|" + key
 		if prior, ok := s.lookup(storeKey, c.now); ok {
-			if prior.bodyHash != string(raw) {
+			if prior.bodyHash != bodyHash {
 				c.fail(http.StatusUnprocessableEntity, "idempotency_key_reused", "This key was used with a different body.", false)
 				return
 			}
@@ -146,7 +165,7 @@ func (s *Server) wrap(rt route) http.HandlerFunc {
 		c.w = rec
 		rt.handle(c)
 		if rec.status >= 200 && rec.status < 300 {
-			s.store(storeKey, storedReply{bodyHash: string(raw), status: rec.status, body: rec.body, at: c.now})
+			s.store(storeKey, storedReply{bodyHash: bodyHash, status: rec.status, body: rec.body, at: c.now})
 		}
 	}
 }
