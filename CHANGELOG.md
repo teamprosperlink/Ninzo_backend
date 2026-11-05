@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Idempotency, audit and outbox (#36)
+- Added: `internal/platform/idempotency`, `internal/audit`, `internal/platform/outbox` and `internal/platform/sensitive`. No endpoint uses them yet.
+- Evidence: docs/testing/reports/36.md
+
 ### Questions before v0.3.0 (#34)
 - Added: the owner's algorithm documents in `docs/context/algorithms/`, as background, and `docs/planning/v0.3.0_open_questions.md`.
 

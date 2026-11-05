@@ -194,8 +194,8 @@ func TestAHandlerThatWritesNothingLogsTheRealStatus(t *testing.T) {
 }
 
 func TestNoLegalRequestOutlastsShutdown(t *testing.T) {
-	if requestTimeout >= shutdownTimeout {
-		t.Errorf("request timeout %s, shutdown timeout %s", requestTimeout, shutdownTimeout)
+	if RequestTimeout >= shutdownTimeout {
+		t.Errorf("request timeout %s, shutdown timeout %s", RequestTimeout, shutdownTimeout)
 	}
 }
 

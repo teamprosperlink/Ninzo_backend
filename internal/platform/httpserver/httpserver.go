@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	maxBodyBytes    = 1 << 20
-	requestTimeout  = 20 * time.Second
+	maxBodyBytes = 1 << 20
+	// RequestTimeout limits a normal request. Idempotency locks must outlast it.
+	RequestTimeout  = 20 * time.Second
 	readyTimeout    = 2 * time.Second
-	shutdownTimeout = requestTimeout + 5*time.Second // Longer, so no legal request is cut off.
+	shutdownTimeout = RequestTimeout + 5*time.Second // Longer, so no legal request is cut off.
 )
 
 // WriteJSON sends a JSON reply.
@@ -130,11 +131,11 @@ func withLogAndRecover(log *slog.Logger, next http.Handler) http.Handler {
 }
 
 // withLimits applies to normal requests. Live streams and large uploads must not use it: a
-// stream built on this context would die at requestTimeout. They also need their own handling
+// stream built on this context would die at RequestTimeout. They also need their own handling
 // of the server's ReadTimeout and WriteTimeout, and a RegisterOnShutdown hook to close them.
 func withLimits(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
 		defer cancel()
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -192,7 +193,7 @@ func serve(ctx context.Context, ln net.Listener, handler http.Handler, log *slog
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      requestTimeout + 5*time.Second,
+		WriteTimeout:      RequestTimeout + 5*time.Second,
 		IdleTimeout:       60 * time.Second,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}

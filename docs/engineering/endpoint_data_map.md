@@ -193,6 +193,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
 | `suggest_relocations` | `scooters`, `staging_nodes`, `orders`, `zone_settings` | `relocations`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
 | `suggest_restocks` | `scooters`, `scooter_stock`, `lots`, `zone_settings` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
+| `purge_platform_rows` | `idempotency_keys`, `outbox_events` | `idempotency_keys`, `outbox_events` | Daily. Deletes keys older than 24 hours and delivered events older than 7 days | |
 | `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided. `ninzo_service` cannot create tables, so this needs a narrow function made by a migration, in v0.5.0 | |
 
 ## 6. What must happen in one transaction
@@ -219,7 +220,7 @@ These are checked in the database as well as in Go, so a bug cannot break them:
 - `refunds` are unique per payment and reason, and money is always integer minor units. The total refunded on a payment can never be more than was paid.
 - `stock_ledger`, `order_events` and `audit_events` are append-only.
 - Sign-in codes, refresh tokens and passwords are stored only as hashes.
-- `idempotency_keys.response` never holds tokens, passwords or `handover_otp`. A stored `Order` reply leaves that code out, and a replay fills it in from the order, so a copy cannot outlive the order clearing it.
+- `idempotency_keys.response` never holds tokens, passwords or a real `handover_otp`. A stored `Order` keeps that field as null, so a replay is still valid, and the app gets the live code from `GET` or the stream. A copy can never outlive the order clearing it.
 - A person holds at most one profile per role, one identity per provider, and a provider account belongs to one person.
 - A new rider is an `applicant` unless Ninzo sets otherwise, and `riders.status` allows only known values.
 - Row Level Security is on for every table, including each `location_pings` partition, with no policies, so the Supabase Data API can read nothing even if it is left on. Services connect as `ninzo_service`, which can bypass it, but cannot change tables, truncate, or read migration history. Migrations run as `postgres`.

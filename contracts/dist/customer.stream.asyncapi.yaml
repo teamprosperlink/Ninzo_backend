@@ -237,7 +237,7 @@ components:
                 gate:
                     $ref: '#/components/schemas/OrderGate'
                 handover_otp:
-                    description: Set at the arrived stage, or in the signal-lost case in contracts/README.md. The customer shows it, and the rider submits it.
+                    description: Set at the arrived stage, or in the signal-lost case in contracts/README.md. The customer shows it, and the rider submits it. Null in a replayed response, because the code is never stored, so get it from GET or the stream.
                     type:
                         - string
                         - "null"
