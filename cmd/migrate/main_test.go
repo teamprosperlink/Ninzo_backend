@@ -14,7 +14,7 @@ import (
 
 // These stop before connecting, so no database is needed. The hosts do not exist.
 func TestRunRefusesTheWrongTarget(t *testing.T) {
-	const pooler = "aws-0-ap-south-1.pooler.supabase.invalid:5432/postgres?sslmode=require"
+	const pooler = "nonexistent.pooler.supabase.com:5432/postgres?sslmode=require"
 	ninzo := "postgres://postgres." + dbtarget.NinzoRef + ":p@" + pooler
 	other := "postgres://postgres.fvyyfghhccivwwvywvuu:p@" + pooler
 	local := "postgres://u:p@localhost:5432/d?sslmode=disable"

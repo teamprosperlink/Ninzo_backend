@@ -18,6 +18,11 @@ const NinzoRef = "chyejfgsipcsdxnginei"
 // transactionPoolerPort is refused: decision 0005 uses the session pooler.
 const transactionPoolerPort = 6543
 
+const (
+	poolerSuffix = ".pooler.supabase.com"
+	directSuffix = ".supabase.co"
+)
+
 // Target is what a database URL really connects to.
 type Target struct {
 	hosts    []string
@@ -56,14 +61,27 @@ func (t Target) IsLocal() bool {
 	return true
 }
 
-// Ref returns the Supabase project ref: pooler URLs carry it in the user, and direct
-// URLs in the host. It is empty for anything else.
+// Ref returns the Supabase project ref only for the two URL shapes Supabase really uses:
+// postgres.<ref> on a pooler host, or postgres on db.<ref>.supabase.co. It is empty for
+// anything else, including a URL with more than one host, because the driver could fall
+// back to a host that was never checked.
 func (t Target) Ref() string {
-	if ref, ok := strings.CutPrefix(t.user, "postgres."); ok {
+	for _, h := range t.hosts {
+		if h != t.hosts[0] {
+			return ""
+		}
+	}
+	host := t.hosts[0]
+	if strings.HasSuffix(host, poolerSuffix) {
+		ref, _ := strings.CutPrefix(t.user, "postgres.")
+		if ref == t.user {
+			return ""
+		}
 		return ref
 	}
-	if ref, ok := strings.CutPrefix(t.hosts[0], "db."); ok {
-		if ref, ok = strings.CutSuffix(ref, ".supabase.co"); ok {
+	if t.user == "postgres" && strings.HasPrefix(host, "db.") && strings.HasSuffix(host, directSuffix) {
+		ref := strings.TrimSuffix(strings.TrimPrefix(host, "db."), directSuffix)
+		if !strings.Contains(ref, ".") {
 			return ref
 		}
 	}

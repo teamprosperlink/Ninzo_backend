@@ -48,14 +48,21 @@ func TestCheckRemote(t *testing.T) {
 		}
 	}
 	bad := map[string]string{
-		"the other project through the pooler": "postgres://postgres." + otherRef + ":p@" + pooler + ":5432/postgres?sslmode=require",
-		"the other project directly":           "postgres://postgres:p@db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
-		"localhost":                            "postgres://u:p@localhost:5432/d?sslmode=require",
-		"an unknown server":                    "postgres://u:p@db.example.com:5432/d?sslmode=require",
-		"the transaction pooler":               "postgres://postgres." + NinzoRef + ":p@" + pooler + ":6543/postgres?sslmode=require",
-		"no sslmode, which can fall back":      "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres",
-		"sslmode=prefer":                       "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=prefer",
-		"sslmode=disable":                      "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=disable",
+		"the other project through the pooler":  "postgres://postgres." + otherRef + ":p@" + pooler + ":5432/postgres?sslmode=require",
+		"the other project directly":            "postgres://postgres:p@db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
+		"localhost":                             "postgres://u:p@localhost:5432/d?sslmode=require",
+		"an unknown server":                     "postgres://u:p@db.example.com:5432/d?sslmode=require",
+		"the transaction pooler":                "postgres://postgres." + NinzoRef + ":p@" + pooler + ":6543/postgres?sslmode=require",
+		"no sslmode, which can fall back":       "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres",
+		"sslmode=prefer":                        "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=prefer",
+		"sslmode=disable":                       "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=disable",
+		"Ninzo's user on the other project":     "postgres://postgres." + NinzoRef + ":p@db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
+		"Ninzo's user on an unknown server":     "postgres://postgres." + NinzoRef + ":p@evil.example.com:5432/postgres?sslmode=require",
+		"a look-alike pooler host":              "postgres://postgres." + NinzoRef + ":p@pooler.supabase.com.evil.example.com:5432/postgres?sslmode=require",
+		"a fallback to the other project":       "postgres://postgres:p@db." + NinzoRef + ".supabase.co,db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
+		"a fallback from the pooler":            "postgres://postgres." + NinzoRef + ":p@" + pooler + ",db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
+		"the other user on Ninzo's direct host": "postgres://postgres." + otherRef + ":p@db." + NinzoRef + ".supabase.co:5432/postgres?sslmode=require",
+		"a nested direct host":                  "postgres://postgres:p@db." + NinzoRef + ".evil.supabase.co:5432/postgres?sslmode=require",
 	}
 	for name, dsn := range bad {
 		if err := parse(t, dsn).CheckRemote(); err == nil {
