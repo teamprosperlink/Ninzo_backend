@@ -145,6 +145,56 @@ func TestErrorsUseTheContractShape(t *testing.T) {
 	checkErrorShape(t, posted)
 }
 
+func TestPanicAfterAPartialReplyLooksLikeAFailure(t *testing.T) {
+	srv, logs := newTestServer(t, ready, func(r chi.Router) {
+		r.Get("/half", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Length", "100")
+			_, _ = w.Write([]byte(`{"order_id":"abc","total":`))
+			w.(http.Flusher).Flush()
+			panic("boom")
+		})
+		r.Get("/half-chunked", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"order_id":"abc","total":`))
+			w.(http.Flusher).Flush()
+			panic("boom")
+		})
+	})
+	for _, path := range []string{"/v1/half", "/v1/half-chunked"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			continue // The connection broke before the headers arrived, which is also a failure.
+		}
+		_, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr == nil {
+			t.Errorf("%s: the client read a cut-off reply with no error", path)
+		}
+	}
+	if !strings.Contains(logs.String(), `"msg":"panic"`) || !strings.Contains(logs.String(), `"route":"/v1/half"`) {
+		t.Errorf("the panic and the request must both reach the logs: %s", logs.String())
+	}
+}
+
+func TestAHandlerThatWritesNothingLogsTheRealStatus(t *testing.T) {
+	srv, logs := newTestServer(t, ready, func(r chi.Router) {
+		r.Get("/quiet", func(http.ResponseWriter, *http.Request) {})
+	})
+	resp, err := http.Get(srv.URL + "/v1/quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if !strings.Contains(logs.String(), `"status":200`) {
+		t.Errorf("logs: %s", logs.String())
+	}
+}
+
+func TestNoLegalRequestOutlastsShutdown(t *testing.T) {
+	if requestTimeout >= shutdownTimeout {
+		t.Errorf("request timeout %s, shutdown timeout %s", requestTimeout, shutdownTimeout)
+	}
+}
+
 func TestServiceKeepsRunningAfterAPanic(t *testing.T) {
 	srv, logs := newTestServer(t, ready, func(r chi.Router) {
 		r.Get("/boom", func(http.ResponseWriter, *http.Request) { panic("boom") })

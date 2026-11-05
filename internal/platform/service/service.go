@@ -56,15 +56,13 @@ func Run(ctx context.Context, opts Options) error {
 
 	startup, cancel := context.WithTimeout(ctx, opts.StartupTimeout)
 	defer cancel()
-	pool, err := database.Open(startup, cfg.DatabaseURL, cfg.DBMaxConns)
+	pool, err := database.Open(startup, string(cfg.DatabaseURL), cfg.DBMaxConns)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if !cfg.IsLocal() {
-		if err := database.VerifyRole(startup, pool, dbtarget.ServiceRole); err != nil {
-			return err
-		}
+	if err := checkRole(startup, cfg, pool); err != nil {
+		return err
 	}
 
 	deps := Deps{Config: cfg, Log: log, DB: pool}
@@ -79,4 +77,13 @@ func Run(ctx context.Context, opts Options) error {
 		mount = func(r chi.Router) { opts.Mount(r, deps) }
 	}
 	return httpserver.Serve(ctx, cfg.Port, httpserver.NewRouter(log, ready, mount), log)
+}
+
+// checkRole confirms the login is really the service role, beyond what the URL says. Local
+// Postgres has no such role in use.
+func checkRole(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+	if cfg.IsLocal() {
+		return nil
+	}
+	return database.VerifyRole(ctx, pool, dbtarget.ServiceRole)
 }

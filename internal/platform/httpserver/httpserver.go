@@ -20,9 +20,9 @@ import (
 
 const (
 	maxBodyBytes    = 1 << 20
-	requestTimeout  = 25 * time.Second
+	requestTimeout  = 20 * time.Second
 	readyTimeout    = 2 * time.Second
-	shutdownTimeout = 15 * time.Second
+	shutdownTimeout = requestTimeout + 5*time.Second // Longer, so no legal request is cut off.
 )
 
 // WriteJSON sends a JSON reply.
@@ -92,6 +92,7 @@ func withLogAndRecover(log *slog.Logger, next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 		defer func() {
+			abort := false
 			if v := recover(); v != nil {
 				if v == http.ErrAbortHandler {
 					panic(v)
@@ -99,8 +100,20 @@ func withLogAndRecover(log *slog.Logger, next http.Handler) http.Handler {
 				log.Error("panic", "request_id", RequestID(r.Context()), "stack", string(debug.Stack()))
 				if rec.status == 0 {
 					WriteError(rec, http.StatusInternalServerError, "internal_error", "Something went wrong.", true)
+				} else {
+					// Part of a reply has gone. Break the connection, so the client sees a failure
+					// and not a cut-off reply that looks like a success.
+					abort = true
 				}
 			}
+			if rec.status == 0 {
+				rec.status = http.StatusOK // What net/http sends for a handler that writes nothing.
+			}
+			defer func() {
+				if abort {
+					panic(http.ErrAbortHandler)
+				}
+			}()
 			route := "unmatched"
 			if rc := chi.RouteContext(r.Context()); rc != nil && rc.RoutePattern() != "" {
 				route = rc.RoutePattern()
@@ -116,6 +129,9 @@ func withLogAndRecover(log *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
+// withLimits applies to normal requests. Live streams and large uploads must not use it: a
+// stream built on this context would die at requestTimeout. They also need their own handling
+// of the server's ReadTimeout and WriteTimeout, and a RegisterOnShutdown hook to close them.
 func withLimits(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
@@ -128,7 +144,8 @@ func withLimits(next http.Handler) http.Handler {
 // NewRouter builds an API's router. mount adds its endpoints under /v1, and may be nil.
 //
 // /healthz says the process is up, so a platform only restarts it if it is stuck. /readyz also
-// checks the database. Neither says why it failed, because they are public.
+// checks the database, so it can fail while the pool is merely busy: use it to hold back traffic
+// or a deploy, never to restart a process. Neither says why it failed, because they are public.
 func NewRouter(log *slog.Logger, ready func(context.Context) error, mount func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	r.Use(withRequestID)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -76,6 +77,32 @@ func TestLoadRefuses(t *testing.T) {
 				t.Errorf("the error shows the password: %v", err)
 			}
 		})
+	}
+}
+
+func TestPlatformPort(t *testing.T) {
+	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "PORT": "7000"}))
+	if err != nil || c.Port != 7000 {
+		t.Errorf("PORT: %d, %v", c.Port, err)
+	}
+	c, err = Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "PORT": "7000", "HTTP_PORT": "7001"}))
+	if err != nil || c.Port != 7001 {
+		t.Errorf("HTTP_PORT wins: %d, %v", c.Port, err)
+	}
+	if _, err = Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "PORT": "nope"})); err == nil {
+		t.Error("a bad PORT must be refused")
+	}
+}
+
+func TestPrintingConfigHidesThePassword(t *testing.T) {
+	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"%v", "%+v", "%#v", "%s"} {
+		if got := fmt.Sprintf(format, c); strings.Contains(got, "S3CRET") {
+			t.Errorf("%s shows the password: %s", format, got)
+		}
 	}
 }
 

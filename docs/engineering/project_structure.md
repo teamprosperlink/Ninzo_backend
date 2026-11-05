@@ -17,7 +17,7 @@ ninzo-backend/
 ├─ cmd/            background and support binaries: worker, tracker (later), rider-sim
 ├─ tools/          offline Python jobs: staging node placement, simulation
 ├─ tests/          end-to-end and scenario tests (unit tests sit next to the code)
-└─ deploy/         compose, infrastructure, one Dockerfile per service
+└─ deploy/         compose, infrastructure, one Dockerfile shared by every service
 ```
 
 Folders under `internal/`, `apps/` and `cmd/` are created when first needed, never in advance.
@@ -44,7 +44,7 @@ Apps stay thin: handlers, request and response types, and wiring. No SQL and no 
 ```
 apps/<name>/
 ├─ main.go         wiring only
-├─ CLAUDE.md  CHANGELOG.md  Dockerfile
+├─ CLAUDE.md  CHANGELOG.md
 ├─ docs/           PRD, project_spec, EDD, architecture, milestones and stages
 └─ internal/       one folder per API area
 ```

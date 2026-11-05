@@ -74,7 +74,35 @@ func TestOpenRefusesABadURL(t *testing.T) {
 	}
 }
 
-// exec runs admin SQL for a test role, and removes the role afterwards.
+func TestOpenStopsAtOnceOnAPermanentRefusal(t *testing.T) {
+	good := localURL(t)
+	for name, swap := range map[string][2]string{
+		"an unknown database": {"/ninzo?", "/ninzo_no_such_database?"},
+		"a wrong password":    {":ninzo_local@", ":S3CRET@"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			url := strings.Replace(good, swap[0], swap[1], 1)
+			if url == good {
+				t.Fatal("the URL did not change, so this test would prove nothing")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			start := time.Now()
+			_, err := Open(ctx, url, 1)
+			if err == nil || !strings.Contains(err.Error(), "refused the connection") {
+				t.Fatalf("got %v", err)
+			}
+			if took := time.Since(start); took > 15*time.Second {
+				t.Errorf("it kept retrying for %s", took)
+			}
+			if strings.Contains(err.Error(), "S3CRET") {
+				t.Errorf("the error shows the password: %v", err)
+			}
+		})
+	}
+}
+
+// tempRole makes a test role, and removes the role afterwards.
 func tempRole(t *testing.T, pool *pgxpool.Pool, role, options string) {
 	t.Helper()
 	ctx := context.Background()

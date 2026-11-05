@@ -39,6 +39,12 @@ type Target struct {
 	tls      bool
 }
 
+// String and GoString stop the password reaching a log, however a Target is printed.
+func (t Target) String() string { return "database at " + t.Host() }
+
+// GoString is the same as String.
+func (t Target) GoString() string { return t.String() }
+
 // Parse reads a database URL.
 func Parse(dsn string) (Target, error) {
 	cfg, err := pgconn.ParseConfig(dsn)
@@ -107,7 +113,12 @@ func (t Target) Ref() string {
 }
 
 // Host returns the host to show people.
-func (t Target) Host() string { return t.hosts[0] }
+func (t Target) Host() string {
+	if len(t.hosts) == 0 {
+		return "unknown"
+	}
+	return t.hosts[0]
+}
 
 // CheckLocal refuses anything but this machine.
 func (t Target) CheckLocal() error {

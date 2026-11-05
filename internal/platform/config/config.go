@@ -18,13 +18,19 @@ const (
 	EnvProduction = "production"
 )
 
+// Secret is a value that must not reach a log line, however it is printed.
+type Secret string
+
+func (Secret) String() string   { return "***" }
+func (Secret) GoString() string { return "***" }
+
 // Config holds what every service needs. Order timer values are not here: they are console
 // settings stored in the database.
 type Config struct {
 	Env         string
 	LogLevel    slog.Level
 	Port        int
-	DatabaseURL string
+	DatabaseURL Secret
 	DBMaxConns  int32
 	Database    dbtarget.Target
 	OTPTestMode bool
@@ -62,10 +68,15 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	c.Port = 8080
-	if v := getenv("HTTP_PORT"); v != "" {
-		port, err := strconv.Atoi(v)
+	// Hosting platforms such as Railway set PORT. HTTP_PORT is for running several APIs locally.
+	portValue := getenv("HTTP_PORT")
+	if portValue == "" {
+		portValue = getenv("PORT")
+	}
+	if portValue != "" {
+		port, err := strconv.Atoi(portValue)
 		if err != nil || port < 1 || port > 65535 {
-			problem("HTTP_PORT must be a number from 1 to 65535")
+			problem("HTTP_PORT or PORT must be a number from 1 to 65535")
 		}
 		c.Port = port
 	}
@@ -73,8 +84,8 @@ func Load(getenv func(string) string) (Config, error) {
 	c.DBMaxConns = 5
 	if v := getenv("DB_MAX_CONNS"); v != "" {
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 20 {
-			problem("DB_MAX_CONNS must be a number from 1 to 20: all services share the plan's connection limit")
+		if err != nil || n < 1 || n > 10 {
+			problem("DB_MAX_CONNS must be a number from 1 to 10: all services share the plan's connection limit")
 		}
 		c.DBMaxConns = int32(n)
 	}
@@ -90,10 +101,10 @@ func Load(getenv func(string) string) (Config, error) {
 		problem("OTP_TEST_MODE must be false in production")
 	}
 
-	c.DatabaseURL = getenv("DATABASE_URL")
+	c.DatabaseURL = Secret(getenv("DATABASE_URL"))
 	if c.DatabaseURL == "" {
 		problem("DATABASE_URL is not set")
-	} else if target, err := dbtarget.Parse(c.DatabaseURL); err != nil {
+	} else if target, err := dbtarget.Parse(string(c.DatabaseURL)); err != nil {
 		problems = append(problems, err)
 	} else {
 		c.Database = target

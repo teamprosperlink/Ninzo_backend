@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/dbtarget"
@@ -38,6 +40,10 @@ func Open(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error
 		if err == nil {
 			return pool, nil
 		}
+		if isPermanent(err) {
+			pool.Close()
+			return nil, fmt.Errorf("the database refused the connection: %s", target.Safe(err))
+		}
 		select {
 		case <-ctx.Done():
 			pool.Close()
@@ -45,6 +51,16 @@ func Open(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// isPermanent reports a wrong password, an unknown role or an unknown database. Trying again
+// cannot fix these, and repeated failed sign-ins can get a client banned by a pooler.
+func isPermanent(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return strings.HasPrefix(pgErr.Code, "28") || pgErr.Code == "3D000"
 }
 
 // Ping checks the database answers, within a short time.

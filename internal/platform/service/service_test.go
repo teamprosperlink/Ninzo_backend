@@ -15,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/dbtarget"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 )
 
 func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
@@ -103,8 +105,13 @@ func TestRunEndToEnd(t *testing.T) {
 		defer resp.Body.Close()
 		return resp.StatusCode
 	}
+	// Stop at once if Run ended early, such as when another program took the free port.
 	for i := 0; i < 100 && status("/readyz") != 200; i++ {
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case err := <-done:
+			t.Fatalf("the service stopped early: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	if got := status("/readyz"); got != 200 {
 		t.Fatalf("readyz: %d", got)
@@ -138,6 +145,32 @@ func TestRunEndToEnd(t *testing.T) {
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if !json.Valid([]byte(line)) {
 			t.Errorf("a log line is not JSON: %s", line)
+		}
+	}
+}
+
+func TestCheckRoleAppliesOutsideLocal(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		if os.Getenv("REQUIRE_DB_TESTS") == "yes" {
+			t.Fatal("TEST_DATABASE_URL is required here")
+		}
+		t.Skip("TEST_DATABASE_URL is not set. Run: task test:db")
+	}
+	ctx := context.Background()
+	pool, err := database.Open(ctx, url, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := checkRole(ctx, config.Config{Env: config.EnvLocal}, pool); err != nil {
+		t.Errorf("local: %v", err)
+	}
+	// The local login is not ninzo_service, so these must refuse it.
+	for _, env := range []string{config.EnvStaging, config.EnvProduction} {
+		err := checkRole(ctx, config.Config{Env: env}, pool)
+		if err == nil || !strings.Contains(err.Error(), "services must use") {
+			t.Errorf("%s: got %v", env, err)
 		}
 	}
 }
