@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -61,6 +62,33 @@ func isPermanent(err error) bool {
 		return false
 	}
 	return strings.HasPrefix(pgErr.Code, "28") || pgErr.Code == "3D000"
+}
+
+// InTx runs fn in a transaction: it commits if fn returns nil, and rolls back on an error or a
+// panic. Never call an outside service inside fn, because that holds a connection and row locks.
+func InTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) (err error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			_ = rollback(tx)
+			panic(v)
+		}
+	}()
+	if err := fn(tx); err != nil {
+		_ = rollback(tx)
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// rollback runs on its own context, because the request's may have ended.
+func rollback(tx pgx.Tx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return tx.Rollback(ctx)
 }
 
 // Ping checks the database answers, within a short time.
