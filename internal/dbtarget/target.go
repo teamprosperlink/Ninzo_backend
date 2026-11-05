@@ -15,6 +15,12 @@ import (
 // project, which must never be touched.
 const NinzoRef = "chyejfgsipcsdxnginei"
 
+// The two logins for Ninzo's project. Migrations use one, and services use the other.
+const (
+	MigrationRole = "postgres"
+	ServiceRole   = "ninzo_service"
+)
+
 // transactionPoolerPort is refused: decision 0005 uses the session pooler.
 const transactionPoolerPort = 6543
 
@@ -70,28 +76,34 @@ func (t Target) IsLocal() bool {
 	return true
 }
 
-// Ref returns the Supabase project ref only for the two URL shapes Supabase really uses:
-// postgres.<ref> on a pooler host, or postgres on db.<ref>.supabase.co. It is empty for
-// anything else, including a URL with more than one host, because the driver could fall
-// back to a host that was never checked.
-func (t Target) Ref() string {
+// parts returns the login and project ref only for the two URL shapes Supabase really uses:
+// <role>.<ref> on a pooler host, or <role> on db.<ref>.supabase.co, for our two logins. They
+// are empty for anything else, including a URL with more than one host, because the driver
+// could fall back to a host that was never checked.
+func (t Target) parts() (role, ref string) {
 	for _, h := range t.hosts {
 		if h != t.hosts[0] {
-			return ""
+			return "", ""
 		}
 	}
+	known := func(r string) bool { return r == MigrationRole || r == ServiceRole }
 	host := t.hosts[0]
 	if strings.HasSuffix(host, poolerSuffix) {
-		ref, _ := strings.CutPrefix(t.user, "postgres.")
-		if ref == t.user {
-			return ""
+		if r, ref, ok := strings.Cut(t.user, "."); ok && known(r) {
+			return r, ref
 		}
-		return ref
+		return "", ""
 	}
-	if t.user == "postgres" && strings.HasPrefix(host, "db.") && strings.HasSuffix(host, directSuffix) {
-		return strings.TrimSuffix(strings.TrimPrefix(host, "db."), directSuffix)
+	if known(t.user) && strings.HasPrefix(host, "db.") && strings.HasSuffix(host, directSuffix) {
+		return t.user, strings.TrimSuffix(strings.TrimPrefix(host, "db."), directSuffix)
 	}
-	return ""
+	return "", ""
+}
+
+// Ref returns the Supabase project ref, or nothing for a URL that is not a known shape.
+func (t Target) Ref() string {
+	_, ref := t.parts()
+	return ref
 }
 
 // Host returns the host to show people.
@@ -105,14 +117,22 @@ func (t Target) CheckLocal() error {
 	return nil
 }
 
-// CheckRemote refuses anything but Ninzo's project, over TLS, on the session pooler or
-// a direct connection.
-func (t Target) CheckRemote() error {
+// CheckRemote is for migrations: only Ninzo's project, as postgres.
+func (t Target) CheckRemote() error { return t.check(MigrationRole) }
+
+// CheckService is for services: only Ninzo's project, as ninzo_service.
+func (t Target) CheckService() error { return t.check(ServiceRole) }
+
+func (t Target) check(wantRole string) error {
 	if t.IsLocal() {
 		return errors.New("refusing localhost: this is for the Supabase project")
 	}
-	if ref := t.Ref(); ref != NinzoRef {
+	role, ref := t.parts()
+	if ref != NinzoRef {
 		return fmt.Errorf("refusing project %q: only Ninzo's project %s is allowed", ref, NinzoRef)
+	}
+	if role != wantRole {
+		return fmt.Errorf("refusing the login %s: this must use %s", role, wantRole)
 	}
 	// Connection options may be able to reroute a pooler connection to another project.
 	if t.options != "" {

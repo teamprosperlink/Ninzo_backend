@@ -1,4 +1,4 @@
-# Shared starting point for every service. Untested until the first service exists.
+# The image for every service: the mock server, customer-api and rider-api.
 # Build from the repo root:
 #   docker build -f deploy/Dockerfile.service --build-arg SERVICE=apps/customer-api -t customer-api .
 FROM golang:1.27-alpine AS build
