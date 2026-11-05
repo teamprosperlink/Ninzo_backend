@@ -643,6 +643,9 @@ func TestMigrationStopsIfTheServiceRoleHasTooMuchPower(t *testing.T) {
 func TestMigrationsRunLikeOnSupabase(t *testing.T) {
 	// Registered first, so it runs last, once the database this role owns has been dropped.
 	t.Cleanup(func() {
+		if os.Getenv("TEST_DATABASE_URL") == "" {
+			return // The test was skipped, so there is nothing to clean up.
+		}
 		admin, err := sql.Open("pgx", os.Getenv("TEST_DATABASE_URL"))
 		if err != nil {
 			t.Errorf("drop role: %v", err)
