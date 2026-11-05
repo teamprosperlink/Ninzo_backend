@@ -26,7 +26,7 @@ Last updated: 2026-11-04
 |---|---|---|
 
 ## Next actions
-1. `v0.2.0`: the 10 foundation tables are live on Supabase (#22). Sign-in contract, mock and tables are merged (#28). Applying migrations 0007 and 0008 needs the owner's okay. Next are the service skeleton and session system, on #25.
+1. `v0.2.0`: all 8 migrations are live on Supabase (#30). The sign-in contract and mock are live, and the developers are told in the shared Doc. Next are the service skeleton and session system, on #25. `ninzo_service` has no password yet: the owner sets one when the first service connects to Supabase.
 2. #9 stays open for developer feedback. The owner shares the shared index with them.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
