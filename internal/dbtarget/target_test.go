@@ -97,3 +97,33 @@ func TestErrorsNeverShowThePassword(t *testing.T) {
 		t.Errorf("CheckRemote: %v", err)
 	}
 }
+
+func TestLoginsAreKeptApart(t *testing.T) {
+	service := "postgres://" + ServiceRole + "." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=require"
+	migration := "postgres://" + MigrationRole + "." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=require"
+	if err := parse(t, service).CheckService(); err != nil {
+		t.Errorf("the service login: %v", err)
+	}
+	if err := parse(t, service).CheckRemote(); err == nil {
+		t.Error("migrations must not run as the service login")
+	}
+	if err := parse(t, migration).CheckService(); err == nil {
+		t.Error("a service must not run as postgres")
+	}
+	direct := "postgres://" + ServiceRole + ":p@db." + NinzoRef + ".supabase.co:5432/postgres?sslmode=require"
+	if err := parse(t, direct).CheckService(); err != nil {
+		t.Errorf("a direct service login: %v", err)
+	}
+	for name, dsn := range map[string]string{
+		"the other project":       "postgres://" + ServiceRole + "." + otherRef + ":p@" + pooler + ":5432/postgres?sslmode=require",
+		"an unknown login":        "postgres://someone." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=require",
+		"a service login on evil": "postgres://" + ServiceRole + "." + NinzoRef + ":p@evil.example.com:5432/postgres?sslmode=require",
+		"no TLS":                  "postgres://" + ServiceRole + "." + NinzoRef + ":p@" + pooler + ":5432/postgres",
+		"the transaction pooler":  "postgres://" + ServiceRole + "." + NinzoRef + ":p@" + pooler + ":6543/postgres?sslmode=require",
+		"connection options":      "postgres://" + ServiceRole + "." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=require&options=reference%3D" + otherRef,
+	} {
+		if err := parse(t, dsn).CheckService(); err == nil {
+			t.Errorf("%s must be refused", name)
+		}
+	}
+}

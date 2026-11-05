@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Service skeleton (#32)
+- Added: `apps/customer-api` and `apps/rider-api`, with config, logging, health checks, the database pool and graceful shutdown. No business endpoints yet.
+- Changed: `internal/dbtarget` keeps the migration and service logins apart.
+- Evidence: docs/testing/reports/32.md
+
 ### Sign-in migrations applied to Supabase (#30)
 - Changed: migrations 0007 and 0008 are applied to `Ninzo-backend-mumbai`, and verified there.
 - Evidence: docs/testing/reports/30.md

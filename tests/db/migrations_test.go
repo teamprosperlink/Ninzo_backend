@@ -614,9 +614,28 @@ func TestServiceRole(t *testing.T) {
 	}
 }
 
+// needNoServiceRole is for tests that must create the role themselves. Roles belong to the whole
+// server, so `task db:migrate` leaves ninzo_service behind on local Postgres. CI always starts
+// empty, so there it is a failure and never a skip.
+func needNoServiceRole(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ninzo_service')").Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		return
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatal("ninzo_service already exists on a server that should be empty")
+	}
+	t.Skip("ninzo_service exists on this server, from task db:migrate. For a full run: docker compose -f deploy/compose.yml down -v, task db:up, task test:db")
+}
+
 // The role belongs to the whole server, so it may exist already, without the right settings.
 func TestServiceRoleIsFixedIfItAlreadyExists(t *testing.T) {
 	db, p := freshDB(t)
+	needNoServiceRole(t, db)
 	mustExec(t, db, "CREATE ROLE ninzo_service NOLOGIN NOBYPASSRLS")
 	up(t, p)
 	var login, bypass bool
@@ -630,6 +649,7 @@ func TestServiceRoleIsFixedIfItAlreadyExists(t *testing.T) {
 
 func TestMigrationStopsIfTheServiceRoleHasTooMuchPower(t *testing.T) {
 	db, p := freshDB(t)
+	needNoServiceRole(t, db)
 	mustExec(t, db, "CREATE ROLE ninzo_service CREATEDB")
 	if _, err := p.Up(context.Background()); err == nil || !strings.Contains(err.Error(), "more power") {
 		t.Errorf("expected a refusal, got %v", err)
@@ -657,6 +677,7 @@ func TestMigrationsRunLikeOnSupabase(t *testing.T) {
 		}
 	})
 	db, p := freshDB(t)
+	needNoServiceRole(t, db)
 	db.SetMaxOpenConns(1)
 	mustExec(t, db, "CREATE ROLE ninzo_test_supabase NOLOGIN")
 	var name string

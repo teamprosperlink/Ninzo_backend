@@ -50,6 +50,7 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 - Verify: `task verify`
 - Local Postgres and Redis: `task db:up`, `task db:down`
 - Database tests, on local Postgres: `task test:db`
+- Run an API locally: `task run:customer` (port 8080), `task run:rider` (port 8081)
 - Migrations: `task db:migrate` is local only. `task staging:migrate` applies to the database in `.env`, asks first, and needs the owner's okay
 
 ## GitHub is the source of truth (owner rule, applies to every task)
