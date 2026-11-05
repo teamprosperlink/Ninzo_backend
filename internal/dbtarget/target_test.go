@@ -62,6 +62,8 @@ func TestCheckRemote(t *testing.T) {
 		"a fallback to the other project":       "postgres://postgres:p@db." + NinzoRef + ".supabase.co,db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
 		"a fallback from the pooler":            "postgres://postgres." + NinzoRef + ":p@" + pooler + ",db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
 		"the other user on Ninzo's direct host": "postgres://postgres." + otherRef + ":p@db." + NinzoRef + ".supabase.co:5432/postgres?sslmode=require",
+		"options naming the other project":      "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=require&options=reference%3D" + otherRef,
+		"a fallback to the transaction pooler":  "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432," + pooler + ":6543/postgres?sslmode=require",
 		"a nested direct host":                  "postgres://postgres:p@db." + NinzoRef + ".evil.supabase.co:5432/postgres?sslmode=require",
 	}
 	for name, dsn := range bad {

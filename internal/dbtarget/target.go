@@ -26,9 +26,10 @@ const (
 // Target is what a database URL really connects to.
 type Target struct {
 	hosts    []string
-	port     uint16
+	ports    []uint16
 	user     string
 	password string
+	options  string
 	tls      bool
 }
 
@@ -43,9 +44,17 @@ func Parse(dsn string) (Target, error) {
 	if strings.ContainsAny(cfg.Database, "@/") {
 		return Target{}, errors.New("the database URL is not valid: URL-encode any special characters in the password")
 	}
-	t := Target{hosts: []string{cfg.Host}, port: cfg.Port, user: cfg.User, password: cfg.Password, tls: cfg.TLSConfig != nil}
+	t := Target{
+		hosts:    []string{cfg.Host},
+		ports:    []uint16{cfg.Port},
+		user:     cfg.User,
+		password: cfg.Password,
+		options:  cfg.RuntimeParams["options"],
+		tls:      cfg.TLSConfig != nil,
+	}
 	for _, f := range cfg.Fallbacks {
 		t.hosts = append(t.hosts, f.Host)
+		t.ports = append(t.ports, f.Port)
 		t.tls = t.tls && f.TLSConfig != nil
 	}
 	return t, nil
@@ -105,8 +114,14 @@ func (t Target) CheckRemote() error {
 	if ref := t.Ref(); ref != NinzoRef {
 		return fmt.Errorf("refusing project %q: only Ninzo's project %s is allowed", ref, NinzoRef)
 	}
-	if t.port == transactionPoolerPort {
-		return errors.New("refusing port 6543, the transaction pooler: use the session pooler")
+	// Connection options may be able to reroute a pooler connection to another project.
+	if t.options != "" {
+		return errors.New("refusing connection options in the URL or PGOPTIONS")
+	}
+	for _, port := range t.ports {
+		if port == transactionPoolerPort {
+			return errors.New("refusing port 6543, the transaction pooler: use the session pooler")
+		}
 	}
 	if !t.tls {
 		return errors.New("refusing a connection that can fall back to no TLS: add sslmode=require to the URL")
