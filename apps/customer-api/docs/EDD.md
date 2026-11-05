@@ -43,7 +43,7 @@ timer_missed is a flag on the order, not a state
 
 | Step | What happens | Owner module |
 |---|---|---|
-| 1 | `POST /v1/orders`: check the gate, zone switch and gate cap | `geo`, `ops` |
+| 1 | `POST /v1/orders`: check the gate, zone switch and gate cap | `geo`, `orders` |
 | 2 | Availability: online scooters with stock, not on restock, whose ETA fits the maximum wait | `dispatch`, `geo`, `inventory` |
 | 3 | Reserve stock in one transaction: `FOR UPDATE SKIP LOCKED` on stock rows, a reservation row, a ledger entry, an outbox event, and the order with its `Idempotency-Key` as a unique value | `inventory`, `orders` |
 | 4 | Create the Razorpay order and return it. A retry after a crash finds the order from step 3 and resumes here | `payments` |
@@ -110,14 +110,13 @@ Outbox polling must not carry time-critical steps. Offers and zone events run di
 |---|---|
 | `platform` | Config, database, logs, telemetry, idempotency, middleware |
 | `identity` | OTP, tokens |
-| `geo` | Gates, zones, polygons, radius lookup, H3 |
+| `geo` | Gates, zones, polygons, radius lookup, H3, console settings in `zone_settings` |
 | `catalog` | Menu, prices |
 | `inventory` | Stock ledger, reservations |
 | `orders` | State machine, events, timer fields |
 | `payments` | Razorpay, webhooks, refunds |
 | `dispatch` | Candidates, offers |
 | `tracking` | Pings, smoothing, zone events |
-| `ops` | Console settings |
 | `audit`, `notify`, `realtime`, `support` | As named |
 
 ## 9. Unresolved design issues

@@ -100,7 +100,7 @@ func TestDataMapOnlyNamesKnownTables(t *testing.T) {
 		t.Fatal("no tables found, so this test proves nothing")
 	}
 	used := map[string]bool{}
-	for _, heading := range []string{"## 3. Customer API", "## 4. Rider API"} {
+	for _, heading := range []string{"## 3. Customer API", "## 4. Rider API", "## 5. Background work"} {
 		for _, cells := range mapRows(mapSection(t, text, heading)) {
 			if len(cells) < 3 {
 				t.Errorf("short row: %v", cells)
