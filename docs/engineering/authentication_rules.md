@@ -84,11 +84,12 @@ Person: phone, Google and Apple identities, overall status
 | Admin and support | 12 hours, with no restart | They can do the most damage |
 
 ### When a rider is signed out
-Only when they sign out, Ninzo suspends the role, a token looks stolen, or the app goes unused for 90 days. Never because of a weak network, or because a shift ended.
+Only when they sign out, Ninzo suspends the role, a token looks stolen, their password is reset, their phone changes, or the app goes unused for 90 days. Never because of a weak network, or because a shift ended.
 
 ### Lost replies and stolen tokens
 - A client sends one refresh at a time, and other requests wait for it.
-- If a used token comes back within 60 seconds and the pair issued from it has not been used, the reply was probably lost, so the server returns a valid pair. The time limit stops a stolen old token working while the app sits idle. **Proposed**
+- If a used token comes back and the pair issued from it has not been used, the reply was probably lost, so the server returns a valid pair, however long ago it was. A rider can lose signal for a long time, and must not be signed out for it.
+- **Accepted risk:** a stolen old token also works in that case, until the real app next renews. A 60-second limit was tried and rejected, because it signed out riders who lost signal. Tying retries to a device would close this, and can be added later. **Proposed**
 - If that pair has been used, the token may be stolen, so that chain is revoked and the user signs in again.
 - Queued offline work is never lost because a session needed renewing.
 
@@ -118,11 +119,11 @@ The owner first described the backend exchanging an authorization code. That flo
 | User | Rule |
 |---|---|
 | Customer | Registers by signing in: the first verified sign-in creates the customer profile |
-| Rider | Anyone can apply, and only Ninzo can approve. Applying has its own OTP path |
+| Rider | Anyone can apply, and only Ninzo can approve. Applying has its own OTP path (**Proposed**) |
 | Partner, admin, support | Ninzo creates the account. They cannot register |
 
 ### What an unregistered person sees
-This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. **Owner** approved this with the password rules.
+This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. The owner approved that a failed sign-in never reveals whether the ID exists. Sending no SMS, and this screen wording, are **Proposed**.
 
 ### Rider application
 ```
@@ -147,7 +148,8 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 4. Each role has its own password, so a weak rider password cannot open a staff account.
 
 **Limits on resets. Proposed:**
-- Support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
+- **Awaiting the owner's ruling, because it narrows an Owner rule.** Support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
+- If the only admin is locked out, an audited internal script does the reset.
 - Every reset is audited, and revokes all that role's tokens, so a stolen 90-day token does not survive it.
 
 ## 7. Conflict rules
@@ -158,14 +160,15 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | Rider orders food, off duty | Allowed, through the customer app | Their rider role is not affected |
 | Rider orders food, on duty | Allowed, and never offered their own order | Stops them earning pay or a late credit on it |
 | Delivery offers | Only to riders on an open shift | Food waits only in a scooter on shift, and the timer depends on that |
-| Staff with their own order | Cannot act on their own orders, refunds or tickets. Someone else must | Conflict of interest |
+| Staff with their own order | Cannot act on their own orders, refunds, tickets or credits. Someone else must | Conflict of interest |
 | A suspended rider orders food | Allowed: suspension is per role | They are barred from riding, not from buying |
 | Serious fraud | A person-level block stops every role | Fraud follows the person |
 | A customer deletes their account | Only the customer role is removed. Rider and payment records stay | The law may require those records |
 | Phone change | Done once on the person, after OTP on the new number. Riders and staff also need a check by support | It moves every role, and a phone is how accounts are proven |
 
 **Limits on phone changes. Proposed:**
-- Partners need the same support check as riders. A staff member's change is checked by an admin, and never by themselves.
+- **Awaiting the owner's ruling, because it narrows an Owner rule.** A staff member's change is checked by an admin, and never by themselves.
+- Partners need the same support check as riders.
 - A new number that already belongs to another person is refused.
 - The change revokes all that person's tokens, and tells the old number.
 
@@ -205,7 +208,7 @@ Checked on 2026-11-05. Prices came mostly from vendor blogs and comparison sites
 
 | Option | Decision | Why |
 |---|---|---|
-| Our own OTP | **Owner**: the options are OTP, Google and Apple, and the backend handles tokens | Fits the existing contract and tables |
+| Our own OTP | **Proposed**. The owner decided on OTP as an option, and not how it is built | Fits the existing contract and tables |
 | MSG91 to send the SMS | **Proposed**. The owner has not named a provider | About ₹0.15-0.25 per SMS. The provider can be swapped |
 | Clerk | Not used | India SMS is off by default, SMS is not on the free plan, and a native Flutter SDK could not be confirmed. Would duplicate work already done |
 | Firebase phone auth | Not used | About $0.07 per SMS in India, and it moves sign-in into the apps |
@@ -225,7 +228,7 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 ## 11. What comes when
 | Version | Work |
 |---|---|
-| `v0.2.0` | `people`, the identity table, rider ID, the `applicant` status, rider password storage, the OTP purpose, a separate service database login. Contract and mock updates, including `rider_not_approved`, the 60-second retry limit, and revoking only the chain. Session system. Customer Google and phone verification. Rider phone or ID sign-in, with OTP or password. Test OTPs until MSG91 and DLT are ready |
+| `v0.2.0` | `people`, the identity table, rider ID, the `applicant` status, rider password storage, the OTP purpose, a separate service database login. Contract and mock updates, including `rider_not_approved`, and revoking only the chain. Session system. Customer Google and phone verification. Rider phone or ID sign-in, with OTP or password. Test OTPs until MSG91 and DLT are ready |
 | `v0.3.0` | The rider application flow, with rider profiles |
 | Before the iOS release | Apple sign-in |
 | `v0.8.0` | Partner sign-in. `refresh_tokens`, `otp_requests` and `devices` are widened to allow the new user type |
