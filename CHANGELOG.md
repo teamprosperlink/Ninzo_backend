@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Questions before v0.3.0 (#34)
+- Added: the owner's algorithm documents in `docs/context/algorithms/`, as background, and `docs/planning/v0.3.0_open_questions.md`.
+
 ### Service skeleton (#32)
 - Added: `apps/customer-api` and `apps/rider-api`, with config, logging, health checks, the database pool and graceful shutdown. No business endpoints yet.
 - Changed: `internal/dbtarget` keeps the migration and service logins apart.
