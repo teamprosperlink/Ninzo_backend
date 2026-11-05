@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Sign-in migrations applied to Supabase (#30)
+- Changed: migrations 0007 and 0008 are applied to `Ninzo-backend-mumbai`, and verified there.
+- Evidence: docs/testing/reports/30.md
+
 ### Sign-in contract, mock and tables (#28)
 - Added: customer Google sign-in and phone verification. Rider ID, password sign-in and reset, and the `applicant` status.
 - Added: migrations for `people`, `person_identities`, `rider_credentials`, the OTP purpose, and the `ninzo_service` database login.
