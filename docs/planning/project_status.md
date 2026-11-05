@@ -26,7 +26,8 @@ Last updated: 2026-11-04
 |---|---|---|
 
 ## Next actions
-1. `v0.1.0`: #9 contract review. Publish the mock server on Railway, then start `v0.2.0` with #13.
+1. `v0.2.0`: start with #13, the map of endpoints to tables, for the owner to review before any migration.
+2. #9 stays open for developer feedback. The owner shares the shared index with them.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.
 
@@ -67,6 +68,7 @@ Overrides the KT docs and the earlier plan. Full flow: `docs/engineering/data_fl
 - No gate or address change after payment: owner decision, 2026-11-04. It overrides the edge-case doc.
 - Cancel: full refund within 5 seconds of payment being confirmed, and after that no cancel and no refund. Failures on Ninzo's side are always refunded, with the reason and method told to the customer. The customer can leave with a refund once the maximum wait passes. Owner decision, 2026-11-04.
 - `v0.2.0` starts as soon as the mock server is published, without waiting for developer feedback.
+- Mock server is live at https://mock-server-production-6a71.up.railway.app (Railway trial, $5 credit, up to 30 days). The owner must decide on a paid plan before it ends. Production hosting is decided separately.
 - Mock server: a small, cheap host now. Railway proposed. Production hosting is decided later.
 
 ## Open questions for the owner
