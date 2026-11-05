@@ -12,9 +12,10 @@
 | Setting | Choice |
 |---|---|
 | Region | Mumbai |
+| Project | `Ninzo-backend-mumbai`, ref `chyejfgsipcsdxnginei`. `cmd/migrate` refuses any other |
 | Connections | Session pooler, with a small connection pool per service |
 | Outbox delivery | Polling |
-| Data API | Off, or granted nothing |
+| Data API | Off, or granted nothing. Migration 0006 revokes the grants, so this does not depend on a dashboard setting |
 | PostGIS | Installed in the `extensions` schema |
 | Schema changes | Through `migrations/` only, never from the dashboard |
 | Local work and tests | Docker Postgres |
