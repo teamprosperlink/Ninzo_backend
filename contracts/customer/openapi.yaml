@@ -71,7 +71,9 @@ paths:
       tags: [auth]
       operationId: verifyOtp
       summary: Sign in with the code
-      description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+      description: >-
+        Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). A blocked
+        person gets account_blocked (403).
       security: []
       requestBody:
         required: true
@@ -96,6 +98,8 @@ paths:
                 $ref: '#/components/schemas/CustomerSession'
         '400':
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '429':
           $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
@@ -130,6 +134,132 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /auth/google:
+    post:
+      tags: [auth]
+      operationId: signInWithGoogle
+      summary: Sign in with Google
+      description: >-
+        The app gets an ID token from Google, requested for Ninzo's Google web client ID, and sends
+        it here. That ID is in the shared Doc once created. The server checks the token's audience
+        against it. The first sign-in creates the account. Check phone_verified in the reply,
+        because a phone must be verified before anything but viewing the menu. Errors: invalid_google_token
+        (401). A blocked person gets account_blocked (403).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token]
+              properties:
+                id_token:
+                  type: string
+                  description: The ID token from Google. It is checked on the server.
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerSession'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /me/phone/otp:
+    post:
+      tags: [auth]
+      operationId: requestPhoneOtp
+      summary: Send a code to verify a phone
+      description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  description: In E.164 format.
+                  pattern: '^\+[1-9][0-9]{7,14}$'
+                  example: '+919876543210'
+      responses:
+        '200':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /me/phone/verify:
+    post:
+      tags: [auth]
+      operationId: verifyPhone
+      summary: Verify a phone
+      description: >-
+        Use the request_id from requestPhoneOtp in this same session. Returns a new session, and
+        the old tokens stop working. Replace them, and replace customer_id, which can change if
+        this phone already has an account. Reload anything that holds the old ID. Verifying the
+        phone already on this account with a new code returns 200. If the reply is lost, a retry returns 401 or invalid_otp, because the old access token can last 15 minutes. Either way, sign in again: the phone is already verified. Errors: invalid_otp and
+        otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). All 409:
+        phone_already_set if this account has a different verified phone, phone_already_linked if
+        that phone's account has a different Google account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id, otp]
+              properties:
+                request_id:
+                  type: string
+                otp:
+                  type: string
+                  pattern: '^[0-9]{4,8}$'
+                  example: '123456'
+      responses:
+        '200':
+          description: Verified, with a new session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerSession'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
         '429':
           $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
@@ -276,7 +406,9 @@ paths:
       tags: [gates]
       operationId: createGate
       summary: Save a gate
-      description: 'Errors: out_of_service_area (400), duplicate_gate (409).'
+      description: >-
+        Needs a verified phone. Errors: out_of_service_area (400), duplicate_gate and
+        phone_required (both 409).
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -362,7 +494,7 @@ paths:
       tags: [menu]
       operationId: getAvailability
       summary: See what is in reach of a gate
-      description: Returns only items truly in reach, with quantity left.
+      description: Returns only items truly in reach, with quantity left. This needs a saved gate, and saving a gate needs a verified phone.
       parameters:
         - name: gate_id
           in: query
@@ -390,7 +522,9 @@ paths:
       tags: [menu]
       operationId: notifyWhenAvailable
       summary: Ask to be told when an item is in reach
-      description: Sends one push when the gate has an offer again.
+      description: >-
+        Sends one push when the gate has an offer again. Needs a verified phone. Errors:
+        phone_required (409).
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -453,7 +587,7 @@ paths:
       description: >-
         Reserves stock and returns what the app needs for Razorpay checkout. The
         app never marks an order paid. Errors: sold_out, gate_not_verified,
-        no_offer (all 409).
+        no_offer, phone_required (all 409).
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -724,7 +858,8 @@ paths:
       tags: [support]
       operationId: createTicket
       summary: Report a problem
-      description: For example, missing or cold food.
+      description: >-
+        For example, missing or cold food. Needs a verified phone. Errors: phone_required (409).
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -881,7 +1016,7 @@ components:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     CustomerSession:
       type: object
-      required: [access_token, refresh_token, expires_in_s, customer_id, server_time]
+      required: [access_token, refresh_token, expires_in_s, customer_id, phone_verified, server_time]
       properties:
         access_token:
           type: string
@@ -893,6 +1028,9 @@ components:
           example: 900
         customer_id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
+        phone_verified:
+          type: boolean
+          description: False means the customer must verify a phone before doing anything but viewing the menu.
         server_time:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     Customer:
@@ -902,7 +1040,10 @@ components:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
         phone:
-          type: string
+          description: Null until a phone is verified.
+          type:
+            - string
+            - 'null'
           example: '+919876543210'
         name:
           type:

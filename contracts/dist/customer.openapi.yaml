@@ -72,6 +72,12 @@ components:
             headers:
                 Retry-After:
                     $ref: '#/components/headers/RetryAfter'
+        Forbidden:
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/Error'
+            description: The caller lacks a permission, named in missing_permission.
         IdempotencyKeyReused:
             content:
                 application/json:
@@ -175,8 +181,11 @@ components:
                         - string
                         - "null"
                 phone:
+                    description: Null until a phone is verified.
                     example: "+919876543210"
-                    type: string
+                    type:
+                        - string
+                        - "null"
             required:
                 - id
                 - phone
@@ -201,6 +210,9 @@ components:
                     example: 900
                     minimum: 1
                     type: integer
+                phone_verified:
+                    description: False means the customer must verify a phone before doing anything but viewing the menu.
+                    type: boolean
                 refresh_token:
                     type: string
                 server_time:
@@ -210,6 +222,7 @@ components:
                 - refresh_token
                 - expires_in_s
                 - customer_id
+                - phone_verified
                 - server_time
             type: object
         CustomerStage:
@@ -825,6 +838,45 @@ info:
     version: 0.1.0
 openapi: 3.1.0
 paths:
+    /auth/google:
+        post:
+            description: 'The app gets an ID token from Google, requested for Ninzo''s Google web client ID, and sends it here. That ID is in the shared Doc once created. The server checks the token''s audience against it. The first sign-in creates the account. Check phone_verified in the reply, because a phone must be verified before anything but viewing the menu. Errors: invalid_google_token (401). A blocked person gets account_blocked (403).'
+            operationId: signInWithGoogle
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                id_token:
+                                    description: The ID token from Google. It is checked on the server.
+                                    type: string
+                            required:
+                                - id_token
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CustomerSession'
+                    description: Signed in.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            security: []
+            summary: Sign in with Google
+            tags:
+                - auth
     /auth/otp/request:
         post:
             description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
@@ -864,7 +916,7 @@ paths:
                 - auth
     /auth/otp/verify:
         post:
-            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). A blocked person gets account_blocked (403).'
             operationId: verifyOtp
             requestBody:
                 content:
@@ -891,6 +943,8 @@ paths:
                     description: Signed in.
                 "400":
                     $ref: '#/components/responses/BadRequest'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -939,7 +993,7 @@ paths:
                 - auth
     /availability:
         get:
-            description: Returns only items truly in reach, with quantity left.
+            description: Returns only items truly in reach, with quantity left. This needs a saved gate, and saving a gate needs a verified phone.
             operationId: getAvailability
             parameters:
                 - description: The gate to check.
@@ -968,7 +1022,7 @@ paths:
                 - menu
     /availability/notify:
         post:
-            description: Sends one push when the gate has an offer again.
+            description: 'Sends one push when the gate has an offer again. Needs a verified phone. Errors: phone_required (409).'
             operationId: notifyWhenAvailable
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1026,7 +1080,7 @@ paths:
             tags:
                 - gates
         post:
-            description: 'Errors: out_of_service_area (400), duplicate_gate (409).'
+            description: 'Needs a verified phone. Errors: out_of_service_area (400), duplicate_gate and phone_required (both 409).'
             operationId: createGate
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1204,6 +1258,88 @@ paths:
             summary: Remove a device from push
             tags:
                 - profile
+    /me/phone/otp:
+        post:
+            description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+            operationId: requestPhoneOtp
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                phone:
+                                    description: In E.164 format.
+                                    example: "+919876543210"
+                                    pattern: ^\+[1-9][0-9]{7,14}$
+                                    type: string
+                            required:
+                                - phone
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OtpRequestResult'
+                    description: The code was sent.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Send a code to verify a phone
+            tags:
+                - auth
+    /me/phone/verify:
+        post:
+            description: 'Use the request_id from requestPhoneOtp in this same session. Returns a new session, and the old tokens stop working. Replace them, and replace customer_id, which can change if this phone already has an account. Reload anything that holds the old ID. Verifying the phone already on this account with a new code returns 200. If the reply is lost, a retry returns 401 or invalid_otp, because the old access token can last 15 minutes. Either way, sign in again: the phone is already verified. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). All 409: phone_already_set if this account has a different verified phone, phone_already_linked if that phone''s account has a different Google account.'
+            operationId: verifyPhone
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                otp:
+                                    example: "123456"
+                                    pattern: ^[0-9]{4,8}$
+                                    type: string
+                                request_id:
+                                    type: string
+                            required:
+                                - request_id
+                                - otp
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CustomerSession'
+                    description: Verified, with a new session.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Verify a phone
+            tags:
+                - auth
     /menu/items:
         get:
             description: The full menu. Use availability to see what is in reach of a gate.
@@ -1268,7 +1404,7 @@ paths:
             tags:
                 - orders
         post:
-            description: 'Reserves stock and returns what the app needs for Razorpay checkout. The app never marks an order paid. Errors: sold_out, gate_not_verified, no_offer (all 409).'
+            description: 'Reserves stock and returns what the app needs for Razorpay checkout. The app never marks an order paid. Errors: sold_out, gate_not_verified, no_offer, phone_required (all 409).'
             operationId: createOrder
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1540,7 +1676,7 @@ paths:
                 - support
     /support/tickets:
         post:
-            description: For example, missing or cold food.
+            description: 'For example, missing or cold food. Needs a verified phone. Errors: phone_required (409).'
             operationId: createTicket
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'

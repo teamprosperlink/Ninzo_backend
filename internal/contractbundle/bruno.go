@@ -103,7 +103,9 @@ func sampleValue(doc, schema map[string]any, depth int) any {
 	if values, ok := schema["enum"].([]any); ok && len(values) > 0 {
 		return values[0]
 	}
-	if choices, ok := schema["oneOf"].([]any); ok && len(choices) > 0 {
+	// A oneOf beside properties only says which fields are required, as in "phone or rider ID".
+	_, hasProps := schema["properties"]
+	if choices, ok := schema["oneOf"].([]any); ok && len(choices) > 0 && !hasProps {
 		first, _ := choices[0].(map[string]any)
 		return sampleValue(doc, first, depth+1)
 	}
@@ -113,6 +115,11 @@ func sampleValue(doc, schema map[string]any, depth int) any {
 		out := map[string]any{}
 		props, _ := schema["properties"].(map[string]any)
 		required, _ := schema["required"].([]any)
+		if choices, ok := schema["oneOf"].([]any); ok && len(choices) > 0 {
+			first, _ := choices[0].(map[string]any)
+			extra, _ := first["required"].([]any)
+			required = append(append([]any{}, required...), extra...)
+		}
 		for _, r := range required {
 			name, _ := r.(string)
 			prop, _ := props[name].(map[string]any)

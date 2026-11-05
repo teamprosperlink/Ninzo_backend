@@ -26,7 +26,7 @@ Last updated: 2026-11-04
 |---|---|---|
 
 ## Next actions
-1. `v0.2.0`: the 10 foundation tables are live on Supabase (#22). Next is the sign-in and customer profile code on top of them. Plan it with the owner first.
+1. `v0.2.0`: the 10 foundation tables are live on Supabase (#22). Sign-in contract, mock and tables are merged (#28). Applying migrations 0007 and 0008 needs the owner's okay. Next are the service skeleton and session system, on #25.
 2. #9 stays open for developer feedback. The owner shares the shared index with them.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.

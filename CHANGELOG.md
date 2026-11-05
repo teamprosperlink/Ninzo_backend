@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Sign-in contract, mock and tables (#28)
+- Added: customer Google sign-in and phone verification. Rider ID, password sign-in and reset, and the `applicant` status.
+- Added: migrations for `people`, `person_identities`, `rider_credentials`, the OTP purpose, and the `ninzo_service` database login.
+- Changed: phone moved from `customers` and `riders` to `people`.
+
 ### Authentication rules (#26)
 - Added: `docs/engineering/authentication_rules.md`, recording sign-in rules, roles, situations, problems and solutions, with their reasons.
 

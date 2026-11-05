@@ -891,17 +891,29 @@ components:
                 id:
                     $ref: '#/components/schemas/Id'
                 name:
-                    type: string
+                    description: Null until an applicant fills it in.
+                    type:
+                        - string
+                        - "null"
+                rider_code:
+                    description: The rider ID used to sign in. Null until approved.
+                    type:
+                        - string
+                        - "null"
                 status:
-                    description: Open list, including active, suspended.
+                    description: Open list, including applicant, active, suspended.
                     type: string
                 zone_id:
-                    $ref: '#/components/schemas/Id'
+                    anyOf:
+                        - $ref: '#/components/schemas/Id'
+                        - type: "null"
+                    description: Null until a zone is set.
             required:
                 - id
                 - name
                 - status
                 - zone_id
+                - rider_code
             type: object
         RiderOrder:
             description: What the rider sees of an order. It has no countdown fields. The rider sees a calm fixed label, so the clock never pressures the rider.
@@ -1005,11 +1017,15 @@ components:
                     $ref: '#/components/schemas/Id'
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
+                status:
+                    description: Open list, including applicant and active. A suspended rider gets account_blocked instead of a session. An applicant can only apply and see progress.
+                    type: string
             required:
                 - access_token
                 - refresh_token
                 - expires_in_s
                 - rider_id
+                - status
                 - server_time
             type: object
         RiderState:
@@ -1274,20 +1290,35 @@ openapi: 3.1.0
 paths:
     /auth/otp/request:
         post:
-            description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+            description: 'Send a phone or a rider ID, not both. The reply is the same whether or not the account exists, and no SMS is sent if it does not. Later errors on that request_id behave the same either way. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
             operationId: requestOtp
             requestBody:
                 content:
                     application/json:
                         schema:
+                            oneOf:
+                                - required:
+                                    - phone
+                                - required:
+                                    - rider_code
                             properties:
                                 phone:
                                     description: In E.164 format.
                                     example: "+919876543210"
                                     pattern: ^\+[1-9][0-9]{7,14}$
                                     type: string
-                            required:
-                                - phone
+                                purpose:
+                                    default: sign_in
+                                    description: A code works only for the purpose it was sent for.
+                                    enum:
+                                        - sign_in
+                                        - password_reset
+                                    type: string
+                                rider_code:
+                                    description: The rider ID that Ninzo issues.
+                                    example: RD1024
+                                    pattern: ^[A-Z0-9]{4,16}$
+                                    type: string
                             type: object
                 required: true
             responses:
@@ -1311,7 +1342,7 @@ paths:
                 - auth
     /auth/otp/verify:
         post:
-            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429).'
+            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). After a correct code, a blocked person or suspended rider gets account_blocked (403).'
             operationId: verifyOtp
             requestBody:
                 content:
@@ -1338,6 +1369,8 @@ paths:
                     description: Signed in.
                 "400":
                     $ref: '#/components/responses/BadRequest'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -1346,6 +1379,109 @@ paths:
                     $ref: '#/components/responses/ServiceUnavailable'
             security: []
             summary: Sign in with the code
+            tags:
+                - auth
+    /auth/password/login:
+        post:
+            description: 'Send a phone or a rider ID, not both. Errors: invalid_credentials (401), the same for a wrong password, an unknown account, and an account with no password. Too many attempts on that phone or rider ID return otp_attempts_exceeded (429), for any account. After a correct password, a blocked person or suspended rider gets account_blocked (403).'
+            operationId: signInWithPassword
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            oneOf:
+                                - required:
+                                    - phone
+                                - required:
+                                    - rider_code
+                            properties:
+                                password:
+                                    maxLength: 128
+                                    minLength: 8
+                                    type: string
+                                phone:
+                                    description: In E.164 format.
+                                    example: "+919876543210"
+                                    pattern: ^\+[1-9][0-9]{7,14}$
+                                    type: string
+                                rider_code:
+                                    description: The rider ID that Ninzo issues.
+                                    example: RD1024
+                                    pattern: ^[A-Z0-9]{4,16}$
+                                    type: string
+                            required:
+                                - password
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RiderSession'
+                    description: Signed in.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            security: []
+            summary: Sign in with a password
+            tags:
+                - auth
+    /auth/password/reset:
+        post:
+            description: 'Uses a code requested with purpose password_reset. Signs the rider out everywhere, and returns a new session. If the reply is lost, the retry returns invalid_otp, though the password has changed, so try signing in with the new password. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), After a correct code, an applicant gets rider_not_approved (409), and a blocked person or suspended rider gets account_blocked (403).'
+            operationId: resetPassword
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                new_password:
+                                    maxLength: 128
+                                    minLength: 8
+                                    type: string
+                                otp:
+                                    example: "123456"
+                                    pattern: ^[0-9]{4,8}$
+                                    type: string
+                                request_id:
+                                    type: string
+                            required:
+                                - request_id
+                                - otp
+                                - new_password
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RiderSession'
+                    description: Reset, with a new session.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            security: []
+            summary: Reset a forgotten password
             tags:
                 - auth
     /auth/refresh:
@@ -2106,6 +2242,53 @@ paths:
             summary: List current offers
             tags:
                 - offers
+    /riders/me/password:
+        post:
+            description: 'Only an approved rider can set one. current_password is needed if one is already set. Other sessions are signed out, and this session keeps its tokens. The reply holds no tokens, so a stored reply never holds a secret, and the request hash leaves out passwords. Errors, all 409: rider_not_approved, wrong_password.'
+            operationId: setRiderPassword
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                current_password:
+                                    maxLength: 128
+                                    minLength: 8
+                                    type: string
+                                new_password:
+                                    maxLength: 128
+                                    minLength: 8
+                                    type: string
+                            required:
+                                - new_password
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Done'
+                    description: Changed.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Set or change the password
+            tags:
+                - auth
     /riders/me/problems:
         post:
             description: There is no penalty. Support sees it within seconds. An unsafe route never counts against the rider.
@@ -2234,7 +2417,7 @@ paths:
                 - shift
     /riders/me/shifts/start:
         post:
-            description: 'A suspended rider gets 403. Errors, all 409: rider_not_verified, shift_already_open, shift_limit_reached.'
+            description: 'A suspended rider gets 403. Errors, all 409: rider_not_approved, rider_not_verified, shift_already_open, shift_limit_reached.'
             operationId: startShift
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'

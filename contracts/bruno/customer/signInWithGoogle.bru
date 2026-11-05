@@ -1,0 +1,23 @@
+meta {
+  name: signInWithGoogle
+  type: http
+  seq: 24
+}
+
+post {
+  url: {{baseUrl}}/auth/google
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-signInWithGoogle-0001
+}
+
+body:json {
+  {
+    "id_token": "mock_value"
+  }
+}

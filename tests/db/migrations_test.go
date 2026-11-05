@@ -36,6 +36,9 @@ const (
 
 	actorA = "11111111-1111-1111-1111-111111111111"
 	actorB = "22222222-2222-2222-2222-222222222222"
+
+	personA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	personB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 )
 
 var supabaseAPIRoles = []string{"anon", "authenticated", "service_role"}
@@ -114,6 +117,8 @@ func freshDB(t *testing.T) (*sql.DB, *goose.Provider) {
 		if _, err := admin.ExecContext(c, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
 			t.Errorf("drop test database: %v", err)
 		}
+		// Fails harmlessly if another local database, such as the real one, still uses it.
+		_, _ = admin.ExecContext(c, "DROP ROLE IF EXISTS ninzo_service")
 	})
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
 	if err != nil {
@@ -292,22 +297,22 @@ func TestRowLevelSecurityHidesRowsEvenWithAGrant(t *testing.T) {
 	}
 	defer conn.Close()
 	for _, stmt := range []string{
-		"INSERT INTO customers (phone) VALUES ('+919876543210')",
-		"GRANT SELECT ON customers TO ninzo_test_reader",
+		"INSERT INTO people (phone) VALUES ('+919876543210')",
+		"GRANT SELECT ON people TO ninzo_test_reader",
 	} {
 		if _, err := conn.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var owner int
-	if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM customers").Scan(&owner); err != nil || owner != 1 {
+	if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM people").Scan(&owner); err != nil || owner != 1 {
 		t.Fatalf("the owner must see the row: %d, %v", owner, err)
 	}
 	if _, err := conn.ExecContext(ctx, "SET ROLE ninzo_test_reader"); err != nil {
 		t.Fatal(err)
 	}
 	var seen int
-	err = conn.QueryRowContext(ctx, "SELECT count(*) FROM customers").Scan(&seen)
+	err = conn.QueryRowContext(ctx, "SELECT count(*) FROM people").Scan(&seen)
 	if _, resetErr := conn.ExecContext(ctx, "RESET ROLE"); resetErr != nil {
 		t.Fatal(resetErr)
 	}
@@ -380,21 +385,37 @@ func TestDatabaseRefusesBadData(t *testing.T) {
 	db, p := freshDB(t)
 	up(t, p)
 	hash := strings.Repeat("a", 64)
-	mustExec(t, db, "INSERT INTO customers (phone) VALUES ('+919876543210')")
-	mustExec(t, db, "INSERT INTO riders (id, phone, name) VALUES ('"+actorA+"', '+919876543211', 'Ravi')")
+	mustExec(t, db, "INSERT INTO people (id, phone) VALUES ('"+personA+"', '+919876543210')")
+	mustExec(t, db, "INSERT INTO people (id) VALUES ('"+personB+"')")
+	mustExec(t, db, "INSERT INTO customers (person_id) VALUES ('"+personA+"')")
+	mustExec(t, db, "INSERT INTO riders (id, person_id, name, rider_code) VALUES ('"+actorA+"', '"+personA+"', 'Ravi', 'RD1024')")
+	mustExec(t, db, "INSERT INTO person_identities (person_id, provider, subject) VALUES ('"+personA+"', 'google', 'sub-a')")
 	mustExec(t, db, "INSERT INTO devices (actor_type, actor_id, platform, push_token) VALUES ('rider', '"+actorA+"', 'android', 'tok1')")
 	mustExec(t, db, "INSERT INTO refresh_tokens (actor_type, actor_id, chain_id, token_hash, expires_at) VALUES ('rider', '"+actorA+"', '"+actorA+"', '"+hash+"', now())")
 
 	idem := "INSERT INTO idempotency_keys (actor_id, method, path, key, request_hash, status, response, locked_until) VALUES ('" + actorA + "', 'POST', '/x', "
 	cases := []struct{ name, stmt, code, constraint string }{
-		{"a bad phone number", "INSERT INTO customers (phone) VALUES ('98765')", checkViolation, "customers_phone_check"},
-		{"a duplicate customer phone", "INSERT INTO customers (phone) VALUES ('+919876543210')", uniqueViolation, "customers_phone_key"},
-		{"a duplicate rider phone", "INSERT INTO riders (phone, name) VALUES ('+919876543211', 'Asha')", uniqueViolation, "riders_phone_key"},
-		{"an empty rider name", "INSERT INTO riders (phone, name) VALUES ('+919876543212', '')", checkViolation, "riders_name_check"},
-		{"a plain sign-in code", "INSERT INTO otp_requests (actor_type, phone, code_hash, expires_at) VALUES ('customer', '+919876543210', '123456', now())", checkViolation, "otp_requests_code_hash_check"},
+		{"a bad phone number", "INSERT INTO people (phone) VALUES ('98765')", checkViolation, "people_phone_check"},
+		{"a duplicate phone", "INSERT INTO people (phone) VALUES ('+919876543210')", uniqueViolation, "people_phone_key"},
+		{"an unknown person status", "INSERT INTO people (status) VALUES ('maybe')", checkViolation, "people_status_check"},
+		{"a second customer profile for a person", "INSERT INTO customers (person_id) VALUES ('" + personA + "')", uniqueViolation, "customers_person_id_key"},
+		{"a second rider profile for a person", "INSERT INTO riders (person_id) VALUES ('" + personA + "')", uniqueViolation, "riders_person_id_key"},
+		{"a customer for no person", "INSERT INTO customers (person_id) VALUES ('" + actorB + "')", foreignKeyMismatch, "customers_person_id_fkey"},
+		{"an empty rider name", "INSERT INTO riders (person_id, name) VALUES ('" + personB + "', '')", checkViolation, "riders_name_check"},
+		{"an unknown rider status", "INSERT INTO riders (person_id, status) VALUES ('" + personB + "', 'maybe')", checkViolation, "riders_status_check"},
+		{"a duplicate rider ID", "INSERT INTO riders (person_id, rider_code) VALUES ('" + personB + "', 'RD1024')", uniqueViolation, "riders_rider_code_key"},
+		{"a badly formed rider ID", "INSERT INTO riders (person_id, rider_code) VALUES ('" + personB + "', 'x')", checkViolation, "riders_rider_code_check"},
+		{"a plain password", "INSERT INTO rider_credentials (rider_id, password_hash) VALUES ('" + actorA + "', 'hunter22')", checkViolation, "rider_credentials_password_hash_check"},
+		{"one Google account on two people", "INSERT INTO person_identities (person_id, provider, subject) VALUES ('" + personB + "', 'google', 'sub-a')", uniqueViolation, "person_identities_one_owner"},
+		{"two Google accounts on one person", "INSERT INTO person_identities (person_id, provider, subject) VALUES ('" + personA + "', 'google', 'sub-b')", uniqueViolation, "person_identities_one_per_provider"},
+		{"an unknown provider", "INSERT INTO person_identities (person_id, provider, subject) VALUES ('" + personB + "', 'facebook', 'sub-c')", checkViolation, "person_identities_provider_check"},
+		{"an OTP with an unknown purpose", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at) VALUES ('customer', 'other', '+919876543210', '" + hash + "', now())", checkViolation, "otp_requests_purpose_check"},
+		{"a phone verification code with no session", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at) VALUES ('customer', 'verify_phone', '+919876543210', '" + hash + "', now())", checkViolation, "otp_requests_verify_phone_has_requester"},
+		{"an OTP with no purpose", "INSERT INTO otp_requests (actor_type, phone, code_hash, expires_at) VALUES ('customer', '+919876543210', '" + hash + "', now())", "23502", ""},
+		{"a plain sign-in code", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at) VALUES ('customer', 'sign_in', '+919876543210', '123456', now())", checkViolation, "otp_requests_code_hash_check"},
 		{"a plain refresh token", "INSERT INTO refresh_tokens (actor_type, actor_id, chain_id, token_hash, expires_at) VALUES ('rider', '" + actorA + "', '" + actorA + "', 'short', now())", checkViolation, "refresh_tokens_token_hash_check"},
 		{"a duplicate refresh token", "INSERT INTO refresh_tokens (actor_type, actor_id, chain_id, token_hash, expires_at) VALUES ('rider', '" + actorA + "', '" + actorA + "', '" + hash + "', now())", uniqueViolation, "refresh_tokens_token_hash_key"},
-		{"negative OTP attempts", "INSERT INTO otp_requests (actor_type, phone, code_hash, attempts, expires_at) VALUES ('customer', '+919876543210', '" + hash + "', -1, now())", checkViolation, "otp_requests_attempts_check"},
+		{"negative OTP attempts", "INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, attempts, expires_at) VALUES ('customer', 'sign_in', '+919876543210', '" + hash + "', -1, now())", checkViolation, "otp_requests_attempts_check"},
 		{"an unknown actor type", "INSERT INTO devices (actor_type, actor_id, platform, push_token) VALUES ('admin', '" + actorA + "', 'android', 'tok2')", checkViolation, "devices_actor_type_check"},
 		{"an unknown platform", "INSERT INTO devices (actor_type, actor_id, platform, push_token) VALUES ('rider', '" + actorA + "', 'web', 'tok3')", checkViolation, "devices_platform_check"},
 		{"a duplicate push token", "INSERT INTO devices (actor_type, actor_id, platform, push_token) VALUES ('rider', '" + actorA + "', 'ios', 'tok1')", uniqueViolation, "devices_push_token_key"},
@@ -487,5 +508,186 @@ func TestAuditEventsAreAppendOnly(t *testing.T) {
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM audit_events").Scan(&count); err != nil || count != 1 {
 		t.Errorf("rows: %d, %v", count, err)
+	}
+}
+
+func TestANewRiderIsAnApplicant(t *testing.T) {
+	db, p := freshDB(t)
+	up(t, p)
+	mustExec(t, db, "INSERT INTO people (id) VALUES ('"+personA+"')")
+	mustExec(t, db, "INSERT INTO riders (person_id) VALUES ('"+personA+"')")
+	var status string
+	if err := db.QueryRow("SELECT status FROM riders").Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "applicant" {
+		t.Errorf("a new rider is %q", status)
+	}
+}
+
+func TestOnePersonCanHoldEveryRole(t *testing.T) {
+	db, p := freshDB(t)
+	up(t, p)
+	mustExec(t, db, "INSERT INTO people (id, phone) VALUES ('"+personA+"', '+919876543210')")
+	mustExec(t, db, "INSERT INTO customers (person_id) VALUES ('"+personA+"')")
+	mustExec(t, db, "INSERT INTO riders (person_id) VALUES ('"+personA+"')")
+	// A person with a profile cannot be removed by accident.
+	refused(t, db, "deleting a person with a profile", "DELETE FROM people WHERE id = '"+personA+"'", foreignKeyMismatch, "customers_person_id_fkey")
+}
+
+func TestServiceRole(t *testing.T) {
+	db, p := freshDB(t)
+	up(t, p)
+	var super, bypass, createRole, createDB bool
+	if err := db.QueryRow("SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&super, &bypass, &createRole, &createDB); err != nil {
+		t.Fatal(err)
+	}
+	if super || createRole || createDB || !bypass {
+		t.Errorf("super %v, createrole %v, createdb %v, bypassrls %v", super, createRole, createDB, bypass)
+	}
+
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	asService := func(stmt string) error {
+		if _, err := conn.ExecContext(ctx, "SET ROLE ninzo_service"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := conn.ExecContext(ctx, stmt)
+		if _, resetErr := conn.ExecContext(ctx, "RESET ROLE"); resetErr != nil {
+			t.Fatal(resetErr)
+		}
+		return err
+	}
+	for _, stmt := range []string{
+		"INSERT INTO people (id, phone) VALUES ('" + personA + "', '+919876543210')",
+		"UPDATE people SET status = 'blocked'",
+		"INSERT INTO audit_events (actor_type, action, entity_type, entity_id) VALUES ('rider', 'test', 'order', 'x')",
+	} {
+		if err := asService(stmt); err != nil {
+			t.Errorf("the service must be able to run %s: %v", stmt, err)
+		}
+	}
+	var seen int
+	if _, err := conn.ExecContext(ctx, "SET ROLE ninzo_service"); err != nil {
+		t.Fatal(err)
+	}
+	err = conn.QueryRowContext(ctx, "SELECT count(*) FROM people").Scan(&seen)
+	if _, resetErr := conn.ExecContext(ctx, "RESET ROLE"); resetErr != nil {
+		t.Fatal(resetErr)
+	}
+	if err != nil || seen != 1 {
+		t.Errorf("Row Level Security must not hide rows from the service: %d, %v", seen, err)
+	}
+	const noPermission = "42501"
+	for _, stmt := range []string{
+		"TRUNCATE people",
+		"DROP TABLE people",
+		"ALTER TABLE people DISABLE ROW LEVEL SECURITY",
+		"CREATE TABLE nope (id integer)",
+		"SELECT * FROM goose_db_version",
+		"DELETE FROM goose_db_version",
+	} {
+		err := asService(stmt)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != noPermission {
+			t.Errorf("the service must not be able to run %s: %v", stmt, err)
+		}
+	}
+	if err := asService("DELETE FROM audit_events"); err == nil || !strings.Contains(err.Error(), "append-only") {
+		t.Errorf("audit rows must stay append-only for the service: %v", err)
+	}
+	var history bool
+	if err := db.QueryRow("SELECT has_sequence_privilege('ninzo_service', pg_get_serial_sequence('goose_db_version', 'id'), 'USAGE,UPDATE')").Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if history {
+		t.Error("the service can use the migration history sequence")
+	}
+	// A table from a later migration must work without a new grant.
+	mustExec(t, db, "CREATE TABLE later_table (id serial)")
+	if err := asService("INSERT INTO later_table DEFAULT VALUES"); err != nil {
+		t.Errorf("default grants: %v", err)
+	}
+}
+
+// The role belongs to the whole server, so it may exist already, without the right settings.
+func TestServiceRoleIsFixedIfItAlreadyExists(t *testing.T) {
+	db, p := freshDB(t)
+	mustExec(t, db, "CREATE ROLE ninzo_service NOLOGIN NOBYPASSRLS")
+	up(t, p)
+	var login, bypass bool
+	if err := db.QueryRow("SELECT rolcanlogin, rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&login, &bypass); err != nil {
+		t.Fatal(err)
+	}
+	if !login || !bypass {
+		t.Errorf("login %v, bypassrls %v", login, bypass)
+	}
+}
+
+func TestMigrationStopsIfTheServiceRoleHasTooMuchPower(t *testing.T) {
+	db, p := freshDB(t)
+	mustExec(t, db, "CREATE ROLE ninzo_service CREATEDB")
+	if _, err := p.Up(context.Background()); err == nil || !strings.Contains(err.Error(), "more power") {
+		t.Errorf("expected a refusal, got %v", err)
+	}
+}
+
+// TestMigrationsRunLikeOnSupabase runs them as a role with the powers postgres really has
+// there, read from the live project on 2026-11-05: not a superuser, but CREATEROLE, CREATEDB
+// and BYPASSRLS, and owner of the extensions schema. PostGIS is already installed, as a
+// non-superuser could not install it here.
+func TestMigrationsRunLikeOnSupabase(t *testing.T) {
+	// Registered first, so it runs last, once the database this role owns has been dropped.
+	t.Cleanup(func() {
+		if os.Getenv("TEST_DATABASE_URL") == "" {
+			return // The test was skipped, so there is nothing to clean up.
+		}
+		admin, err := sql.Open("pgx", os.Getenv("TEST_DATABASE_URL"))
+		if err != nil {
+			t.Errorf("drop role: %v", err)
+			return
+		}
+		defer admin.Close()
+		if _, err := admin.Exec("DROP ROLE IF EXISTS ninzo_test_supabase"); err != nil {
+			t.Errorf("drop role: %v", err)
+		}
+	})
+	db, p := freshDB(t)
+	db.SetMaxOpenConns(1)
+	mustExec(t, db, "CREATE ROLE ninzo_test_supabase NOLOGIN")
+	var name string
+	if err := db.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"ALTER ROLE ninzo_test_supabase CREATEROLE CREATEDB BYPASSRLS",
+		"CREATE SCHEMA extensions AUTHORIZATION ninzo_test_supabase",
+		"CREATE EXTENSION postgis SCHEMA extensions",
+		"ALTER DATABASE " + name + " OWNER TO ninzo_test_supabase",
+		"SET SESSION AUTHORIZATION ninzo_test_supabase",
+	} {
+		mustExec(t, db, stmt)
+	}
+	if _, err := p.Up(context.Background()); err != nil {
+		t.Fatalf("migrations failed for a non-superuser: %v", err)
+	}
+	// Proves the migrations really ran as this role, not on a replaced superuser connection.
+	var owner string
+	if err := db.QueryRow("SELECT tableowner FROM pg_tables WHERE tablename = 'people'").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "ninzo_test_supabase" {
+		t.Errorf("people is owned by %s", owner)
+	}
+	var bypass bool
+	if err := db.QueryRow("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&bypass); err != nil {
+		t.Fatal(err)
+	}
+	if !bypass {
+		t.Error("ninzo_service cannot bypass Row Level Security")
 	}
 }

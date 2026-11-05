@@ -93,7 +93,7 @@ Only when they sign out, Ninzo suspends the role, a token looks stolen, their pa
 - If that pair has been used, the token may be stolen, so that chain is revoked and the user signs in again.
 - Queued offline work is never lost because a session needed renewing.
 
-**Difference to resolve:** `contracts/README.md` says all that user's tokens are revoked. Revoking only the chain is **Proposed**, so that one device's problem does not sign out another. To be settled in the contract update.
+Revoking only the chain, not all the user's tokens, is **Proposed**, so that one device's problem does not sign out another.
 
 ### Suspension
 - Tokens for the suspended role are revoked at once. A person-level block revokes every role's tokens. An access token already issued can last up to 15 minutes, so status is also checked at refresh and on sensitive actions. **Proposed**
@@ -102,7 +102,7 @@ Only when they sign out, Ninzo suspends the role, a token looks stolen, their pa
 ### Phone OTP
 The backend makes a code, sends it, stores only a hash, and checks it. Attempts and sends are rate limited.
 
-Each code is tied to one purpose, such as sign-in, applying as a rider, or resetting a password, so a code sent for one cannot be used for another. `otp_requests` needs a purpose column. **Proposed**
+Each code is tied to one purpose, such as sign-in, applying as a rider, or resetting a password, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
 
 ### Google
 The app gets an ID token from Google and sends it to the backend. The backend checks the signature against Google's keys, plus the issuer, audience and expiry. **Proposed**
@@ -124,6 +124,8 @@ The owner first described the backend exchanging an authorization code. That flo
 
 ### What an unregistered person sees
 This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. The owner approved that a failed sign-in never reveals whether the ID exists. Sending no SMS, and this screen wording, are **Proposed**.
+
+**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone or rider ID, so an unknown account, or one with no password, locks like any other. Blocked or suspended is revealed only after a correct code or password.
 
 ### Rider application
 ```
@@ -148,7 +150,7 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 4. Each role has its own password, so a weak rider password cannot open a staff account.
 
 **Limits on resets. Proposed:**
-- **Awaiting the owner's ruling, because it narrows an Owner rule.** Support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
+- **Owner**, 2026-11-05: support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
 - If the only admin is locked out, an audited internal script does the reset.
 - Every reset is audited, and revokes all that role's tokens, so a stolen 90-day token does not survive it.
 
@@ -167,7 +169,7 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | Phone change | Done once on the person, after OTP on the new number. Riders and staff also need a check by support | It moves every role, and a phone is how accounts are proven |
 
 **Limits on phone changes. Proposed:**
-- **Awaiting the owner's ruling, because it narrows an Owner rule.** A staff member's change is checked by an admin, and never by themselves.
+- **Owner**, 2026-11-05: a staff member's change is checked by an admin, and never by themselves.
 - Partners need the same support check as riders.
 - A new number that already belongs to another person is refused.
 - The change revokes all that person's tokens, and tells the old number.
@@ -179,15 +181,19 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | A customer becomes a rider | Applies. A rider profile is added to the same person, and nothing is copied |
 | A customer tries the rider app with no application | Offered the application. No rider data or orders are shown |
 | Support is also a rider | One person with two separate sessions |
-| Google sign-in for a new person | A person with no phone, and a customer profile. They can browse. Phone verification comes before the first order |
+| Google sign-in for a new person | A person with no phone, and a customer profile. Until the phone is verified they can only view the menu: orders, gates, notify requests and tickets return `phone_required`, and availability needs a saved gate. So an unverified profile holds nothing that a move would lose, except its name |
 | Google sign-in, then the phone proves to be an existing person | The Google identity moves to that person, and the new person is removed. It cannot have orders, because ordering needs a verified phone. See the rules below |
 | That existing person already has a different Google identity | Refused with a clear error, asking them to sign in with OTP. **Proposed** |
 | An SMS outage | People already signed in are not affected. Riders, partners and staff can use passwords. New customers can use Google or Apple, but cannot verify a phone until it returns |
 | A Google or Apple outage | Those users can sign in with phone OTP, if their phone is verified |
+| A customer with a verified phone verifies a different number | Refused with `phone_already_set`. Changing a phone is a separate flow, because it moves every role |
+| The reply to `verifyPhone` is lost | A retry returns 401 or `invalid_otp`, because the old access token can last 15 minutes. They sign in again, and the phone is already verified |
+| The reply to a password reset is lost | The retry returns `invalid_otp`, so they try the new password |
 | A weak network during renewal | The retry returns a valid pair, and the rider is not signed out |
 
 **Moving a Google identity. Proposed:**
 - If the existing person has no customer profile, such as a rider-only person, the new customer profile moves to them. Otherwise the empty one is removed.
+- The reply is a new session, and `customer_id` can change, so the app replaces both and reloads.
 - Tokens for a removed profile are revoked in the same transaction. `refresh_tokens` and `devices` have no foreign key to profiles, so nothing else would stop them working.
 - A blocked person is refused.
 - An SMS tells the phone that a Google account was linked. One intercepted OTP could otherwise link an attacker's Google for good, without anyone knowing.
@@ -201,6 +207,8 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | "Ninzo creates every rider" conflicted with customers doing part-time work | Riders can apply themselves, and approval stays with Ninzo |
 | Part-time riders could outnumber the pilot's 4-8 scooters | Left to the business. The backend must not assume who supplies scooters. The contract already has `shift_limit_reached`, so the check exists, as a console setting that is off by default. **Proposed** |
 | A lost reply could have signed riders out on weak networks | The retry rule in section 4 |
+| A stored reply to a password change would have held live tokens in plain text | That reply holds no tokens, this session keeps its own, and the request hash leaves out passwords. Sign-in replies are never stored |
+| Reset could have let an applicant set a password | Reset refuses an applicant |
 | SMS outages could stop mid-shift sign-in | The password option for workers |
 
 ### Providers considered
