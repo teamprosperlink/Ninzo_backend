@@ -38,6 +38,9 @@ BEGIN
     IF history_sequence IS NOT NULL THEN
         EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM ninzo_service', history_sequence);
     END IF;
+    IF NOT has_schema_privilege('ninzo_service', 'public', 'USAGE') THEN
+        RAISE EXCEPTION 'ninzo_service has no USAGE on schema public';
+    END IF;
     IF NOT has_schema_privilege('ninzo_service', 'extensions', 'USAGE') THEN
         RAISE EXCEPTION 'ninzo_service has no USAGE on schema extensions';
     END IF;

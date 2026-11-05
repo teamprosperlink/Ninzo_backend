@@ -672,6 +672,14 @@ func TestMigrationsRunLikeOnSupabase(t *testing.T) {
 	if _, err := p.Up(context.Background()); err != nil {
 		t.Fatalf("migrations failed for a non-superuser: %v", err)
 	}
+	// Proves the migrations really ran as this role, not on a replaced superuser connection.
+	var owner string
+	if err := db.QueryRow("SELECT tableowner FROM pg_tables WHERE tablename = 'people'").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "ninzo_test_supabase" {
+		t.Errorf("people is owned by %s", owner)
+	}
 	var bypass bool
 	if err := db.QueryRow("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'ninzo_service'").Scan(&bypass); err != nil {
 		t.Fatal(err)

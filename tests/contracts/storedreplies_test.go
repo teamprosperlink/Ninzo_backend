@@ -11,6 +11,9 @@ import (
 
 // A reply to a request with an Idempotency-Key is stored in idempotency_keys, so it must
 // never hold a token, password or code.
+//
+// One exception: handover_otp is part of the customer Order, which stored replies return. It
+// is not listed here. The data map's rule is that the stored copy must leave it out.
 var secretsInStoredReplies = map[string]bool{
 	"access_token": true, "refresh_token": true, "password": true,
 	"new_password": true, "current_password": true, "otp": true,
