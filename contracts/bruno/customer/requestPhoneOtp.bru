@@ -1,0 +1,23 @@
+meta {
+  name: requestPhoneOtp
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/me/phone/otp
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-requestPhoneOtp-0001
+}
+
+body:json {
+  {
+    "phone": "+919876543210"
+  }
+}

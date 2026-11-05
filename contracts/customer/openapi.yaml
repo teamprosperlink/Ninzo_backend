@@ -136,6 +136,128 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/InternalError'
         '503':
           $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /auth/google:
+    post:
+      tags: [auth]
+      operationId: signInWithGoogle
+      summary: Sign in with Google
+      description: >-
+        The app gets an ID token from Google and sends it here. The first sign-in creates the
+        account. Check phone_verified in the reply, because a phone must be verified before the
+        first order. Errors: invalid_google_token (401). A blocked person gets account_blocked (403).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token]
+              properties:
+                id_token:
+                  type: string
+                  description: The ID token from Google. It is checked on the server.
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerSession'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /me/phone/otp:
+    post:
+      tags: [auth]
+      operationId: requestPhoneOtp
+      summary: Send a code to verify a phone
+      description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  description: In E.164 format.
+                  pattern: '^\+[1-9][0-9]{7,14}$'
+                  example: '+919876543210'
+      responses:
+        '200':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /me/phone/verify:
+    post:
+      tags: [auth]
+      operationId: verifyPhone
+      summary: Verify a phone
+      description: >-
+        Returns a new session, and the old tokens stop working, so replace them. customer_id can
+        change, if this phone already has an account. Verifying the same phone again returns 200.
+        Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429),
+        phone_already_linked (409) if that account already has a different Google account, and
+        account_blocked (403).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id, otp]
+              properties:
+                request_id:
+                  type: string
+                otp:
+                  type: string
+                  pattern: '^[0-9]{4,8}$'
+                  example: '123456'
+      responses:
+        '200':
+          description: Verified, with a new session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerSession'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /me:
     get:
       tags: [profile]
@@ -453,7 +575,7 @@ paths:
       description: >-
         Reserves stock and returns what the app needs for Razorpay checkout. The
         app never marks an order paid. Errors: sold_out, gate_not_verified,
-        no_offer (all 409).
+        no_offer, phone_required (all 409).
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -881,7 +1003,7 @@ components:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     CustomerSession:
       type: object
-      required: [access_token, refresh_token, expires_in_s, customer_id, server_time]
+      required: [access_token, refresh_token, expires_in_s, customer_id, phone_verified, server_time]
       properties:
         access_token:
           type: string
@@ -893,6 +1015,9 @@ components:
           example: 900
         customer_id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
+        phone_verified:
+          type: boolean
+          description: False means the customer must verify a phone before ordering.
         server_time:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     Customer:
@@ -902,7 +1027,10 @@ components:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
         phone:
-          type: string
+          description: Null until a phone is verified.
+          type:
+            - string
+            - 'null'
           example: '+919876543210'
         name:
           type:

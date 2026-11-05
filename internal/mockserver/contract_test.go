@@ -117,7 +117,10 @@ var pathParam = regexp.MustCompile(`\{[^}]+\}`)
 var sampleBodies = map[string]string{
 	"requestOtp": `{"phone":"+919876543210"}`, "verifyOtp": `{"request_id":"otp_mock01","otp":"123456"}`,
 	"refreshToken": `{"refresh_token":"mock-refresh-token"}`, "updateMe": `{"name":"Test"}`,
-	"registerDevice": `{"platform":"android","push_token":"t"}`, "registerRiderDevice": `{"platform":"android","push_token":"t"}`,
+	"signInWithGoogle": `{"id_token":"t"}`, "requestPhoneOtp": `{"phone":"+919876543210"}`, "verifyPhone": `{"request_id":"otp_mock01","otp":"123456"}`,
+	"signInWithPassword": `{"phone":"+919876543210","password":"long-enough"}`, "resetPassword": `{"request_id":"otp_mock01","otp":"123456","new_password":"long-enough"}`,
+	"setRiderPassword": `{"new_password":"long-enough"}`,
+	"registerDevice":   `{"platform":"android","push_token":"t"}`, "registerRiderDevice": `{"platform":"android","push_token":"t"}`,
 	"createGate": `{"label":"Back gate","lat":12.9,"lng":77.5}`, "notifyWhenAvailable": `{"gate_id":"gate_mock01"}`,
 	"createOrder": `{"gate_id":"gate_mock01","items":[{"item_id":"item_burger","qty":1}]}`, "cancelOrder": `{"reason":"changed my mind"}`,
 	"changeOrderGate": `{"gate_id":"gate_mock01"}`, "acceptLongerEta": `{"eta_offer_id":"eta_mock01"}`,

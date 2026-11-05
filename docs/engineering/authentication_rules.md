@@ -93,7 +93,7 @@ Only when they sign out, Ninzo suspends the role, a token looks stolen, their pa
 - If that pair has been used, the token may be stolen, so that chain is revoked and the user signs in again.
 - Queued offline work is never lost because a session needed renewing.
 
-**Difference to resolve:** `contracts/README.md` says all that user's tokens are revoked. Revoking only the chain is **Proposed**, so that one device's problem does not sign out another. To be settled in the contract update.
+Revoking only the chain, not all the user's tokens, is **Proposed**, so that one device's problem does not sign out another.
 
 ### Suspension
 - Tokens for the suspended role are revoked at once. A person-level block revokes every role's tokens. An access token already issued can last up to 15 minutes, so status is also checked at refresh and on sensitive actions. **Proposed**
@@ -148,7 +148,7 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 4. Each role has its own password, so a weak rider password cannot open a staff account.
 
 **Limits on resets. Proposed:**
-- **Awaiting the owner's ruling, because it narrows an Owner rule.** Support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
+- **Owner**, 2026-11-05: support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
 - If the only admin is locked out, an audited internal script does the reset.
 - Every reset is audited, and revokes all that role's tokens, so a stolen 90-day token does not survive it.
 
@@ -167,7 +167,7 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | Phone change | Done once on the person, after OTP on the new number. Riders and staff also need a check by support | It moves every role, and a phone is how accounts are proven |
 
 **Limits on phone changes. Proposed:**
-- **Awaiting the owner's ruling, because it narrows an Owner rule.** A staff member's change is checked by an admin, and never by themselves.
+- **Owner**, 2026-11-05: a staff member's change is checked by an admin, and never by themselves.
 - Partners need the same support check as riders.
 - A new number that already belongs to another person is refused.
 - The change revokes all that person's tokens, and tells the old number.

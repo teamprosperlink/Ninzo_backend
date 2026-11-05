@@ -8,17 +8,21 @@ import (
 // customerScenarios lists every scenario, with what it shows. The first group comes
 // from the customer KT doc. The rest come from the owner's flow in decision 0007.
 var customerScenarios = map[string]string{
-	"no_scooter":          "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
-	"no_scooter_no_offer": "No scooter available, and no longer ETA on offer",
-	"offer_timeout":       "No rider took the offer in time, so the order is at no_scooter",
-	"offer_accepted":      "The customer is shown rider_accepted",
-	"payment_declined":    "The order is at payment_failed, so the customer can retry",
-	"payment_captured":    "Payment confirmed, inside the 5-second cancel window. This is the same as no scenario",
-	"handed_over":         "The order is at handed_over",
-	"socket_drop":         "The stream drops after two events, with no close frame. GET still works",
-	"last_unit_taken":     "POST order fails with sold_out, and availability shows one left",
-	"gate_not_verified":   "POST order fails with gate_not_verified. Availability offers nothing",
-	"zone_offer_off":      "POST order fails with no_offer. Availability offers nothing",
+	"invalid_google_token": "Google sign-in fails with invalid_google_token",
+	"account_blocked":      "Google sign-in and phone verification fail with account_blocked",
+	"phone_not_verified":   "GET me has no phone. POST order fails with phone_required",
+	"phone_already_linked": "Phone verification fails with phone_already_linked",
+	"no_scooter":           "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
+	"no_scooter_no_offer":  "No scooter available, and no longer ETA on offer",
+	"offer_timeout":        "No rider took the offer in time, so the order is at no_scooter",
+	"offer_accepted":       "The customer is shown rider_accepted",
+	"payment_declined":     "The order is at payment_failed, so the customer can retry",
+	"payment_captured":     "Payment confirmed, inside the 5-second cancel window. This is the same as no scenario",
+	"handed_over":          "The order is at handed_over",
+	"socket_drop":          "The stream drops after two events, with no close frame. GET still works",
+	"last_unit_taken":      "POST order fails with sold_out, and availability shows one left",
+	"gate_not_verified":    "POST order fails with gate_not_verified. Availability offers nothing",
+	"zone_offer_off":       "POST order fails with no_offer. Availability offers nothing",
 
 	"awaiting_payment":         "The order is at payment, so checkout can resume and the gate can change",
 	"after_cancel_window":      "Payment confirmed, and the 5-second window has passed, so a cancel is refused",
@@ -85,11 +89,18 @@ func customerRoutes() []route {
 	return []route{
 		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: otpRequest},
 		{method: "POST", path: "/auth/otp/verify", open: true, noIdempotent: true, handle: func(c *call) {
-			otpVerify(c, "customer_id", "cus_mock0001")
+			otpVerify(c, map[string]any{"customer_id": "cus_mock0001", "phone_verified": true})
 		}},
+		{method: "POST", path: "/auth/google", open: true, noIdempotent: true, handle: googleSignIn},
+		{method: "POST", path: "/me/phone/otp", noIdempotent: true, handle: otpRequest},
+		{method: "POST", path: "/me/phone/verify", noIdempotent: true, handle: verifyPhone},
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "GET", path: "/me", handle: func(c *call) {
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": "Test Customer"}})
+			var phone any = "+919876543210"
+			if c.scenario == "phone_not_verified" {
+				phone = nil
+			}
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer"}})
 		}},
 		{method: "PATCH", path: "/me", handle: func(c *call) {
 			body, ok := needsBody(c, "name")
@@ -143,7 +154,13 @@ func customerRoutes() []route {
 		{method: "GET", path: "/orders", handle: func(c *call) {
 			c.json(200, map[string]any{"orders": []map[string]any{currentOrder("handed_over", c.now)}, "next_cursor": nil})
 		}},
-		{method: "POST", path: "/orders", handle: createOrder},
+		{method: "POST", path: "/orders", handle: func(c *call) {
+			if c.scenario == "phone_not_verified" {
+				c.fail(409, "phone_required", "Verify a phone before ordering.", false)
+				return
+			}
+			createOrder(c)
+		}},
 		{method: "GET", path: "/orders/{order_id}", handle: func(c *call) {
 			if c.param("order_id") == "ord_missing" {
 				c.fail(404, "not_found", "No such order.", false)
@@ -256,7 +273,7 @@ func otpRequest(c *call) {
 	}
 }
 
-func otpVerify(c *call, idField, id string) {
+func otpVerify(c *call, session map[string]any) {
 	body, ok := needsBody(c, "request_id", "otp")
 	if !ok {
 		return
@@ -267,7 +284,7 @@ func otpVerify(c *call, idField, id string) {
 	case c.scenario == "otp_expired":
 		c.fail(400, "otp_expired", "That code has expired.", false)
 	default:
-		c.json(200, map[string]any{"access_token": "mock-access-token", "refresh_token": "mock-refresh-token", "expires_in_s": 900, idField: id})
+		c.json(200, sessionReply(session))
 	}
 }
 
@@ -327,5 +344,45 @@ func createOrder(c *call) {
 	}
 	if _, ok := needsBody(c, "gate_id", "items"); ok {
 		c.json(201, map[string]any{"order": currentOrder("awaiting_payment", c.now), "payment": paymentRequest()})
+	}
+}
+
+// sessionReply is a signed-in reply: the sample tokens plus the role's own fields.
+func sessionReply(fields map[string]any) map[string]any {
+	reply := map[string]any{"access_token": "mock-access-token", "refresh_token": "mock-refresh-token", "expires_in_s": 900}
+	for k, v := range fields {
+		reply[k] = v
+	}
+	return reply
+}
+
+func accountBlocked(c *call) {
+	c.json(403, map[string]any{"code": "account_blocked", "message": "This account is blocked.", "retryable": false, "missing_permission": "account_active"})
+}
+
+func googleSignIn(c *call) {
+	if _, ok := needsBody(c, "id_token"); !ok {
+		return
+	}
+	switch c.scenario {
+	case "invalid_google_token":
+		c.fail(401, "invalid_google_token", "Google could not confirm this sign-in.", false)
+	case "account_blocked":
+		accountBlocked(c)
+	default:
+		c.json(200, sessionReply(map[string]any{"customer_id": "cus_mock0001", "phone_verified": c.scenario != "phone_not_verified"}))
+	}
+}
+
+func verifyPhone(c *call) {
+	switch c.scenario {
+	case "account_blocked":
+		accountBlocked(c)
+	case "phone_already_linked":
+		if _, ok := needsBody(c, "request_id", "otp"); ok {
+			c.fail(409, "phone_already_linked", "This phone already has a different Google account. Sign in with OTP.", false)
+		}
+	default:
+		otpVerify(c, map[string]any{"customer_id": "cus_mock0001", "phone_verified": true})
 	}
 }
