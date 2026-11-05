@@ -55,7 +55,7 @@ apps/customer-api/
 Handlers call each module's public surface. Example: `internal/orders` in this app calls `internal/orders` at the repo root through its public file, and never reaches its `store/`.
 
 ## 4. Data owned
-Tables belong to shared modules, not to this app. The customer flow needs these, named as in PLAN section 4:
+Tables belong to shared modules, not to this app. The full list is in `docs/engineering/endpoint_data_map.md`, which wins if this differs. The customer flow needs these, named as in PLAN section 4:
 
 | Module | Tables |
 |---|---|
