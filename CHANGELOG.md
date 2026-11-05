@@ -12,6 +12,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `CLAUDE.md` rule that every task starts with a GitHub Issue.
 - Added: `docs/planning/owner_setup_checklist.md`.
 
+### Migrations applied to Supabase (#22)
+- Changed: the 6 migrations are applied to `Ninzo-backend-mumbai`, and verified there.
+- Evidence: docs/testing/reports/22.md
+
 ### Database foundation (#21)
 - Added: migrations for the 10 v0.2.0 tables, a migration revoking Supabase's default grants, `cmd/migrate`, which refuses the wrong target, and database tests in CI.
 - Changed: local Redis moved to port 6380. Local Postgres runs under emulation on ARM machines.

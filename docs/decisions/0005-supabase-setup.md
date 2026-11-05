@@ -26,6 +26,7 @@ Each setting was agreed as listed. Alternatives were not recorded at the time, s
 ## Consequences
 - Pool sizes must add up to less than the plan's connection limit across all services and the worker. Check this whenever a service is added.
 - Outbox polling needs no long-lived replication or `LISTEN` connection.
+- Supabase has PostGIS 3.3.7, and local and CI have 3.5. Use only functions that exist in 3.3.
 - Migrations and queries must reference PostGIS through the `extensions` schema, or set `search_path` to include it.
 - The local Docker image must include PostGIS and match Supabase's major Postgres version, or tests may pass locally and fail in production.
 - With the Data API off, the only path to the data is through our services.
