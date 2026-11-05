@@ -1622,11 +1622,13 @@ paths:
             description: Called by Razorpay, not by the app. Verified by signature, and deduplicated by Razorpay's event ID.
             operationId: razorpayWebhook
             parameters:
-                - description: Signature of the raw request body.
+                - description: Signature of the raw request body, as lowercase hex.
                   in: header
                   name: X-Razorpay-Signature
                   required: true
                   schema:
+                    minLength: 1
+                    pattern: ^[0-9a-f]+$
                     type: string
             requestBody:
                 content:

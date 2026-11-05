@@ -145,7 +145,7 @@ func doRequest(t *testing.T, srv *httptest.Server, a *apiContract, o op, scenari
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer mock-access-token")
-	req.Header.Set("X-Razorpay-Signature", "mock")
+	req.Header.Set("X-Razorpay-Signature", "abc123")
 	if scenario != "" {
 		req.Header.Set(scenarioHeader, scenario)
 	}

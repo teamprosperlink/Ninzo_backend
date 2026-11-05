@@ -247,12 +247,12 @@ func customerRoutes() []route {
 		}},
 		{method: "GET", path: "/menu/items/{item_id}", handle: func(c *call) {
 			switch c.param("item_id") {
-			case "item_burger":
-				c.json(200, map[string]any{"item": menuItem("item_burger", "Burger", 14900)})
+			case "item_missing":
+				c.fail(404, "not_found", "No such item.", false)
 			case "item_chai":
 				c.json(200, map[string]any{"item": menuItem("item_chai", "Masala chai", 4900)})
 			default:
-				c.fail(404, "not_found", "No such item.", false)
+				c.json(200, map[string]any{"item": menuItem("item_burger", "Burger", 14900)})
 			}
 		}},
 		{method: "GET", path: "/availability", handle: availability},
