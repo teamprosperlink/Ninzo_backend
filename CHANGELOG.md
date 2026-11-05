@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Authentication rules (#26)
+- Added: `docs/engineering/authentication_rules.md`, recording sign-in rules, roles, situations, problems and solutions, with their reasons.
+
 ### Docs (#1)
 - Added: `docs/engineering/tech_stack.md` and decisions 0001-0006, awaiting owner review.
 - Added: draft customer backend docs in `apps/customer-api/docs/`, awaiting owner review.

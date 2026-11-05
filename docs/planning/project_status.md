@@ -70,6 +70,7 @@ Overrides the KT docs and the earlier plan. Full flow: `docs/engineering/data_fl
 - Tables are built version by version (owner, 2026-11-05).
 - GPS pings are kept in full through the testing period, and retention is set after it (owner, 2026-11-05).
 - Supabase has PostGIS 3.3.7, and local and CI have 3.5, so check PostGIS functions against 3.3. A separate service role is still to be decided before the first service connects (see `docs/testing/reports/22.md`).
+- Sign-in, roles and sessions are decided by the owner: see `docs/engineering/authentication_rules.md`, and Issue #25.
 - Ninzo's Supabase project is `Ninzo-backend-mumbai`, ref `chyejfgsipcsdxnginei`, region `ap-south-1`, free plan. The connection details go in the root `.env` (owner, 2026-11-05).
 - `v0.2.0` starts as soon as the mock server is published, without waiting for developer feedback.
 - Mock server is live at https://mock-server-production-6a71.up.railway.app (Railway trial, $5 credit, up to 30 days). The owner must decide on a paid plan before it ends. Production hosting is decided separately.
