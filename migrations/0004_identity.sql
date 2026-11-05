@@ -54,12 +54,17 @@ CREATE TABLE refresh_tokens (
     actor_id    uuid        NOT NULL,
     chain_id    uuid        NOT NULL,
     token_hash  text        NOT NULL UNIQUE CHECK (length(token_hash) >= 32),
-    replaced_by uuid        REFERENCES refresh_tokens (id) ON DELETE SET NULL,
+    replaced_by uuid,
     used_at     timestamptz,
     revoked_at  timestamptz,
     expires_at  timestamptz NOT NULL,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT refresh_tokens_same_chain_key UNIQUE (id, actor_type, actor_id, chain_id),
+    CONSTRAINT refresh_tokens_successor_same_chain FOREIGN KEY (replaced_by, actor_type, actor_id, chain_id)
+        REFERENCES refresh_tokens (id, actor_type, actor_id, chain_id) ON DELETE SET NULL (replaced_by),
+    CONSTRAINT refresh_tokens_used_when_replaced CHECK (replaced_by IS NULL OR used_at IS NOT NULL)
 );
+CREATE UNIQUE INDEX refresh_tokens_one_predecessor_idx ON refresh_tokens (replaced_by) WHERE replaced_by IS NOT NULL;
 CREATE INDEX refresh_tokens_chain_idx ON refresh_tokens (chain_id);
 CREATE INDEX refresh_tokens_actor_idx ON refresh_tokens (actor_type, actor_id);
 ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;

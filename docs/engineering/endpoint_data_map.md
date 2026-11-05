@@ -42,7 +42,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `tracking` | `shifts` | Rider shifts | v0.3.0 |
 | `tracking` | `rider_state` | Each rider's `seq`, written by every change the rider can see | v0.3.0 |
 | `tracking` | `rider_events` | The final result of a rider's queued or direct action, by `event_id` | v0.3.0 |
-| `tracking` | `location_pings` | Recent pings, kept as evidence. Partitioned by day, with short retention | v0.5.0 |
+| `tracking` | `location_pings` | Pings, kept as evidence. Partitioned by day. Kept in full through testing | v0.5.0 |
 | `orders` | `orders` | See section 1.1 | v0.4.0 |
 | `orders` | `order_items` | Items, with the price fixed at creation | v0.4.0 |
 | `orders` | `order_events` | Append-only true history of each order | v0.4.0 |
@@ -182,7 +182,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
 | `suggest_relocations` | `scooters`, `staging_nodes`, `orders`, `zone_settings` | `relocations`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
 | `suggest_restocks` | `scooters`, `scooter_stock`, `lots`, `zone_settings` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
-| `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Also drops old ones | |
+| `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided | |
 
 ## 6. What must happen in one transaction
 
@@ -211,7 +211,7 @@ These are checked in the database as well as in Go, so a bug cannot break them:
 - Row Level Security is on for every table, including each `location_pings` partition, with no policies, so the Supabase Data API can read nothing even if it is left on. Services connect with a role that can bypass it. Confirming that this works on Supabase is part of `v0.2.0`.
 
 ## 8. Open points
-- **Retention:** how long to keep `location_pings`, and personal data. Proposed: 30 days for pings. It may need legal input.
+- **Retention:** the owner decided on 2026-11-05 to keep `location_pings` in full through the testing period, and to set retention after it. Personal data retention may need legal input.
 - **Routing engine:** Google Routes or OSRM and Valhalla is still open. It affects `getAvailability`, `createOrder`, `getRoute` and the rider search.
 - **Hubs before v0.8.0:** `restock_requests` is built in v0.7.0, and a simulator stands in for hub actions.
 - **Lots before v0.8.0:** nothing creates lots until the hub APIs exist, so they are seed data.

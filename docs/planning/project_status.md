@@ -26,6 +26,7 @@ Last updated: 2026-11-04
 |---|---|---|
 
 ## Next actions
+0. Owner: delete the paused Tokyo project `puzhefbwkwnzmjjpwato`, reset the database password on `Ninzo-backend-mumbai`, and put its session pooler string in `.env`. Migrations then need the owner's okay.
 1. `v0.2.0`: database migrations, built version by version from `docs/engineering/endpoint_data_map.md`. The owner reviews the map before anything is applied to Supabase.
 2. #9 stays open for developer feedback. The owner shares the shared index with them.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
@@ -67,6 +68,9 @@ Overrides the KT docs and the earlier plan. Full flow: `docs/engineering/data_fl
 - Supabase: Ninzo gets its own new project in Mumbai when `v0.2.0` starts, and everything is built around it. The existing project, `teamprosperlink's Project`, belongs to a different app and must never be touched.
 - No gate or address change after payment: owner decision, 2026-11-04. It overrides the edge-case doc.
 - Cancel: full refund within 5 seconds of payment being confirmed, and after that no cancel and no refund. Failures on Ninzo's side are always refunded, with the reason and method told to the customer. The customer can leave with a refund once the maximum wait passes. Owner decision, 2026-11-04.
+- Tables are built version by version (owner, 2026-11-05).
+- GPS pings are kept in full through the testing period, and retention is set after it (owner, 2026-11-05).
+- Ninzo's Supabase project is `Ninzo-backend-mumbai`, ref `chyejfgsipcsdxnginei`, region `ap-south-1`, free plan. The connection details go in the root `.env` (owner, 2026-11-05).
 - `v0.2.0` starts as soon as the mock server is published, without waiting for developer feedback.
 - Mock server is live at https://mock-server-production-6a71.up.railway.app (Railway trial, $5 credit, up to 30 days). The owner must decide on a paid plan before it ends. Production hosting is decided separately.
 - Mock server: a small, cheap host now. Railway proposed. Production hosting is decided later.

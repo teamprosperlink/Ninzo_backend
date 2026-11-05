@@ -12,7 +12,8 @@ CREATE TABLE idempotency_keys (
     locked_until timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (actor_id, method, path, key),
-    CHECK ((status IS NULL) = (response IS NULL))
+    CONSTRAINT idempotency_keys_reply_complete CHECK ((status IS NULL) = (response IS NULL)),
+    CONSTRAINT idempotency_keys_lock_expires CHECK (status IS NOT NULL OR locked_until IS NOT NULL)
 );
 CREATE INDEX idempotency_keys_created_at_idx ON idempotency_keys (created_at);
 ALTER TABLE idempotency_keys ENABLE ROW LEVEL SECURITY;
@@ -31,21 +32,25 @@ CREATE INDEX outbox_events_due_idx ON outbox_events (next_attempt_at) WHERE deli
 ALTER TABLE outbox_events ENABLE ROW LEVEL SECURITY;
 
 -- Due work for cmd/worker. Rows, not memory, so a restart loses nothing.
+-- entity_id is null for work with no single record, such as daily partitions.
+-- failed_at means retries ran out, and ops must look.
 CREATE TABLE scheduled_tasks (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     kind         text        NOT NULL,
-    entity_id    uuid        NOT NULL,
+    entity_id    uuid,
     payload      jsonb       NOT NULL DEFAULT '{}',
     run_at       timestamptz NOT NULL,
     attempts     integer     NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     locked_until timestamptz,
     last_error   text,
     done_at      timestamptz,
+    failed_at    timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 -- One open task of a kind per order or other record, so scheduling twice has one effect.
-CREATE UNIQUE INDEX scheduled_tasks_one_open_idx ON scheduled_tasks (kind, entity_id) WHERE done_at IS NULL;
-CREATE INDEX scheduled_tasks_due_idx ON scheduled_tasks (run_at) WHERE done_at IS NULL;
+CREATE UNIQUE INDEX scheduled_tasks_one_open_idx ON scheduled_tasks (kind, entity_id) NULLS NOT DISTINCT
+    WHERE done_at IS NULL AND failed_at IS NULL;
+CREATE INDEX scheduled_tasks_due_idx ON scheduled_tasks (run_at) WHERE done_at IS NULL AND failed_at IS NULL;
 ALTER TABLE scheduled_tasks ENABLE ROW LEVEL SECURITY;
 
 -- Refuses any change to a row, for append-only tables.

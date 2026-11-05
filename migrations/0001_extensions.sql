@@ -19,4 +19,4 @@ CREATE EXTENSION IF NOT EXISTS postgis SCHEMA extensions;
 ALTER TABLE goose_db_version ENABLE ROW LEVEL SECURITY;
 
 -- +goose Down
-DROP EXTENSION IF EXISTS postgis;
+-- Nothing: PostGIS may have been there first, and other things may use it.

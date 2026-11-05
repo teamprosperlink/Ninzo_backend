@@ -1,0 +1,90 @@
+package dbtarget
+
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+const (
+	otherRef = "fvyyfghhccivwwvywvuu"
+	pooler   = "aws-0-ap-south-1.pooler.supabase.com"
+)
+
+func parse(t *testing.T, dsn string) Target {
+	t.Helper()
+	target, err := Parse(dsn)
+	if err != nil {
+		t.Fatalf("%s: %v", dsn, err)
+	}
+	return target
+}
+
+func TestCheckLocal(t *testing.T) {
+	for dsn, want := range map[string]bool{
+		"postgres://u:p@localhost:5432/d?sslmode=disable":              true,
+		"postgres://u:p@127.0.0.1:5432/d":                              true,
+		"postgres://u:p@127.0.0.2:5432/d":                              false,
+		"postgres://u:p@localhost:5432/d?host=127.0.0.2":               false,
+		"postgres://u:p@localhost,db.example.com:5432/d":               false,
+		"postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/d": false,
+		"postgres://u:p@localhost.example.com:5432/d?sslmode=require":  false,
+	} {
+		if err := parse(t, dsn).CheckLocal(); (err == nil) != want {
+			t.Errorf("%s: local %v, got %v", dsn, want, err)
+		}
+	}
+}
+
+func TestCheckRemote(t *testing.T) {
+	good := []string{
+		"postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=require",
+		"postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=verify-full",
+		"postgres://postgres:p@db." + NinzoRef + ".supabase.co:5432/postgres?sslmode=require",
+	}
+	for _, dsn := range good {
+		if err := parse(t, dsn).CheckRemote(); err != nil {
+			t.Errorf("%s: %v", dsn, err)
+		}
+	}
+	bad := map[string]string{
+		"the other project through the pooler": "postgres://postgres." + otherRef + ":p@" + pooler + ":5432/postgres?sslmode=require",
+		"the other project directly":           "postgres://postgres:p@db." + otherRef + ".supabase.co:5432/postgres?sslmode=require",
+		"localhost":                            "postgres://u:p@localhost:5432/d?sslmode=require",
+		"an unknown server":                    "postgres://u:p@db.example.com:5432/d?sslmode=require",
+		"the transaction pooler":               "postgres://postgres." + NinzoRef + ":p@" + pooler + ":6543/postgres?sslmode=require",
+		"no sslmode, which can fall back":      "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres",
+		"sslmode=prefer":                       "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=prefer",
+		"sslmode=disable":                      "postgres://postgres." + NinzoRef + ":p@" + pooler + ":5432/postgres?sslmode=disable",
+	}
+	for name, dsn := range bad {
+		if err := parse(t, dsn).CheckRemote(); err == nil {
+			t.Errorf("%s must be refused", name)
+		}
+	}
+}
+
+func TestErrorsNeverShowThePassword(t *testing.T) {
+	const secret = "S3CRET-pass"
+	for _, dsn := range []string{
+		"postgres://u:123/" + secret + "@host/db",
+		"postgres://u:" + secret + "@host:notaport/db",
+		"://" + secret,
+	} {
+		_, err := Parse(dsn)
+		if err == nil {
+			t.Errorf("%s must be refused", dsn)
+			continue
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("the error shows the password: %v", err)
+		}
+	}
+	target := parse(t, "postgres://u:"+secret+"@db.example.com:5432/d")
+	if got := target.Safe(errors.New("failed with " + secret)); strings.Contains(got, secret) {
+		t.Errorf("Safe kept the password: %s", got)
+	}
+	if err := target.CheckRemote(); err == nil || strings.Contains(err.Error(), secret) {
+		t.Errorf("CheckRemote: %v", err)
+	}
+}

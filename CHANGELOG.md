@@ -13,7 +13,7 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: `docs/planning/owner_setup_checklist.md`.
 
 ### Database foundation (#21)
-- Added: migrations for the 10 v0.2.0 tables, `cmd/migrate`, and database tests in CI.
+- Added: migrations for the 10 v0.2.0 tables, a migration revoking Supabase's default grants, `cmd/migrate`, which refuses the wrong target, and database tests in CI.
 - Changed: local Redis moved to port 6380. Local Postgres runs under emulation on ARM machines.
 - Evidence: docs/testing/reports/21.md
 
