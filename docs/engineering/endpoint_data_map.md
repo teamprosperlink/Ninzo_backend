@@ -86,9 +86,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | Latest rider position | `rider:{id}` | `locationPing` |
 | Riders by map cell | `cell:{h3}` | `locationPing` |
 | Live stream fan-out | Pub/sub per order and per rider | Any change a stream reader can see |
-| Rate limits | OTP and ping counters | `requestOtp`, `verifyOtp`, `locationPing` |
-| Sign-in attempts | Per submitted phone, so an unknown account locks like a real one | `requestOtp`, `verifyOtp` |
-| Decoy OTP requests | For an unknown rider account: expiry and attempts, so later errors match a real request | `requestOtp`, `verifyOtp` |
+| Rate limits | Requests per IP, per session and ping counters. Limits per phone and per code are in Postgres | `requestOtp`, `verifyOtp`, `refreshToken`, `locationPing` |
 | Availability cache | Short-lived, per gate | `getAvailability` |
 
 `locationPing` writes every ping to `location_pings`. The zone check uses that table, `location_zones` and `orders`, so a Redis failure cannot change a timer. If Redis is down, no new offers go out, because rider positions are unknown.
@@ -97,7 +95,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 
 | Endpoint | Reads | Writes | Redis | Outside calls |
 |---|---|---|---|---|
-| `requestOtp` | `people` | `otp_requests` | Rate limit | SMS gateway |
+| `requestOtp` | `otp_requests` | `otp_requests` | Rate limit | SMS gateway |
 | `verifyOtp` | `otp_requests`, `people`, `customers` | `otp_requests`, `people`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `signInWithGoogle` | `person_identities`, `people`, `customers` | `people`, `person_identities`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | Google's public keys |
 | `requestPhoneOtp` | `customers`, `people` | `otp_requests` | Rate limit | SMS gateway |
@@ -135,7 +133,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 
 | Endpoint | Reads | Writes | Redis | Outside calls |
 |---|---|---|---|---|
-| `requestOtp` | `riders`, `people` | `otp_requests` | Rate limit | SMS gateway, only if the account exists |
+| `requestOtp` | `otp_requests`, `riders`, `people` | `otp_requests` | Rate limit | SMS gateway, only if the account exists |
 | `verifyOtp` | `otp_requests`, `riders`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
@@ -192,7 +190,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
 | `suggest_relocations` | `scooters`, `staging_nodes`, `orders`, `zone_settings` | `relocations`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
 | `suggest_restocks` | `scooters`, `scooter_stock`, `lots`, `zone_settings` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
-| `purge_platform_rows` | `idempotency_keys`, `outbox_events`, `refresh_tokens` | `idempotency_keys`, `outbox_events`, `refresh_tokens` | Daily. Deletes keys older than 24 hours, delivered events older than 7 days, and refresh tokens 30 days after they expire or end | |
+| `purge_platform_rows` | `idempotency_keys`, `outbox_events`, `refresh_tokens`, `otp_requests` | `idempotency_keys`, `outbox_events`, `refresh_tokens`, `otp_requests` | Daily. Deletes keys older than 24 hours, delivered events older than 7 days, refresh tokens 30 days after they expire or end, and codes older than a day | |
 | `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided. `ninzo_service` cannot create tables, so this needs a narrow function made by a migration, in v0.5.0 | |
 
 ## 6. What must happen in one transaction

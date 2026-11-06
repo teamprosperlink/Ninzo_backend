@@ -18,9 +18,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := service.Run(ctx, service.Options{
-		Name: "customer-api",
+		Name:     "customer-api",
+		Validate: identity.RequireSMS,
 		Mount: func(r chi.Router, d service.Deps) {
-			identity.MountSessions(r, identity.NewSessions(d.DB, d.Config, d.Log), identity.TypeCustomer)
+			sessions := identity.NewSessions(d.DB, d.Config, d.Log)
+			identity.MountSessions(r, sessions, identity.TypeCustomer)
+			identity.MountOTP(r, identity.NewOTPs(d.DB, sessions, d.Config, d.Log), identity.TypeCustomer)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

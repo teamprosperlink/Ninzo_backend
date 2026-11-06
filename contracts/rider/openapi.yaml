@@ -41,7 +41,8 @@ paths:
       operationId: requestOtp
       summary: Send a sign-in code
       description: >-
-        The reply is the same whether or not the account exists, and no SMS is sent if it does not.
+        Indian mobile numbers only for now. The reply is the same whether or not the account exists,
+        and no SMS is sent if it does not.
         Later errors on that request_id behave the same either way. Errors: invalid_request for a
         bad phone number, otp_resend_limit (429) when the resend limit is reached.
       security: []
@@ -57,7 +58,7 @@ paths:
                 phone:
                   type: string
                   description: In E.164 format.
-                  pattern: ^\+[1-9][0-9]{7,14}$
+                  pattern: ^\+91[6-9][0-9]{9}$
                   example: '+919876543210'
       responses:
         '200':

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,6 +32,12 @@ func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
 		if k == "JWT_SIGNING_KEY" {
 			return testSigningKey
 		}
+		if k == "OTP_TEST_MODE" {
+			return "true"
+		}
+		if k == "OTP_TEST_CODE" {
+			return "123456"
+		}
 		return ""
 	}})
 	if err == nil || !strings.Contains(err.Error(), "local Postgres only") {
@@ -41,12 +48,25 @@ func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
 	}
 }
 
+func TestRunStopsIfAValidationFails(t *testing.T) {
+	refused := errors.New("not this time")
+	err := Run(context.Background(), Options{
+		Name: "test", Validate: func(config.Config) error { return refused },
+		Getenv: func(k string) string {
+			return map[string]string{"APP_ENV": "local", "DATABASE_URL": "postgres://u:p@127.0.0.1:1/d?sslmode=disable", "JWT_SIGNING_KEY": testSigningKey}[k]
+		},
+	})
+	if !errors.Is(err, refused) {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestRunGivesUpIfTheDatabaseStaysDown(t *testing.T) {
 	var logs bytes.Buffer
 	err := Run(context.Background(), Options{
 		Name: "test", LogOutput: &logs, StartupTimeout: time.Second,
 		Getenv: func(k string) string {
-			return map[string]string{"APP_ENV": "local", "DATABASE_URL": "postgres://ninzo:S3CRET@127.0.0.1:1/ninzo?sslmode=disable", "JWT_SIGNING_KEY": testSigningKey}[k]
+			return map[string]string{"APP_ENV": "local", "DATABASE_URL": "postgres://ninzo:S3CRET@127.0.0.1:1/ninzo?sslmode=disable", "JWT_SIGNING_KEY": testSigningKey, "OTP_TEST_MODE": "true", "OTP_TEST_CODE": "123456"}[k]
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "did not answer") {
@@ -85,7 +105,7 @@ func TestRunEndToEnd(t *testing.T) {
 		done <- Run(ctx, Options{
 			Name: "test-api", LogOutput: &logs,
 			Getenv: func(k string) string {
-				return map[string]string{"APP_ENV": "local", "DATABASE_URL": url, "HTTP_PORT": fmt.Sprint(port), "DB_MAX_CONNS": "2", "JWT_SIGNING_KEY": testSigningKey}[k]
+				return map[string]string{"APP_ENV": "local", "DATABASE_URL": url, "HTTP_PORT": fmt.Sprint(port), "DB_MAX_CONNS": "2", "JWT_SIGNING_KEY": testSigningKey, "OTP_TEST_MODE": "true", "OTP_TEST_CODE": "123456"}[k]
 			},
 			Mount: func(r chi.Router, d Deps) {
 				r.Get("/now", func(w http.ResponseWriter, req *http.Request) {

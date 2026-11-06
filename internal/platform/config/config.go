@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ type Config struct {
 	DBMaxConns  int32
 	Database    dbtarget.Target
 	OTPTestMode bool
+	OTPTestCode Secret
 	// JWTSigningKey signs access tokens.
 	JWTSigningKey Secret
 	AccessTTL     time.Duration
@@ -54,6 +56,8 @@ type Config struct {
 func (c Config) IsLocal() bool { return c.Env == EnvLocal }
 
 const minSigningKey = 32
+
+var otpCodePattern = regexp.MustCompile(`^[0-9]{6}$`)
 
 // LocalKeyPrefix marks the key the local tasks use, so it can never reach a real environment.
 const LocalKeyPrefix = "local-only-"
@@ -132,6 +136,10 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if c.OTPTestMode && c.Env == EnvProduction {
 		problem("OTP_TEST_MODE must be false in production")
+	}
+	c.OTPTestCode = Secret(getenv("OTP_TEST_CODE"))
+	if c.OTPTestMode && !otpCodePattern.MatchString(string(c.OTPTestCode)) {
+		problem("OTP_TEST_CODE must be six digits when OTP_TEST_MODE is true")
 	}
 
 	c.DatabaseURL = Secret(getenv("DATABASE_URL"))

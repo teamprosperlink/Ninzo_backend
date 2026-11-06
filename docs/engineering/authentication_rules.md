@@ -110,7 +110,15 @@ Revoking only the chain, not all the user's tokens, is **Proposed**, so that one
 
 ## 5. How each sign-in method works
 ### Phone OTP
-The backend makes a code, sends it, stores only a hash, and checks it. Attempts and sends are rate limited.
+The backend makes a six-digit code, sends it, stores only a keyed hash, and checks it. A code lasts 5 minutes, and allows 5 attempts. A phone can ask once every 30 seconds, and 5 times an hour, per app. **Proposed**
+
+Only Indian mobile numbers are accepted for the pilot, because a gateway that strips a leading zero could reach one person through two numbers, and foreign numbers invite SMS pumping. **Proposed**
+
+A failed send frees the limit. In test mode the code is fixed and no SMS goes out, and production refuses test mode. Real SMS is not built yet, so production cannot start until it is. That is deliberate.
+
+**Test mode opens any number with the fixed code, and reveals registered riders. So staging must hold test data only, and never real customers.**
+
+**For the real SMS step:** send through the outbox and always reply 200. Sending during the request takes longer for a registered number, and a failed send replies differently, and either one reveals who is registered.
 
 Each code is tied to one purpose, such as sign-in or applying as a rider, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
 
@@ -135,7 +143,7 @@ The owner first described the backend exchanging an authorization code. That flo
 ### What an unregistered person sees
 This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. The owner approved that a failed sign-in never reveals whether the ID exists. Sending no SMS, and this screen wording, are **Proposed**.
 
-**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone or ID, so an unknown account, or one with no password, locks like any other. Blocked or suspended is revealed only after a correct code or password.
+**Keeping the replies identical. Proposed:** an unknown rider number gets a real request row, with a code nobody knows and no SMS, so wrong guesses, expiry and limits give the same errors as a real request. Blocked or suspended is revealed only after a correct code.
 
 ### Rider application
 ```
@@ -238,6 +246,8 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 - **Requirements before approval:** KYC and documents through DigiLocker are confirmed for later. Food safety training and payout details were suggested, and need detail. Nothing stores payout details yet.
 - **Suspended during a delivery:** does the current order finish, or get reassigned? **Open.** Proposed: ops decides, and a safety case reassigns at once.
 - **A rider whose phone is lost:** other options are decided later. **Owner**
+- **Lockout by someone else's requests:** anyone can ask for codes for a number, so 5 requests in about 2.5 minutes block its owner for up to an hour, and repeating that keeps them out. **Open**, for the owner, with rate limiting in #39. Counting per phone and IP is one option.
+- **Guessing odds:** 5 attempts on each of 5 codes an hour, per app, is about 0.06% a day for one phone, but across many numbers an attacker's odds add up. IP limits in #39 must close this before launch.
 - **Recycled phone numbers:** a telecom can give an old number to someone new, who could then prove that phone. **Open.** Needs a rule before launch, especially for accounts with credit or history.
 - **Apple on iOS:** from memory, App Store rules require an option like Apple sign-in if an iOS app offers Google. Apple's developer program costs about $99 a year. Confirm both. If correct, Apple must be ready before the iOS release.
 - **Going live with Google:** from memory, the Google project starts in testing mode, limited to 100 test users, and must be switched to production before launch. Confirm in the console.

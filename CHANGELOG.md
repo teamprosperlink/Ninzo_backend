@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Phone OTP sign-in (#43)
+- Added: `requestOtp` and `verifyOtp` on `customer-api` and `rider-api`, with test codes. Real SMS comes later.
+- Evidence: docs/testing/reports/43.md
+
 ### Rider sign-in is phone and OTP only (#41)
 - Removed: rider ID and rider password endpoints and fields from the rider contract and mock.
 

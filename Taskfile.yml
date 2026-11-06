@@ -39,10 +39,10 @@ tasks:
     cmds: ["TEST_DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' REQUIRE_DB_TESTS=yes go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/"]
   run:customer:
     desc: Run customer-api on port 8080, against local Postgres only
-    cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8080 JWT_SIGNING_KEY=local-only-development-signing-key DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/customer-api"]
+    cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8080 JWT_SIGNING_KEY=local-only-development-signing-key OTP_TEST_MODE=true OTP_TEST_CODE=123456 DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/customer-api"]
   run:rider:
     desc: Run rider-api on port 8081, against local Postgres only
-    cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8081 JWT_SIGNING_KEY=local-only-development-signing-key DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/rider-api"]
+    cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8081 JWT_SIGNING_KEY=local-only-development-signing-key OTP_TEST_MODE=true OTP_TEST_CODE=123456 DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/rider-api"]
   staging:status:
     desc: Show the target and migration status of the database in .env. Changes nothing
     dotenv: [".env"]
