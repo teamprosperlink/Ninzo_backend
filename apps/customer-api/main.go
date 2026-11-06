@@ -22,15 +22,17 @@ func main() {
 	if err := service.Run(ctx, service.Options{
 		Name: "customer-api",
 		Validate: func(cfg config.Config) error {
-			return errors.Join(identity.RequireSMS(cfg), identity.RequireGoogle(cfg))
+			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg))
 		},
 		Mount: func(r chi.Router, d service.Deps) {
 			sessions := identity.NewSessions(d.DB, d.Config, d.Log)
 			identity.MountSessions(r, sessions, identity.TypeCustomer)
 			otps := identity.NewOTPs(d.DB, sessions, d.Config, d.Log)
-			identity.MountOTP(r, otps, identity.TypeCustomer)
-			identity.MountGoogle(r, identity.NewGoogleSignIn(d.DB, sessions, d.Config, d.Log))
+			google := identity.NewGoogleSignIn(d.DB, sessions, d.Config, d.Log)
+			// Each sign-in method is a component. Add a new one to this list.
+			identity.MountMethods(r, d.Config.SignInMethods, identity.PhoneMethod{OTPs: otps, ActorType: identity.TypeCustomer}, google)
 			identity.MountPhoneVerification(r, otps, sessions.Signer)
+			identity.MountMethodChange(r, d.Config.SignInMethods, otps, google, sessions.Signer)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

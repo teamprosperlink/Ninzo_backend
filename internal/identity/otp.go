@@ -205,6 +205,15 @@ type Verified struct {
 // Verify checks a code and starts a session. A wrong code's attempt is committed even though the
 // request is refused, so guesses always count.
 func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (Verified, error) {
+	return o.verify(ctx, actorType, requestID, code, false)
+}
+
+// VerifyAndSwitch is Verify for a customer who chose to log in by phone from now on.
+func (o *OTPs) VerifyAndSwitch(ctx context.Context, requestID, code string) (Verified, error) {
+	return o.verify(ctx, TypeCustomer, requestID, code, true)
+}
+
+func (o *OTPs) verify(ctx context.Context, actorType, requestID, code string, switchMethod bool) (Verified, error) {
 	if !requestIDPattern.MatchString(requestID) {
 		return Verified{}, ErrInvalidOTP
 	}
@@ -220,7 +229,9 @@ func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (V
 			return nil
 		}
 		var signInErr error
-		out, signInErr = o.signIn(ctx, tx, actorType, phone)
+		out, signInErr = o.signIn(ctx, tx, actorType, phone, switchMethod)
+		// WrongMethodError stays an error, so this rolls back and the code stays usable: the customer
+		// can choose to switch without another SMS.
 		if errors.Is(signInErr, ErrAccountBlocked) || errors.Is(signInErr, ErrInvalidOTP) {
 			refusal = signInErr
 			return nil
@@ -271,7 +282,7 @@ func (o *OTPs) checkCode(ctx context.Context, tx pgx.Tx, actorType, purpose, req
 }
 
 // signIn finds or creates the account for a proven phone, and starts a session.
-func (o *OTPs) signIn(ctx context.Context, tx pgx.Tx, actorType, phone string) (Verified, error) {
+func (o *OTPs) signIn(ctx context.Context, tx pgx.Tx, actorType, phone string, switchMethod bool) (Verified, error) {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 2))", phone); err != nil {
 		return Verified{}, err
 	}
@@ -308,6 +319,11 @@ func (o *OTPs) signIn(ctx context.Context, tx pgx.Tx, actorType, phone string) (
 	// this waited must stop this sign-in, or the old number's holder would keep access.
 	if err := stillAllowed(ctx, tx, actorType, actorID, phone); err != nil {
 		return Verified{}, err
+	}
+	if actorType == TypeCustomer {
+		if err := requirePhoneMethod(ctx, tx, o.Sessions, actorID, switchMethod); err != nil {
+			return Verified{}, err
+		}
 	}
 	pair, actor, err := o.Sessions.Start(ctx, tx, actorType, actorID)
 	if err != nil {

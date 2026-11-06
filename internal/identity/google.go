@@ -262,7 +262,7 @@ type GoogleResult struct {
 }
 
 // SignIn verifies the token, outside any transaction, then finds or creates the account. Email is
-// never used to find an account: accounts merge only on a phone proven by OTP.
+// never used to find an account, and accounts never merge. See decision 0009.
 func (g *GoogleSignIn) SignIn(ctx context.Context, idToken string) (GoogleResult, error) {
 	profile, err := g.Verifier.Verify(ctx, idToken)
 	if err != nil {
@@ -281,14 +281,14 @@ func (g *GoogleSignIn) SignIn(ctx context.Context, idToken string) (GoogleResult
 		if err := lockActor(ctx, tx, TypeCustomer, customer); err != nil {
 			return err
 		}
-		// Read again now the lock is held: a merge or a block may have just finished.
+		// Read again now the lock is held: a change of method or a block may have just finished.
 		var active, stillLinked, hasPhone bool
 		err = tx.QueryRow(ctx, `SELECT p.status = 'active', p.phone IS NOT NULL,
 				EXISTS (SELECT 1 FROM person_identities i WHERE i.person_id = p.id AND i.provider = $2 AND i.subject = $3)
 			FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`,
 			customer, providerGoogle, profile.Subject).Scan(&active, &hasPhone, &stillLinked)
 		if err != nil {
-			return err // Includes a customer just merged away: the app retries, and finds the right one.
+			return err // Includes a customer just removed: the app retries, and gets a fresh answer.
 		}
 		if !active {
 			return ErrAccountBlocked
@@ -332,7 +332,7 @@ func findOrCreateGoogleCustomer(ctx context.Context, tx pgx.Tx, profile GooglePr
 	var id string
 	err = tx.QueryRow(ctx, "SELECT id::text FROM customers WHERE person_id = $1", person).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if err := tx.QueryRow(ctx, "INSERT INTO customers (person_id) VALUES ($1) RETURNING id::text", person).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, "INSERT INTO customers (person_id, sign_in_method) VALUES ($1, $2) RETURNING id::text", person, MethodGoogle).Scan(&id); err != nil {
 			return "", err
 		}
 		return id, audit.Record(ctx, tx, audit.Event{

@@ -163,6 +163,22 @@ func TestGoogleClientIDs(t *testing.T) {
 	}
 }
 
+func TestSignInMethods(t *testing.T) {
+	base := map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL}
+	c, err := Load(env(base))
+	if err != nil || len(c.SignInMethods) != 2 || c.SignInMethods[0] != "phone" || c.SignInMethods[1] != "google" {
+		t.Errorf("the default: %v, %v", c.SignInMethods, err)
+	}
+	base["SIGNIN_METHODS"] = "phone"
+	if c, err := Load(env(base)); err != nil || len(c.SignInMethods) != 1 {
+		t.Errorf("phone only: %v, %v", c.SignInMethods, err)
+	}
+	base["SIGNIN_METHODS"] = "phone,facebook"
+	if _, err := Load(env(base)); err == nil {
+		t.Error("an unknown method must be refused")
+	}
+}
+
 func TestPlatformPort(t *testing.T) {
 	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "PORT": "7000"}))
 	if err != nil || c.Port != 7000 {

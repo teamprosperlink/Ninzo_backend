@@ -121,6 +121,10 @@ components:
           type: string
           description: Only on 403. The permission the caller lacks.
           example: orders.read
+        sign_in_method:
+          type: string
+          description: Only on sign_in_method_mismatch. How this account signs in.
+          example: google
     PageInfo:
       type: object
       description: Added to every list response, next to its items.

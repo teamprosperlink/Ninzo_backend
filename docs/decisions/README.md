@@ -13,3 +13,4 @@ Accepted decisions are never edited; to reverse one, write a new decision and ma
 | [0006](0006-console-web-separate-repo.md) | Console frontend in a separate console-web repo | Proposed | 2026-11-04 |
 | [0007](0007-zone-timer-order-flow.md) | Zone-based order timer | Proposed | 2026-11-04 |
 | [0008](0008-branch-and-release-setup.md) | Branch and release setup | Accepted | 2026-11-06 |
+| [0009](0009-one-sign-in-method.md) | One sign-in method per customer | Accepted | 2026-11-06 |

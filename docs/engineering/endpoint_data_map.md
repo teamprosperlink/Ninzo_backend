@@ -99,7 +99,8 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `verifyOtp` | `otp_requests`, `people`, `customers` | `otp_requests`, `people`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `signInWithGoogle` | `person_identities`, `people`, `customers` | `people`, `person_identities`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | Google's public keys |
 | `requestPhoneOtp` | `customers`, `people` | `otp_requests` | Rate limit | SMS gateway |
-| `verifyPhone` | `otp_requests`, `customers`, `people`, `person_identities`, `refresh_tokens` | `otp_requests`, `people`, `person_identities`, `customers`, `refresh_tokens`, `devices`, `outbox_events`, `audit_events` | Rate limit | |
+| `verifyPhone` | `otp_requests`, `customers`, `people`, `person_identities` | `otp_requests`, `people`, `refresh_tokens`, `outbox_events`, `audit_events` | Rate limit | |
+| `changeSignInMethod` | `otp_requests`, `customers`, `people`, `person_identities`, `riders` | `otp_requests`, `customers`, `person_identities`, `people`, `devices`, `refresh_tokens`, `outbox_events`, `audit_events` | Rate limit | Google's public keys |
 | `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getMe` | `customers`, `people` | | | |

@@ -186,9 +186,17 @@ components:
                     type:
                         - string
                         - "null"
+                sign_in_method:
+                    description: How this customer logs in. For the settings screen.
+                    enum:
+                        - phone
+                        - google
+                        - apple
+                    type: string
             required:
                 - id
                 - phone
+                - sign_in_method
             type: object
         CustomerResponse:
             properties:
@@ -277,6 +285,10 @@ components:
                     type: boolean
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
+                sign_in_method:
+                    description: Only on sign_in_method_mismatch. How this account signs in.
+                    example: google
+                    type: string
             required:
                 - code
                 - message
@@ -916,7 +928,7 @@ paths:
                 - auth
     /auth/otp/verify:
         post:
-            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). A blocked person gets account_blocked (403).'
+            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). A blocked person gets account_blocked (403). A customer who signed up another way gets sign_in_method_mismatch (409), with sign_in_method saying which. The code is not used up, so the app can offer to switch and, if they agree, send the same code with switch_to_phone true. Switching keeps the account, removes the Google account from it, and ends every other session.'
             operationId: verifyOtp
             requestBody:
                 content:
@@ -929,6 +941,9 @@ paths:
                                     type: string
                                 request_id:
                                     type: string
+                                switch_to_phone:
+                                    description: Log in by phone from now on. Send only after the customer agrees.
+                                    type: boolean
                             required:
                                 - request_id
                                 - otp
@@ -945,6 +960,8 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "403":
                     $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
                 "429":
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
@@ -1320,7 +1337,7 @@ paths:
                 - auth
     /me/phone/verify:
         post:
-            description: 'Use the request_id from requestPhoneOtp in this same session. Returns a new session, and the old tokens stop working. Replace them, and replace customer_id, which can change if this phone already has an account. Reload anything that holds the old ID. Verifying the phone already on this account with a new code returns 200. If the reply is lost, a retry returns 401 or invalid_otp, because the old access token can last 15 minutes. Either way, sign in again: the phone is already verified. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). All 409: phone_already_set if this account has a different verified phone, phone_already_linked if that phone''s account has a different Google account. In that case, sign in by OTP, and wait out any Retry-After, because codes for that phone are limited.'
+            description: 'Use the request_id from requestPhoneOtp in this same session. Ask for this when the customer goes to order. Returns a new session, and the old tokens stop working, so replace them. customer_id stays the same, and this does not change how the customer signs in. Verifying the phone already on this account with a new code returns 200. If the reply is lost, a retry returns 401 or invalid_otp, because the code is used, so sign in again. Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). Both 409: phone_already_set if this account has a different verified phone, phone_already_registered if another account holds that number. Tell them to log in with phone and OTP.'
             operationId: verifyPhone
             requestBody:
                 content:
@@ -1360,6 +1377,68 @@ paths:
                 "503":
                     $ref: '#/components/responses/ServiceUnavailable'
             summary: Verify a phone
+            tags:
+                - auth
+    /me/sign-in-method:
+        post:
+            description: 'For the settings screen. A customer has one sign-in method at a time. For google, send id_token. For phone, send request_id from requestPhoneOtp, for the phone already verified on this account, and otp. Returns a new session, and every other session ends, so replace the tokens. Errors: invalid_otp and otp_expired (both 400), invalid_google_token (401), account_blocked (403), otp_attempts_exceeded (429). All 409: sign_in_method_unchanged, google_account_in_use, phone_required, phone_already_set. An ended session gets 401, even if the access token has not expired. If the reply is lost, a retry returns 401 or sign_in_method_unchanged, because the change was made, so sign in again the new way.'
+            operationId: changeSignInMethod
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            oneOf:
+                                - properties:
+                                    method:
+                                        const: google
+                                  required:
+                                    - id_token
+                                - properties:
+                                    method:
+                                        const: phone
+                                  required:
+                                    - request_id
+                                    - otp
+                            properties:
+                                id_token:
+                                    type: string
+                                method:
+                                    enum:
+                                        - google
+                                        - phone
+                                    type: string
+                                otp:
+                                    example: "123456"
+                                    pattern: ^[0-9]{4,8}$
+                                    type: string
+                                request_id:
+                                    type: string
+                            required:
+                                - method
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CustomerSession'
+                    description: Changed, with a new session.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Change how this customer signs in
             tags:
                 - auth
     /menu/items:

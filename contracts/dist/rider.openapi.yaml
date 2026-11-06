@@ -174,6 +174,10 @@ components:
                     type: boolean
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
+                sign_in_method:
+                    description: Only on sign_in_method_mismatch. How this account signs in.
+                    example: google
+                    type: string
             required:
                 - code
                 - message

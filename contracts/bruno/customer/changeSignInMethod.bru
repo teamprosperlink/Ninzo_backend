@@ -1,0 +1,24 @@
+meta {
+  name: changeSignInMethod
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/me/sign-in-method
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-changeSignInMethod-0001
+}
+
+body:json {
+  {
+    "id_token": "mock_value",
+    "method": "google"
+  }
+}
