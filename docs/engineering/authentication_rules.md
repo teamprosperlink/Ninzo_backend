@@ -4,7 +4,7 @@ Version: 0.1.0 · Updated: 2026-11-05 · Discussion: Issue #25
 
 The record of how people sign in, what roles they hold, and why. Read this before changing sign-in, sessions, roles or the `identity` module. If a rule here and the contracts disagree, the contracts win for what is built today, and the difference is a bug to raise as an Issue. Section 11 lists the contract changes already planned.
 
-**Build status:** nothing here is built yet. Section 11 says what comes when.
+**Build status:** the tables and the session system (section 4) are built. Section 11 says what comes when.
 
 **How to read the labels:**
 - **Owner** means the owner decided it, and it must not be changed or asked again without the owner. The wording the owner approved is on Issue #25.
@@ -88,9 +88,15 @@ Only when they sign out, Ninzo suspends the role, a token looks stolen, their pa
 
 ### Lost replies and stolen tokens
 - A client sends one refresh at a time, and other requests wait for it.
-- If a used token comes back and the pair issued from it has not been used, the reply was probably lost, so the server returns a valid pair, however long ago it was. A rider can lose signal for a long time, and must not be signed out for it.
-- **Accepted risk:** a stolen old token also works in that case, until the real app next renews. A 60-second limit was tried and rejected, because it signed out riders who lost signal. Tying retries to a device would close this, and can be added later. **Proposed**
-- If that pair has been used, the token may be stolen, so that chain is revoked and the user signs in again.
+- Each renewal is one generation further along the chain. A token is good until a token of a later generation has been used, or another token of its own generation has. **Proposed**
+- So a used token can come back, however long ago, and get a new pair. A lost reply or a delayed duplicate never signs anyone out: the extra tokens are simply never used.
+- If two different tokens of one generation are both used, or an old token comes back after a later one was used, there are two holders of the session, so one may be a thief. The chain ends and the user signs in again, including the thief.
+- **Accepted risk:** a stolen token works undetected until the real app next renews, so while the app is idle a thief can use it. Tying tokens to a device would close this, and can be added later. **Proposed**
+- **The one exception:** a duplicate delayed until after the app's next renewal looks the same as theft. That needs a request stuck for about 15 minutes, past every timeout.
+- A database outage returns 503, never 401, so an outage cannot sign anyone out.
+- Everything that changes a chain takes turns, so ending a chain cannot miss a token a refresh in progress is making.
+- An app that gets a 401 on a signed-in request refreshes once and sends it again. Only a 401 from the refresh means sign in, so replacing the signing key signs nobody out.
+- Signing out, or a reset, ends the refresh token at once. An access token already issued works for up to 15 minutes, so endpoints with sensitive actions must also check status when they are built.
 - Queued offline work is never lost because a session needed renewing.
 
 Revoking only the chain, not all the user's tokens, is **Proposed**, so that one device's problem does not sign out another.

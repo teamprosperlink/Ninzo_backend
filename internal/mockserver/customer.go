@@ -96,6 +96,7 @@ func customerRoutes() []route {
 		{method: "POST", path: "/me/phone/otp", noIdempotent: true, handle: otpRequest},
 		{method: "POST", path: "/me/phone/verify", noIdempotent: true, handle: verifyPhone},
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
+		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/me", handle: func(c *call) {
 			var phone any = "+919876543210"
 			if c.scenario == "phone_not_verified" {

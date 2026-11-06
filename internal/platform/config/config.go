@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/dbtarget"
 )
@@ -43,10 +44,33 @@ type Config struct {
 	DBMaxConns  int32
 	Database    dbtarget.Target
 	OTPTestMode bool
+	// JWTSigningKey signs access tokens.
+	JWTSigningKey Secret
+	AccessTTL     time.Duration
+	RefreshTTL    time.Duration
 }
 
 // IsLocal reports whether this runs on a developer's machine.
 func (c Config) IsLocal() bool { return c.Env == EnvLocal }
+
+const minSigningKey = 32
+
+// LocalKeyPrefix marks the key the local tasks use, so it can never reach a real environment.
+const LocalKeyPrefix = "local-only-"
+
+func seconds(getenv func(string) string, name string, def, low, high time.Duration, problem func(string, ...any)) time.Duration {
+	v := getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	d := time.Duration(n) * time.Second
+	if err != nil || d < low || d > high {
+		problem("%s must be a number of seconds from %d to %d", name, int(low.Seconds()), int(high.Seconds()))
+		return def
+	}
+	return d
+}
 
 // Load reads the settings, and reports every problem at once.
 func Load(getenv func(string) string) (Config, error) {
@@ -127,6 +151,16 @@ func Load(getenv func(string) string) (Config, error) {
 			problems = append(problems, err)
 		}
 	}
+
+	c.JWTSigningKey = Secret(getenv("JWT_SIGNING_KEY"))
+	switch {
+	case len(c.JWTSigningKey) < minSigningKey:
+		problem("JWT_SIGNING_KEY must be at least %d characters", minSigningKey)
+	case c.Env != EnvLocal && strings.HasPrefix(string(c.JWTSigningKey), LocalKeyPrefix):
+		problem("JWT_SIGNING_KEY is the local development key, which staging and production must not use")
+	}
+	c.AccessTTL = seconds(getenv, "JWT_ACCESS_TTL_SECONDS", 15*time.Minute, time.Minute, time.Hour, problem)
+	c.RefreshTTL = seconds(getenv, "JWT_REFRESH_TTL_SECONDS", 90*24*time.Hour, time.Hour, 365*24*time.Hour, problem)
 
 	if len(problems) > 0 {
 		return Config{}, errors.Join(problems...)
