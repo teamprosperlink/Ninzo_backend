@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Google sign-in, phone verification and merging (#47)
+- Added: `signInWithGoogle`, `requestPhoneOtp` and `verifyPhone` on `customer-api`. Accounts merge only on a phone proven by OTP.
+- Added: the `GOOGLE_CLIENT_IDS` setting, required by `customer-api`.
+- Evidence: docs/testing/reports/47.md
+
 ### SMS setup steps (#45)
 - Added: `docs/planning/sms_setup.md`.
 

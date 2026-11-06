@@ -114,6 +114,11 @@ func (o *OTPs) newCode() (string, error) {
 // same in every way, but with a code nobody knows and no SMS, so the reply cannot reveal who is
 // registered, and an unknown number costs nothing. Limits count those requests too.
 func (o *OTPs) Request(ctx context.Context, actorType, phone string) (OTPRequest, error) {
+	return o.request(ctx, actorType, phone, purposeSignIn, "")
+}
+
+// request makes a code for one purpose. requestedBy ties a phone verification code to one customer.
+func (o *OTPs) request(ctx context.Context, actorType, phone, purpose, requestedBy string) (OTPRequest, error) {
 	if !phonePattern.MatchString(phone) {
 		return OTPRequest{}, ErrBadPhone
 	}
@@ -140,9 +145,12 @@ func (o *OTPs) Request(ctx context.Context, actorType, phone string) (OTPRequest
 		if wait > 0 {
 			return &RetryAfterError{Err: ErrResendLimit, Seconds: int(wait) + 1}
 		}
-		send, err = o.canSignIn(ctx, tx, actorType, phone)
-		if err != nil {
-			return err
+		send = true
+		if purpose == purposeSignIn {
+			send, err = o.canSignIn(ctx, tx, actorType, phone)
+			if err != nil {
+				return err
+			}
 		}
 		if code, err = o.newCode(); err != nil {
 			return err
@@ -156,9 +164,9 @@ func (o *OTPs) Request(ctx context.Context, actorType, phone string) (OTPRequest
 			}
 			stored = hex.EncodeToString(raw)
 		}
-		return tx.QueryRow(ctx, `INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at)
-			VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5)) RETURNING id::text`,
-			actorType, purposeSignIn, phone, o.hash(phone, stored), otpLife.Seconds()).Scan(&id)
+		return tx.QueryRow(ctx, `INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at, requested_by)
+			VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5), NULLIF($6, '')::uuid) RETURNING id::text`,
+			actorType, purpose, phone, o.hash(phone, stored), otpLife.Seconds(), requestedBy).Scan(&id)
 	})
 	if err != nil {
 		return OTPRequest{}, err
@@ -203,37 +211,13 @@ func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (V
 	var out Verified
 	var refusal error
 	err := database.InTx(ctx, o.Pool, func(tx pgx.Tx) error {
-		var phone, hash string
-		var attempts int
-		var consumed, expired bool
-		err := tx.QueryRow(ctx, `SELECT phone, code_hash, attempts, consumed_at IS NOT NULL, expires_at <= now()
-			FROM otp_requests WHERE id = $1::uuid AND actor_type = $2 AND purpose = $3 FOR UPDATE`,
-			requestID, actorType, purposeSignIn).Scan(&phone, &hash, &attempts, &consumed, &expired)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-			refusal = ErrInvalidOTP
-			return nil
-		case err != nil:
+		phone, wrong, err := o.checkCode(ctx, tx, actorType, purposeSignIn, "", requestID, code)
+		if err != nil {
 			return err
-		case consumed:
-			refusal = ErrInvalidOTP
-			return nil
-		case expired:
-			refusal = ErrOTPExpired
-			return nil
-		case attempts >= otpMaxAttempts:
-			refusal = ErrOTPAttempts
-			return nil
 		}
-		if !hmac.Equal([]byte(hash), []byte(o.hash(phone, code))) {
-			if _, err := tx.Exec(ctx, "UPDATE otp_requests SET attempts = attempts + 1 WHERE id = $1::uuid", requestID); err != nil {
-				return err
-			}
-			refusal = ErrInvalidOTP
+		if wrong != nil {
+			refusal = wrong
 			return nil
-		}
-		if _, err := tx.Exec(ctx, "UPDATE otp_requests SET consumed_at = now() WHERE id = $1::uuid", requestID); err != nil {
-			return err
 		}
 		var signInErr error
 		out, signInErr = o.signIn(ctx, tx, actorType, phone)
@@ -250,6 +234,40 @@ func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (V
 		return Verified{}, refusal
 	}
 	return out, nil
+}
+
+// checkCode checks a code and uses it up. A wrong code's attempt must commit, so the caller treats
+// the refusal as a result and not an error. requestedBy must match for a phone verification code.
+func (o *OTPs) checkCode(ctx context.Context, tx pgx.Tx, actorType, purpose, requestedBy, requestID, code string) (string, error, error) {
+	var phone, hash string
+	var attempts int
+	var consumed, expired bool
+	err := tx.QueryRow(ctx, `SELECT phone, code_hash, attempts, consumed_at IS NOT NULL, expires_at <= now()
+		FROM otp_requests WHERE id = $1::uuid AND actor_type = $2 AND purpose = $3
+			AND ($4 = '' OR requested_by = NULLIF($4, '')::uuid) FOR UPDATE`,
+		requestID, actorType, purpose, requestedBy).Scan(&phone, &hash, &attempts, &consumed, &expired)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return "", ErrInvalidOTP, nil
+	case err != nil:
+		return "", nil, err
+	case consumed:
+		return "", ErrInvalidOTP, nil
+	case expired:
+		return "", ErrOTPExpired, nil
+	case attempts >= otpMaxAttempts:
+		return "", ErrOTPAttempts, nil
+	}
+	if !hmac.Equal([]byte(hash), []byte(o.hash(phone, code))) {
+		if _, err := tx.Exec(ctx, "UPDATE otp_requests SET attempts = attempts + 1 WHERE id = $1::uuid", requestID); err != nil {
+			return "", nil, err
+		}
+		return "", ErrInvalidOTP, nil
+	}
+	if _, err := tx.Exec(ctx, "UPDATE otp_requests SET consumed_at = now() WHERE id = $1::uuid", requestID); err != nil {
+		return "", nil, err
+	}
+	return phone, nil, nil
 }
 
 // signIn finds or creates the account for a proven phone, and starts a session.

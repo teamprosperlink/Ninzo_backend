@@ -123,7 +123,7 @@ A failed send frees the limit. In test mode the code is fixed and no SMS goes ou
 Each code is tied to one purpose, such as sign-in or applying as a rider, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
 
 ### Google
-The app gets an ID token from Google and sends it to the backend. The backend checks the signature against Google's keys, plus the issuer, audience and expiry. **Proposed**
+The app gets an ID token from Google and sends it to the backend. The backend checks the signature against Google's keys, plus the issuer, audience and expiry. Google's keys are cached, and an outage returns 503, never a refusal. **Proposed**
 
 ### Apple
 The same, with Apple's identity token. Apple's refresh token is also kept, encrypted, only so it can be revoked when an account is deleted. **Proposed**
