@@ -31,6 +31,7 @@ type fakeGoogle struct {
 	kid     string
 	fetches atomic.Int32
 	down    atomic.Bool
+	hang    chan struct{} // While set, every fetch waits for it to close.
 	srv     *httptest.Server
 }
 
@@ -43,6 +44,9 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 	g := &fakeGoogle{key: key, kid: "key-1"}
 	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		g.fetches.Add(1)
+		if g.hang != nil {
+			<-g.hang
+		}
 		if g.down.Load() {
 			w.WriteHeader(http.StatusBadGateway)
 			return
@@ -155,6 +159,54 @@ func TestGoogleTokenChecks(t *testing.T) {
 	}
 }
 
+func TestFailedFetchesAreLimited(t *testing.T) {
+	g := newFakeGoogle(t)
+	ctx := context.Background()
+	v := g.verifier()
+	g.down.Store(true)
+	for i := 0; i < 5; i++ {
+		if _, err := v.Verify(ctx, g.token(t, "s")); !errors.Is(err, ErrGoogleUnavailable) {
+			t.Errorf("attempt %d: %v", i, err)
+		}
+	}
+	if n := g.fetches.Load(); n != 1 {
+		t.Errorf("%d fetches during an outage, so bad traffic can hammer Google", n)
+	}
+}
+
+func TestAHangingGoogleHoldsUpNobodyWithAKnownKey(t *testing.T) {
+	g := newFakeGoogle(t)
+	ctx := context.Background()
+	now := time.Now()
+	v := g.verifier()
+	v.now = func() time.Time { return now }
+	if _, err := v.Verify(ctx, g.token(t, "s")); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	g.hang = release
+	t.Cleanup(func() { close(release) })
+	now = now.Add(2 * googleKeysLife)
+	long := g.claims("s")
+	long["exp"] = now.Add(time.Hour).Unix()
+	token := g.sign(t, long)
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := v.Verify(ctx, token); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("four sign-ins waited %s on a hanging Google", took)
+	}
+}
+
 func TestGoogleEmailIsKeptOnlyIfVerified(t *testing.T) {
 	g := newFakeGoogle(t)
 	v := g.verifier()
@@ -219,6 +271,7 @@ func TestAGoogleOutageIsNotARefusal(t *testing.T) {
 		t.Errorf("no keys yet: %v", err)
 	}
 	g.down.Store(false)
+	now = now.Add(2 * googleRefetchEvery) // Fetches are limited to one a minute, even after a failure.
 	if _, err := v.Verify(ctx, g.token(t, "s")); err != nil {
 		t.Fatal(err)
 	}
@@ -555,6 +608,134 @@ func TestTwoAccountsRacingForOnePhoneStayConsistent(t *testing.T) {
 	}
 	if n := f.count("SELECT count(*) FROM people WHERE phone = $1", phoneA); n != 1 {
 		t.Errorf("%d people hold the phone", n)
+	}
+}
+
+func TestAPhoneNewToEveryoneIsToldAboutTheLink(t *testing.T) {
+	f := newGoogleFixture(t)
+	r := f.googleSignIn("sub-1")
+	if _, err := f.verify(r.Actor, phoneA); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count("SELECT count(*) FROM outbox_events WHERE topic = 'identity.account_linked'"); n != 1 {
+		t.Errorf("%d events: the phone's real owner must be told a Google account is on it", n)
+	}
+}
+
+func TestAPhoneOnlyCustomerIsNotToldAboutALink(t *testing.T) {
+	f := newGoogleFixture(t)
+	v := f.signIn(TypeCustomer, phoneA)
+	f.allowResend()
+	if _, err := f.verify(v.Actor, phoneA); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count("SELECT count(*) FROM outbox_events"); n != 0 {
+		t.Errorf("%d events, with nothing linked", n)
+	}
+}
+
+func TestABlockDuringAMergeLeavesEverythingAlone(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	owner := f.signIn(TypeCustomer, phoneA)
+	r := f.googleSignIn("sub-1")
+	f.allowResend()
+	req, err := f.o.RequestPhone(ctx, r.Actor, phoneA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if err := lockActor(ctx, tx, TypeCustomer, owner.Actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.o.VerifyPhone(ctx, r.Actor, req.ID, testCode)
+		done <- err
+	}()
+	f.waitForBlockedQuery()
+	if _, err := tx.Exec(ctx, "UPDATE people SET status = 'blocked' WHERE phone = $1", phoneA); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrAccountBlocked) {
+		t.Errorf("got %v", err)
+	}
+	if n := f.count("SELECT count(*) FROM person_identities i JOIN people p ON p.id = i.person_id WHERE p.phone = $1", phoneA); n != 0 {
+		t.Error("the Google account moved onto a blocked person")
+	}
+	if n := f.count("SELECT count(*) FROM customers"); n != 2 {
+		t.Errorf("%d customers: the refused merge removed one", n)
+	}
+	if n := f.count("SELECT count(*) FROM audit_events WHERE action = 'customer.merged'"); n != 0 {
+		t.Error("a refused merge was recorded as done")
+	}
+}
+
+func TestAMergeIsTraceableForGood(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	owner := f.signIn(TypeCustomer, phoneA)
+	r := f.googleSignIn("sub-1")
+	var removedPerson string
+	if err := f.s.Pool.QueryRow(ctx, "SELECT person_id::text FROM customers WHERE id = $1", r.Actor.ID).Scan(&removedPerson); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.verify(r.Actor, phoneA); err != nil {
+		t.Fatal(err)
+	}
+	var before, after string
+	if err := f.s.Pool.QueryRow(ctx, "SELECT before::text, after::text FROM audit_events WHERE action = 'customer.merged'").Scan(&before, &after); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{r.Actor.ID, removedPerson, "sub-1", "google"} {
+		if !strings.Contains(before, want) {
+			t.Errorf("the record does not name %s: %s", want, before)
+		}
+	}
+	if !strings.Contains(after, owner.Actor.ID) {
+		t.Errorf("the record does not name the target: %s", after)
+	}
+}
+
+func TestAPersonWithARiderProfileIsNeverMergedAway(t *testing.T) {
+	f := newGoogleFixture(t)
+	f.signIn(TypeCustomer, phoneA)
+	r := f.googleSignIn("sub-1")
+	f.exec("INSERT INTO riders (person_id) SELECT person_id FROM customers WHERE id = $1", r.Actor.ID)
+	if _, err := f.verify(r.Actor, phoneA); !errors.Is(err, ErrPhoneAlreadyLinked) {
+		t.Errorf("got %v", err)
+	}
+	if n := f.count("SELECT count(*) FROM riders"); n != 1 {
+		t.Errorf("%d riders", n)
+	}
+}
+
+func TestAnOldTokenCannotSendACodeAfterAMergeOrABlock(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	f.signIn(TypeCustomer, phoneA)
+	merged := f.googleSignIn("sub-1")
+	if _, err := f.verify(merged.Actor, phoneA); err != nil {
+		t.Fatal(err)
+	}
+	sent := f.sender.count()
+	if _, err := f.o.RequestPhone(ctx, merged.Actor, phoneB); !errors.Is(err, ErrSessionInvalid) {
+		t.Errorf("merged away: %v", err)
+	}
+	blocked := f.googleSignIn("sub-2")
+	f.exec("UPDATE people SET status = 'blocked' WHERE id = (SELECT person_id FROM customers WHERE id = $1)", blocked.Actor.ID)
+	if _, err := f.o.RequestPhone(ctx, blocked.Actor, phoneB); !errors.Is(err, ErrSessionInvalid) {
+		t.Errorf("blocked: %v", err)
+	}
+	if f.sender.count() != sent {
+		t.Error("an old token sent an SMS")
 	}
 }
 

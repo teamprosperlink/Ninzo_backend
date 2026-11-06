@@ -51,9 +51,12 @@ type GoogleVerifier struct {
 	HTTP      *http.Client
 	now       func() time.Time
 
-	mu        sync.Mutex
-	keys      map[string]*rsa.PublicKey
-	fetchedAt time.Time
+	fetching    sync.Mutex // One fetch at a time.
+	mu          sync.Mutex // Guards the fields below, and is never held during a fetch.
+	keys        map[string]*rsa.PublicKey
+	fetchedAt   time.Time
+	attemptedAt time.Time
+	lastFailed  bool
 }
 
 func (g *GoogleVerifier) clock() time.Time {
@@ -109,31 +112,67 @@ func (g *GoogleVerifier) Verify(ctx context.Context, token string) (GoogleProfil
 	return profile, nil
 }
 
-// key finds a signing key, fetching Google's list when it is old or the key is new. An unknown key
-// refetches at most once a minute, so bad tokens cannot make us hammer Google.
+// key finds a signing key. A key already held is served at once, even if old, and an old list is
+// refreshed in the background, so a slow Google holds up nobody. An unknown key waits for a fetch,
+// and fetches, good or failed, happen at most once a minute, so bad tokens cannot hammer Google.
 func (g *GoogleVerifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	age := g.clock().Sub(g.fetchedAt)
 	key, known := g.keys[kid]
-	if known && age < googleKeysLife {
+	stale := g.clock().Sub(g.fetchedAt) >= googleKeysLife
+	g.mu.Unlock()
+	if known {
+		if stale && g.fetching.TryLock() {
+			go func() {
+				defer g.fetching.Unlock()
+				bg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = g.refresh(bg)
+			}()
+		}
 		return key, nil
 	}
-	if !known && g.keys != nil && age < googleRefetchEvery {
+
+	g.fetching.Lock()
+	defer g.fetching.Unlock()
+	g.mu.Lock()
+	key, known = g.keys[kid]
+	haveKeys, recent, lastFailed := g.keys != nil, g.clock().Sub(g.attemptedAt) < googleRefetchEvery, g.lastFailed
+	g.mu.Unlock()
+	switch {
+	case known:
+		return key, nil
+	case recent && lastFailed && !haveKeys:
+		return nil, ErrGoogleUnavailable
+	case recent:
 		return nil, ErrGoogleToken
 	}
-	keys, err := g.fetch(ctx)
-	if err != nil {
-		if known {
-			return key, nil // Old keys beat an outage: Google publishes them well ahead.
+	if err := g.refresh(ctx); err != nil {
+		if !haveKeys {
+			return nil, fmt.Errorf("%w: %v", ErrGoogleUnavailable, err)
 		}
-		return nil, fmt.Errorf("%w: %v", ErrGoogleUnavailable, err)
+		return nil, ErrGoogleToken
 	}
-	g.keys, g.fetchedAt = keys, g.clock()
-	if key, known = keys[kid]; !known {
+	g.mu.Lock()
+	key, known = g.keys[kid]
+	g.mu.Unlock()
+	if !known {
 		return nil, ErrGoogleToken
 	}
 	return key, nil
+}
+
+// refresh fetches the list with no lock held during the call. Callers hold g.fetching.
+func (g *GoogleVerifier) refresh(ctx context.Context) error {
+	started := g.clock()
+	keys, err := g.fetch(ctx)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.attemptedAt, g.lastFailed = started, err != nil
+	if err != nil {
+		return err
+	}
+	g.keys, g.fetchedAt = keys, started
+	return nil
 }
 
 func (g *GoogleVerifier) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error) {

@@ -118,7 +118,7 @@ A failed send frees the limit. In test mode the code is fixed and no SMS goes ou
 
 **Test mode opens any number with the fixed code, and reveals registered riders. So staging must hold test data only, and never real customers.**
 
-**For the real SMS step:** send through the outbox and always reply 200. Sending during the request takes longer for a registered number, and a failed send replies differently, and either one reveals who is registered.
+**For the real SMS step:** say in the message what a code is for, because a code that links an account must warn that it does. That needs a second DLT template. Send through the outbox and always reply 200. Sending during the request takes longer for a registered number, and a failed send replies differently, and either one reveals who is registered.
 
 Each code is tied to one purpose, such as sign-in or applying as a rider, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
 
@@ -248,6 +248,7 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 - **A rider whose phone is lost:** other options are decided later. **Owner**
 - **Lockout by someone else's requests:** anyone can ask for codes for a number, so 5 requests in about 2.5 minutes block its owner for up to an hour, and repeating that keeps them out. **Open**, for the owner, with rate limiting in #39. Counting per phone and IP is one option.
 - **Guessing odds:** 5 attempts on each of 5 codes an hour, per app, is about 0.06% a day for one phone, but across many numbers an attacker's odds add up. IP limits in #39 must close this before launch.
+- **Unlinking a Google account:** someone with a Google account and an intercepted or read-out code can link it to a phone. That gives them lasting access, and until the worker exists the phone is told nothing. Nobody can unlink it yet. **Open**, in a new Issue. Must be done before launch.
 - **Recycled phone numbers:** a telecom can give an old number to someone new, who could then prove that phone. **Open.** Needs a rule before launch, especially for accounts with credit or history.
 - **Apple on iOS:** from memory, App Store rules require an option like Apple sign-in if an iOS app offers Google. Apple's developer program costs about $99 a year. Confirm both. If correct, Apple must be ready before the iOS release.
 - **Going live with Google:** from memory, the Google project starts in testing mode, limited to 100 test users, and must be switched to production before launch. Confirm in the console.

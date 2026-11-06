@@ -254,6 +254,8 @@ func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 			case errors.As(err, &wait):
 				w.Header().Set("Retry-After", strconv.Itoa(wait.Seconds))
 				httpserver.WriteError(w, http.StatusTooManyRequests, "otp_resend_limit", "Too many codes requested.", true)
+			case errors.Is(err, ErrSessionInvalid):
+				httpserver.WriteError(w, http.StatusUnauthorized, "unauthorized", "Sign in again.", false)
 			case err != nil:
 				o.unavailable(w, req, err)
 			default:

@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -23,6 +24,16 @@ var (
 
 // RequestPhone sends a code to prove a phone. The code works only in this customer's sessions.
 func (o *OTPs) RequestPhone(ctx context.Context, a Actor, phone string) (OTPRequest, error) {
+	var exists bool
+	err := o.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM customers c JOIN people p ON p.id = c.person_id
+		WHERE c.id = $1 AND p.status = 'active')`, a.ID).Scan(&exists)
+	if err != nil {
+		return OTPRequest{}, err
+	}
+	// An old access token works for up to 15 minutes, so it can outlive a merge or a block.
+	if !exists {
+		return OTPRequest{}, ErrSessionInvalid
+	}
 	return o.request(ctx, a.Type, phone, purposeVerifyPhone, a.ID)
 }
 
@@ -89,10 +100,15 @@ func (o *OTPs) linkPhone(ctx context.Context, tx pgx.Tx, customer, phone string)
 		return o.freshSession(ctx, tx, customer, customer, phone, "phone verified again")
 	}
 
-	var owner, ownerStatus string
-	err = tx.QueryRow(ctx, "SELECT id::text, status FROM people WHERE phone = $1", phone).Scan(&owner, &ownerStatus)
+	var owner string
+	err = tx.QueryRow(ctx, "SELECT id::text FROM people WHERE phone = $1", phone).Scan(&owner)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if _, err := tx.Exec(ctx, "UPDATE people SET phone = $2, updated_at = now() WHERE id = $1", person, phone); err != nil {
+			return Verified{}, err
+		}
+		// Linking a Google account to a phone nobody holds yet must also be told to that phone. The
+		// owner may sign in later and find this account already there.
+		if err := notifyLinked(ctx, tx, person); err != nil {
 			return Verified{}, err
 		}
 		return o.freshSession(ctx, tx, customer, customer, phone, "phone verified")
@@ -100,17 +116,45 @@ func (o *OTPs) linkPhone(ctx context.Context, tx pgx.Tx, customer, phone string)
 	if err != nil {
 		return Verified{}, err
 	}
-	if ownerStatus != "active" {
-		return Verified{}, ErrAccountBlocked
-	}
 	return o.merge(ctx, tx, customer, person, owner, phone)
 }
 
+func notifyLinked(ctx context.Context, tx pgx.Tx, person string) error {
+	var linked bool
+	err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM person_identities WHERE person_id = $1)", person).Scan(&linked)
+	if err != nil || !linked {
+		return err
+	}
+	return outbox.Add(ctx, tx, "identity.account_linked", map[string]any{"person_id": person})
+}
+
 // merge moves a phoneless person's Google or Apple account and customer onto the person who owns
-// the phone, and removes the phoneless person.
+// the phone, and removes the phoneless person. Every check comes before the first change, so a
+// refusal never commits a partial merge.
 func (o *OTPs) merge(ctx context.Context, tx pgx.Tx, customer, person, owner, phone string) (Verified, error) {
+	var existing string
+	err := tx.QueryRow(ctx, "SELECT id::text FROM customers WHERE person_id = $1", owner).Scan(&existing)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Verified{}, err
+	}
+	// The actor lock comes before the row lock, in the same order as anything ending a session and
+	// then changing a status, so the two cannot deadlock.
+	if existing != "" {
+		if err := lockActor(ctx, tx, TypeCustomer, existing); err != nil {
+			return Verified{}, err
+		}
+	}
+	// Held to the end, so a block cannot commit part way through this merge. A block that committed
+	// while this waited is seen here.
+	var ownerStatus string
+	if err := tx.QueryRow(ctx, "SELECT status FROM people WHERE id = $1 FOR UPDATE", owner).Scan(&ownerStatus); err != nil {
+		return Verified{}, err
+	}
+	if ownerStatus != "active" {
+		return Verified{}, ErrAccountBlocked
+	}
 	var conflict, otherRoles bool
-	err := tx.QueryRow(ctx, `SELECT
+	err = tx.QueryRow(ctx, `SELECT
 			EXISTS (SELECT 1 FROM person_identities a JOIN person_identities b ON a.provider = b.provider
 				WHERE a.person_id = $1 AND b.person_id = $2),
 			EXISTS (SELECT 1 FROM riders WHERE person_id = $1)`, person, owner).Scan(&conflict, &otherRoles)
@@ -121,26 +165,32 @@ func (o *OTPs) merge(ctx context.Context, tx pgx.Tx, customer, person, owner, ph
 	if conflict || otherRoles {
 		return Verified{}, ErrPhoneAlreadyLinked
 	}
-	if _, err := tx.Exec(ctx, "UPDATE person_identities SET person_id = $2 WHERE person_id = $1", person, owner); err != nil {
+
+	// Audit rows cannot be changed later, so this must be enough to trace the merge for good.
+	rows, err := tx.Query(ctx, "SELECT provider, subject FROM person_identities WHERE person_id = $1 ORDER BY 1", person)
+	if err != nil {
+		return Verified{}, err
+	}
+	moved, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (map[string]string, error) {
+		var provider, subject string
+		err := row.Scan(&provider, &subject)
+		return map[string]string{"provider": provider, "subject": subject}, err
+	})
+	if err != nil {
 		return Verified{}, err
 	}
 
+	if _, err := tx.Exec(ctx, "UPDATE person_identities SET person_id = $2 WHERE person_id = $1", person, owner); err != nil {
+		return Verified{}, err
+	}
 	target := customer
-	var existing string
-	err = tx.QueryRow(ctx, "SELECT id::text FROM customers WHERE person_id = $1", owner).Scan(&existing)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	if existing == "" {
 		// A rider-only owner: the customer profile moves to them.
 		if _, err := tx.Exec(ctx, "UPDATE customers SET person_id = $2, updated_at = now() WHERE id = $1", customer, owner); err != nil {
 			return Verified{}, err
 		}
-	case err != nil:
-		return Verified{}, err
-	default:
+	} else {
 		target = existing
-		if err := lockActor(ctx, tx, TypeCustomer, target); err != nil {
-			return Verified{}, err
-		}
 		// devices has no foreign key to profiles. freshSession below ends this customer's sessions.
 		if _, err := tx.Exec(ctx, "DELETE FROM devices WHERE actor_type = $1 AND actor_id = $2", TypeCustomer, customer); err != nil {
 			return Verified{}, err
@@ -158,7 +208,10 @@ func (o *OTPs) merge(ctx context.Context, tx pgx.Tx, customer, person, owner, ph
 		return Verified{}, err
 	}
 	if err := audit.Record(ctx, tx, audit.Event{
-		ActorType: TypeCustomer, ActorID: target, Action: "customer.merged", EntityType: "customer", EntityID: target, Reason: "phone proven by OTP",
+		ActorType: TypeCustomer, ActorID: target, Action: "customer.merged", EntityType: "customer", EntityID: target,
+		Before: map[string]any{"customer_id": customer, "person_id": person, "identities": moved},
+		After:  map[string]any{"customer_id": target, "person_id": owner},
+		Reason: "phone proven by OTP",
 	}); err != nil {
 		return Verified{}, err
 	}
@@ -170,8 +223,10 @@ func (o *OTPs) freshSession(ctx context.Context, tx pgx.Tx, oldCustomer, custome
 	if err := o.Sessions.EndAll(ctx, tx, TypeCustomer, oldCustomer, ""); err != nil {
 		return Verified{}, err
 	}
+	// Changes are already made by now, so this must roll them back, and must not read as a refusal
+	// that commits them. The app retries, and gets the true answer.
 	if err := stillAllowed(ctx, tx, TypeCustomer, customer, phone); err != nil {
-		return Verified{}, err
+		return Verified{}, fmt.Errorf("identity: the account changed during verification, so try again: %v", err)
 	}
 	pair, actor, err := o.Sessions.Start(ctx, tx, TypeCustomer, customer)
 	if err != nil {
