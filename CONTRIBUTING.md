@@ -41,7 +41,8 @@ Gate rule: do not start the next phase until the current phase is tested and val
 ## 4. Branches and commits
 - Branch names: `feat/<issue#>-slug`, `fix/<issue#>-slug`, `docs/<issue#>-slug`, `chore/<issue#>-slug`.
 - Commits: Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`), one logical change each.
-- `main` is protected where the GitHub plan allows: PR required, status checks required, no direct pushes, no force pushes.
+- `main` takes PRs with passing checks only, with no direct pushes or force pushes. GitHub does not enforce this on the free plan, so everyone must follow it by hand.
+- `main` deploys to staging. `production`, added near the pilot, takes tagged releases the owner approves. See `docs/decisions/0008-branch-and-release-setup.md`.
 
 ## 5. Worktrees
 One feature = one worktree.

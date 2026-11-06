@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Branch and release setup (#50)
+- Added: decision 0008, `main` plus `production`, on the free GitHub plan.
+
 ### Google sign-in, phone verification and merging (#47)
 - Added: `signInWithGoogle`, `requestPhoneOtp` and `verifyPhone` on `customer-api`. Accounts merge only on a phone proven by OTP.
 - Added: the `GOOGLE_CLIENT_IDS` setting, required by `customer-api`.
