@@ -237,7 +237,8 @@ type GoogleSignIn struct {
 	Verifier interface {
 		Verify(context.Context, string) (GoogleProfile, error)
 	}
-	Log *slog.Logger
+	Log    *slog.Logger
+	Limits *Limits
 }
 
 // NewGoogleSignIn builds GoogleSignIn from a service's settings.

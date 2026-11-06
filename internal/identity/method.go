@@ -353,7 +353,7 @@ func (g *GoogleSignIn) freeGoogleAccount(ctx context.Context, tx pgx.Tx, subject
 // MountMethodChange adds changeSignInMethod. Only the customer API has it.
 func MountMethodChange(r chi.Router, enabled []string, o *OTPs, g *GoogleSignIn, signer Signer) {
 	r.Group(func(signedIn chi.Router) {
-		signedIn.Use(RequireActor(signer, TypeCustomer))
+		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.bySession())
 		signedIn.Post("/me/sign-in-method", func(w http.ResponseWriter, req *http.Request) {
 			actor, _ := ActorFrom(req.Context())
 			var body struct {

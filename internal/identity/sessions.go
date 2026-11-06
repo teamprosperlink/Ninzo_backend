@@ -37,6 +37,7 @@ type Sessions struct {
 	Signer     Signer
 	RefreshTTL time.Duration
 	Log        *slog.Logger
+	Limits     *Limits
 }
 
 // NewSessions builds Sessions from a service's settings.

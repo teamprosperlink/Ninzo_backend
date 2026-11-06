@@ -114,6 +114,7 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - Phone number with OTP is the main customer sign-in. Google is the second option, and Apple comes later. Until a phone is verified, a customer can only view the menu: `createOrder`, `createGate`, `notifyWhenAvailable` and `createTicket` return `phone_required`. Availability needs a saved gate, so it waits too. A phone OTP sign-in is verified at once. The app asks a Google customer for a phone when they go to order, and keeps the cart, which stays in the app, through verification.
 - `verifyPhone` returns a new session, and the old tokens stop working. `customer_id` stays the same.
 - A customer has one sign-in method at a time, and accounts never merge. A number held by another account gets `phone_already_registered`. A customer using the wrong method gets `sign_in_method_mismatch` after a correct code, and can choose to switch with `switch_to_phone`. `changeSignInMethod` changes it from settings.
+- Any sign-in endpoint or refresh can return 429 `rate_limited` with `Retry-After`. Keep the tokens and try again after that wait. It never means sign in again.
 - Riders sign in with a phone number and OTP only. A failed rider sign-in never says whether the account exists.
 - A rider with status `applicant` can sign in, but cannot start a shift: `startShift` returns `rider_not_approved`.
 - Full rules and reasons: `docs/engineering/authentication_rules.md`.
@@ -129,6 +130,7 @@ Never show a raw code, and never just say that sign-in failed. The customer must
 | `phone_already_registered` | "This number already has a Ninzo account, which logs in with phone and OTP. Log in with your phone number to order. Your cart is saved." | Log in with phone |
 | `otp_resend_limit`, using `Retry-After` | "Too many codes were requested for this number. Try again in {minutes} minutes. If you signed up with Google, you can use Continue with Google now." | Continue with Google |
 | `otp_attempts_exceeded` | "Too many wrong codes. Ask for a new code." | Send a new code |
+| `rate_limited`, using `Retry-After` | "Too many tries from this network. Try again in {minutes} minutes." | |
 | `google_account_in_use` | "This Google account is already used by another Ninzo account." | |
 
 The limit wording mentions Google for everyone, because the server cannot say how an account logs in until the code is right. Otherwise anyone could type a number and learn that.

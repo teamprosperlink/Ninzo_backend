@@ -339,3 +339,26 @@ func TestShutdownLetsRequestsFinish(t *testing.T) {
 		t.Errorf("a clean shutdown returned %v", err)
 	}
 }
+
+func TestClientIP(t *testing.T) {
+	for _, c := range []struct{ name, remote, header, value, want string }{
+		{"no header set up", "1.2.3.4:5", "", "9.9.9.9", "1.2.3.4"},
+		{"the proxy's header", "1.2.3.4:5", "X-Real-IP", "9.9.9.9", "9.9.9.9"},
+		{"a client's forged list", "1.2.3.4:5", "X-Forwarded-For", "6.6.6.6, 9.9.9.9", "9.9.9.9"},
+		{"nothing in the header", "1.2.3.4:5", "X-Real-IP", "", "1.2.3.4"},
+		{"junk in the header", "1.2.3.4:5", "X-Real-IP", "not-an-ip", "1.2.3.4"},
+		{"IPv6 counts as its block", "1.2.3.4:5", "X-Real-IP", "2001:db8:1:2:3:4:5:6", "2001:db8:1:2::/64"},
+		{"the same block", "1.2.3.4:5", "X-Real-IP", "2001:db8:1:2:ffff::1", "2001:db8:1:2::/64"},
+		{"IPv4 written as IPv6", "1.2.3.4:5", "X-Real-IP", "::ffff:9.9.9.9", "9.9.9.9"},
+		{"IPv6 connection", "[2001:db8::1]:5", "", "", "2001:db8::/64"},
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = c.remote
+		if c.header != "" {
+			r.Header.Set(c.header, c.value)
+		}
+		if got := ClientIP(r, c.header); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+	}
+}

@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +43,38 @@ func WriteError(w http.ResponseWriter, status int, code, message string, retryab
 		"retryable":   retryable,
 		"server_time": time.Now().UTC().Format(time.RFC3339Nano),
 	})
+}
+
+// ClientIP is the caller's network address. header names the one the platform's proxy sets. Without
+// it, the connection's address is used. An IPv6 address counts as its /64, the block one customer
+// usually holds, so moving around inside it does not reset a limit.
+func ClientIP(r *http.Request, header string) string {
+	if header != "" {
+		// With a list, the last value is the one the nearest proxy added. A client writes the rest.
+		values := strings.Split(r.Header.Get(header), ",")
+		if ip, err := netip.ParseAddr(strings.TrimSpace(values[len(values)-1])); err == nil {
+			return normalizeIP(ip)
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return host
+	}
+	return normalizeIP(ip)
+}
+
+func normalizeIP(ip netip.Addr) string {
+	ip = ip.Unmap().WithZone("")
+	if ip.Is6() {
+		if p, err := ip.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return ip.String()
 }
 
 type requestIDKey struct{}

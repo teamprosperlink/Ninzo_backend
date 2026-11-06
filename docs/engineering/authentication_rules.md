@@ -252,8 +252,8 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 - **Requirements before approval:** KYC and documents through DigiLocker are confirmed for later. Food safety training and payout details were suggested, and need detail. Nothing stores payout details yet.
 - **Suspended during a delivery:** does the current order finish, or get reassigned? **Open.** Proposed: ops decides, and a safety case reassigns at once.
 - **A rider whose phone is lost:** other options are decided later. **Owner**
-- **Lockout by someone else's requests:** anyone can ask for codes for a number, so 5 requests in about 2.5 minutes block its owner for up to an hour, and repeating that keeps them out. **Open**, for the owner, with rate limiting in #39. Counting per phone and IP is one option.
-- **Guessing odds:** 5 attempts on each of 5 codes an hour, per app, is about 0.06% a day for one phone, but across many numbers an attacker's odds add up. IP limits in #39 must close this before launch.
+- **Lockout by someone else's requests:** limited by counting 5 codes an hour per phone and network address, with 20 an hour per phone in all. Decision 0010, for owner review. See `known_downsides.md`.
+- **Guessing odds:** 5 attempts on each code. Each network address gets 200 verify attempts an hour across all numbers, which caps guessing from one address. Review the odds before launch, since a botnet has many addresses.
 - **Recycled phone numbers:** a telecom can give an old number to someone new, who could then prove that phone. **Open.** Needs a rule before launch, especially for accounts with credit or history.
 - **Apple on iOS:** from memory, App Store rules require an option like Apple sign-in if an iOS app offers Google. Apple's developer program costs about $99 a year. Confirm both. If correct, Apple must be ready before the iOS release.
 - **Going live with Google:** from memory, the Google project starts in testing mode, limited to 100 test users, and must be switched to production before launch. Confirm in the console.
