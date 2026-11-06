@@ -323,8 +323,11 @@ func TestManyRefreshesAtOnceLeaveEveryReplyUsable(t *testing.T) {
 	f.mustRefresh(all[len(all)-1].RefreshToken, TypeRider)
 }
 
-// finishLater holds a chain as a refresh in progress does, having made a token it has not
+// refreshInProgress holds a chain as a refresh in progress does, having made a token it has not
 // committed. It returns that token, and a function that commits.
+//
+// Its generation is far ahead, so the token can only be stopped by being revoked with the chain,
+// and the check for two holders cannot hide a lock that is missing.
 func (f *fixture) refreshInProgress(a Actor) (string, func()) {
 	f.t.Helper()
 	ctx := context.Background()
@@ -332,10 +335,12 @@ func (f *fixture) refreshInProgress(a Actor) (string, func()) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	// If the test fails first, end the transaction, or closing the pool would wait for ever.
+	f.t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
 	if err := lockChain(ctx, tx, a.ChainID); err != nil {
 		f.t.Fatal(err)
 	}
-	pair, _, err := f.s.issue(ctx, tx, a, 1)
+	pair, _, err := f.s.issue(ctx, tx, a, 50)
 	if err != nil {
 		f.t.Fatal(err)
 	}
