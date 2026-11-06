@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 )
@@ -319,8 +320,14 @@ func TestResendLimits(t *testing.T) {
 	}
 	f.allowResend()
 	_, err = f.o.Request(ctx, TypeCustomer, phoneA)
-	if !errors.As(err, &wait) || wait.Seconds < 60 {
+	if !errors.As(err, &wait) || wait.Seconds < 60 || wait.Seconds > 3600 {
 		t.Errorf("over the hourly limit: %v", err)
+	}
+	// The wait must be when the oldest request leaves the hour, not always an hour.
+	f.exec("UPDATE otp_requests SET created_at = now() - interval '50 minutes' WHERE phone = $1 AND actor_type = 'customer'", phoneA)
+	_, err = f.o.Request(ctx, TypeCustomer, phoneA)
+	if !errors.As(err, &wait) || wait.Seconds > 601 {
+		t.Errorf("the hourly wait is not accurate: %v", err)
 	}
 	if n := f.sender.count(); n > 2 {
 		t.Errorf("sent to %d phones", n)
@@ -350,7 +357,7 @@ func TestABurstCannotSlipPastTheLimit(t *testing.T) {
 
 func TestBadPhoneNumbers(t *testing.T) {
 	f := newOTPFixture(t)
-	for _, bad := range []string{"", "98765", "9876543210", "+0123456789", "+91 98765 43210", "+91987654321012345"} {
+	for _, bad := range []string{"", "98765", "9876543210", "+0123456789", "+91 98765 43210", "+91987654321012345", "+9109876543210", "+919", "+912345678901", "+14155552671", "+1900555012345"} {
 		if _, err := f.o.Request(context.Background(), TypeCustomer, bad); !errors.Is(err, ErrBadPhone) {
 			t.Errorf("%q: %v", bad, err)
 		}
@@ -544,6 +551,97 @@ func TestVerifyWaitsSoACodeCannotBeUsedTwice(t *testing.T) {
 	}
 }
 
+// holdActor starts a sign-in that will wait for this transaction, which then makes a change.
+func (f *otpFixture) holdActor(actorType, actorID, phone, change string, args ...any) error {
+	f.t.Helper()
+	ctx := context.Background()
+	req, err := f.o.Request(ctx, actorType, phone)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if err := lockActor(ctx, tx, actorType, actorID); err != nil {
+		f.t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.o.Verify(ctx, actorType, req.ID, testCode)
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if _, err := tx.Exec(ctx, change, args...); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		f.t.Fatal(err)
+	}
+	return <-done
+}
+
+func TestASignInWaitingForALockIsStoppedByWhatHappenedMeanwhile(t *testing.T) {
+	const newPhone = "+919876543299"
+	cases := []struct {
+		name, actorType, change string
+		want                    error
+	}{
+		{"a rider's phone changed", TypeRider, "UPDATE people SET phone = '" + newPhone + "'", ErrInvalidOTP},
+		{"a rider was suspended", TypeRider, "UPDATE riders SET status = 'suspended'", ErrAccountBlocked},
+		{"a rider's person was blocked", TypeRider, "UPDATE people SET status = 'blocked'", ErrAccountBlocked},
+		{"a customer's phone changed", TypeCustomer, "UPDATE people SET phone = '" + newPhone + "'", ErrInvalidOTP},
+		{"a customer's person was blocked", TypeCustomer, "UPDATE people SET status = 'blocked'", ErrAccountBlocked},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newOTPFixture(t)
+			var id string
+			if c.actorType == TypeRider {
+				id = f.rider(phoneA)
+			} else {
+				id = f.signIn(TypeCustomer, phoneA).Actor.ID
+				f.exec("DELETE FROM refresh_tokens")
+				f.allowResend()
+			}
+			if err := f.holdActor(c.actorType, id, phoneA, c.change); !errors.Is(err, c.want) {
+				t.Errorf("got %v, want %v", err, c.want)
+			}
+			if n := f.count("SELECT count(*) FROM refresh_tokens"); n != 0 {
+				t.Errorf("%d sessions were issued", n)
+			}
+		})
+	}
+}
+
+func TestAMissingOrBadRequestIDIsCheapAndRefused(t *testing.T) {
+	f := newOTPFixture(t)
+	ctx := context.Background()
+	for _, bad := range []string{"", "x", "11111111-1111-1111-1111", "11111111-1111-1111-1111-11111111111g", "' OR 1=1 --"} {
+		if _, err := f.o.Verify(ctx, TypeCustomer, bad, testCode); !errors.Is(err, ErrInvalidOTP) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	// The lookup must use the primary key, or a flood of bad requests scans the table.
+	src, err := os.ReadFile("otp.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "id::text = $1") {
+		t.Error("a cast on the column stops the primary key being used")
+	}
+}
+
+func TestRequireSMS(t *testing.T) {
+	if err := RequireSMS(config.Config{OTPTestMode: true}); err != nil {
+		t.Errorf("test mode: %v", err)
+	}
+	if err := RequireSMS(config.Config{}); err == nil {
+		t.Error("with no SMS provider, only test mode can start")
+	}
+}
+
 func TestRequestWaitsSoABurstCannotSlipPast(t *testing.T) {
 	f := newOTPFixture(t)
 	ctx := context.Background()
@@ -665,11 +763,12 @@ func TestOTPErrorsMatchTheContract(t *testing.T) {
 		status     int
 		code       string
 	}{
-		"not JSON":        {"/v1/auth/otp/request", `nope`, 400, "invalid_request"},
-		"bad phone":       {"/v1/auth/otp/request", `{"phone":"98765"}`, 400, "invalid_request"},
-		"verify, no body": {"/v1/auth/otp/verify", `nope`, 400, "invalid_request"},
-		"verify, no code": {"/v1/auth/otp/verify", `{"request_id":"x"}`, 400, "invalid_request"},
-		"unknown request": {"/v1/auth/otp/verify", `{"request_id":"x","otp":"123456"}`, 400, "invalid_otp"},
+		"not JSON":         {"/v1/auth/otp/request", `nope`, 400, "invalid_request"},
+		"bad phone":        {"/v1/auth/otp/request", `{"phone":"98765"}`, 400, "invalid_request"},
+		"verify, no body":  {"/v1/auth/otp/verify", `nope`, 400, "invalid_request"},
+		"verify, no code":  {"/v1/auth/otp/verify", `{"request_id":"x"}`, 400, "invalid_request"},
+		"a malformed code": {"/v1/auth/otp/verify", `{"request_id":"x","otp":"abc"}`, 400, "invalid_request"},
+		"unknown request":  {"/v1/auth/otp/verify", `{"request_id":"x","otp":"123456"}`, 400, "invalid_otp"},
 	} {
 		got, out := post(c.path, c.body)
 		if got != c.status || out["code"] != c.code {
@@ -705,6 +804,20 @@ func TestOTPErrorsMatchTheContract(t *testing.T) {
 	if got, out := post("/v1/auth/otp/verify", `{"request_id":"`+id+`","otp":"000000"}`); got != 429 || out["code"] != "otp_attempts_exceeded" {
 		t.Errorf("limit: %d %v", got, out)
 	}
+	limited, err := http.Post(srv.URL+"/v1/auth/otp/verify", "application/json", strings.NewReader(`{"request_id":"`+id+`","otp":"000000"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited.Body.Close()
+	if limited.Header.Get("Retry-After") == "" {
+		t.Error("the attempts limit has no Retry-After")
+	}
+	// A malformed code must not burn an attempt.
+	before := f.count("SELECT attempts FROM otp_requests WHERE id = $1", id)
+	post("/v1/auth/otp/verify", `{"request_id":"`+id+`","otp":"abc"}`)
+	if after := f.count("SELECT attempts FROM otp_requests WHERE id = $1", id); after != before {
+		t.Errorf("a malformed code burned an attempt: %d, %d", before, after)
+	}
 	f.exec("UPDATE otp_requests SET attempts = 0, expires_at = now() - interval '1 second'")
 	if got, out := post("/v1/auth/otp/verify", `{"request_id":"`+id+`","otp":"000000"}`); got != 400 || out["code"] != "otp_expired" {
 		t.Errorf("expired: %d %v", got, out)
@@ -725,7 +838,7 @@ func TestAnOutageDuringSignInIsRetryable(t *testing.T) {
 	f.s.Pool.Close()
 	for _, c := range []struct{ path, body string }{
 		{"/v1/auth/otp/request", `{"phone":"` + phoneA + `"}`},
-		{"/v1/auth/otp/verify", `{"request_id":"x","otp":"123456"}`},
+		{"/v1/auth/otp/verify", `{"request_id":"11111111-1111-1111-1111-111111111111","otp":"123456"}`},
 	} {
 		if code, body := call(t, "POST", srv.URL+c.path, "", c.body); code != 503 || body["retryable"] != true {
 			t.Errorf("%s: %d %v", c.path, code, body)

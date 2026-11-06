@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -103,6 +104,9 @@ func (s *Sessions) handleSignOut() http.HandlerFunc {
 	}
 }
 
+// otpFormat is the contract's pattern for a code.
+var otpFormat = regexp.MustCompile(`^[0-9]{4,8}$`)
+
 // MountOTP adds requestOtp and verifyOtp for one API's user type.
 func MountOTP(r chi.Router, o *OTPs, actorType string) {
 	r.Post("/auth/otp/request", o.handleRequest(actorType))
@@ -145,7 +149,8 @@ func (o *OTPs) handleVerify(actorType string) http.HandlerFunc {
 			RequestID string `json:"request_id"`
 			OTP       string `json:"otp"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RequestID == "" || body.OTP == "" {
+		// A malformed code is a bad request, so it does not burn one of the five attempts.
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RequestID == "" || !otpFormat.MatchString(body.OTP) {
 			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send request_id and otp.", false)
 			return
 		}
@@ -156,6 +161,7 @@ func (o *OTPs) handleVerify(actorType string) http.HandlerFunc {
 		case errors.Is(err, ErrOTPExpired):
 			httpserver.WriteError(w, http.StatusBadRequest, "otp_expired", "That code has expired.", false)
 		case errors.Is(err, ErrOTPAttempts):
+			w.Header().Set("Retry-After", strconv.Itoa(int(otpResendAfter.Seconds())))
 			httpserver.WriteError(w, http.StatusTooManyRequests, "otp_attempts_exceeded", "Too many wrong codes. Ask for a new one.", false)
 		case errors.Is(err, ErrAccountBlocked):
 			httpserver.WriteJSON(w, http.StatusForbidden, map[string]any{

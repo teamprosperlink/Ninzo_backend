@@ -36,7 +36,7 @@ paths:
       tags: [auth]
       operationId: requestOtp
       summary: Send a sign-in code
-      description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+      description: 'Indian mobile numbers only for now. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
       security: []
       requestBody:
         required: true

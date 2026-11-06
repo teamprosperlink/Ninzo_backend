@@ -879,7 +879,7 @@ paths:
                 - auth
     /auth/otp/request:
         post:
-            description: 'Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+            description: 'Indian mobile numbers only for now. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
             operationId: requestOtp
             requestBody:
                 content:

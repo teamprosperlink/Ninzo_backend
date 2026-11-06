@@ -32,6 +32,8 @@ type Options struct {
 	Getenv         func(string) string
 	LogOutput      io.Writer
 	StartupTimeout time.Duration
+	// Validate adds this API's own startup checks, and may be nil.
+	Validate func(config.Config) error
 }
 
 // Run starts the API and blocks until ctx ends. An error means it could not run, and the
@@ -49,6 +51,11 @@ func Run(ctx context.Context, opts Options) error {
 	cfg, err := config.Load(opts.Getenv)
 	if err != nil {
 		return err
+	}
+	if opts.Validate != nil {
+		if err := opts.Validate(cfg); err != nil {
+			return err
+		}
 	}
 	log := slog.New(slog.NewJSONHandler(opts.LogOutput, &slog.HandlerOptions{Level: cfg.LogLevel})).
 		With("service", opts.Name, "env", cfg.Env)

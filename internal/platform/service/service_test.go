@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -44,6 +45,19 @@ func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "S3CRET") {
 		t.Errorf("the error shows the password: %v", err)
+	}
+}
+
+func TestRunStopsIfAValidationFails(t *testing.T) {
+	refused := errors.New("not this time")
+	err := Run(context.Background(), Options{
+		Name: "test", Validate: func(config.Config) error { return refused },
+		Getenv: func(k string) string {
+			return map[string]string{"APP_ENV": "local", "DATABASE_URL": "postgres://u:p@127.0.0.1:1/d?sslmode=disable", "JWT_SIGNING_KEY": testSigningKey}[k]
+		},
+	})
+	if !errors.Is(err, refused) {
+		t.Errorf("got %v", err)
 	}
 }
 

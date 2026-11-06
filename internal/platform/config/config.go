@@ -141,10 +141,6 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.OTPTestMode && !otpCodePattern.MatchString(string(c.OTPTestCode)) {
 		problem("OTP_TEST_CODE must be six digits when OTP_TEST_MODE is true")
 	}
-	if !c.OTPTestMode {
-		// No SMS provider is built yet. A service must not start with no way to send a code.
-		problem("OTP_TEST_MODE must be true until an SMS provider is built")
-	}
 
 	c.DatabaseURL = Secret(getenv("DATABASE_URL"))
 	if c.DatabaseURL == "" {

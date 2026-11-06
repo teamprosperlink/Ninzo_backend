@@ -29,7 +29,11 @@ const (
 	purposeSignIn  = "sign_in"
 )
 
-var phonePattern = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
+// phonePattern is Indian mobile numbers only for the pilot. A gateway that strips a leading zero
+// could otherwise reach one person through two numbers, and foreign numbers invite SMS pumping.
+var phonePattern = regexp.MustCompile(`^\+91[6-9][0-9]{9}$`)
+
+var requestIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // The results a sign-in can be refused with. The contract names each one.
 var (
@@ -121,16 +125,17 @@ func (o *OTPs) Request(ctx context.Context, actorType, phone string) (OTPRequest
 			return err
 		}
 		var recent int
-		var wait float64
+		var wait, hourEnds float64
 		err := tx.QueryRow(ctx, `SELECT count(*),
-				COALESCE(EXTRACT(EPOCH FROM max(created_at) + make_interval(secs => $3) - now()), 0)::float8
+				COALESCE(EXTRACT(EPOCH FROM max(created_at) + make_interval(secs => $3) - now()), 0)::float8,
+				COALESCE(EXTRACT(EPOCH FROM min(created_at) + interval '1 hour' - now()), 0)::float8
 			FROM otp_requests WHERE actor_type = $1 AND phone = $2 AND created_at > now() - interval '1 hour'`,
-			actorType, phone, otpResendAfter.Seconds()).Scan(&recent, &wait)
+			actorType, phone, otpResendAfter.Seconds()).Scan(&recent, &wait, &hourEnds)
 		if err != nil {
 			return err
 		}
 		if recent >= otpPerHour {
-			return &RetryAfterError{Err: ErrResendLimit, Seconds: int(time.Hour.Seconds())}
+			return &RetryAfterError{Err: ErrResendLimit, Seconds: int(hourEnds) + 1}
 		}
 		if wait > 0 {
 			return &RetryAfterError{Err: ErrResendLimit, Seconds: int(wait) + 1}
@@ -192,6 +197,9 @@ type Verified struct {
 // Verify checks a code and starts a session. A wrong code's attempt is committed even though the
 // request is refused, so guesses always count.
 func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (Verified, error) {
+	if !requestIDPattern.MatchString(requestID) {
+		return Verified{}, ErrInvalidOTP
+	}
 	var out Verified
 	var refusal error
 	err := database.InTx(ctx, o.Pool, func(tx pgx.Tx) error {
@@ -199,7 +207,7 @@ func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (V
 		var attempts int
 		var consumed, expired bool
 		err := tx.QueryRow(ctx, `SELECT phone, code_hash, attempts, consumed_at IS NOT NULL, expires_at <= now()
-			FROM otp_requests WHERE id::text = $1 AND actor_type = $2 AND purpose = $3 FOR UPDATE`,
+			FROM otp_requests WHERE id = $1::uuid AND actor_type = $2 AND purpose = $3 FOR UPDATE`,
 			requestID, actorType, purposeSignIn).Scan(&phone, &hash, &attempts, &consumed, &expired)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -218,18 +226,18 @@ func (o *OTPs) Verify(ctx context.Context, actorType, requestID, code string) (V
 			return nil
 		}
 		if !hmac.Equal([]byte(hash), []byte(o.hash(phone, code))) {
-			if _, err := tx.Exec(ctx, "UPDATE otp_requests SET attempts = attempts + 1 WHERE id::text = $1", requestID); err != nil {
+			if _, err := tx.Exec(ctx, "UPDATE otp_requests SET attempts = attempts + 1 WHERE id = $1::uuid", requestID); err != nil {
 				return err
 			}
 			refusal = ErrInvalidOTP
 			return nil
 		}
-		if _, err := tx.Exec(ctx, "UPDATE otp_requests SET consumed_at = now() WHERE id::text = $1", requestID); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE otp_requests SET consumed_at = now() WHERE id = $1::uuid", requestID); err != nil {
 			return err
 		}
 		var signInErr error
 		out, signInErr = o.signIn(ctx, tx, actorType, phone)
-		if errors.Is(signInErr, ErrAccountBlocked) {
+		if errors.Is(signInErr, ErrAccountBlocked) || errors.Is(signInErr, ErrInvalidOTP) {
 			refusal = signInErr
 			return nil
 		}
@@ -275,6 +283,11 @@ func (o *OTPs) signIn(ctx context.Context, tx pgx.Tx, actorType, phone string) (
 	if err := lockActor(ctx, tx, actorType, actorID); err != nil {
 		return Verified{}, err
 	}
+	// Read again now the lock is held. A phone change, a suspension or a block that finished while
+	// this waited must stop this sign-in, or the old number's holder would keep access.
+	if err := stillAllowed(ctx, tx, actorType, actorID, phone); err != nil {
+		return Verified{}, err
+	}
 	pair, actor, err := o.Sessions.Start(ctx, tx, actorType, actorID)
 	if err != nil {
 		return Verified{}, err
@@ -318,4 +331,43 @@ func findOrCreateCustomer(ctx context.Context, tx pgx.Tx, phone string) (string,
 func lockActor(ctx context.Context, tx pgx.Tx, actorType, actorID string) error {
 	_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 3))", actorType+":"+actorID)
 	return err
+}
+
+// stillAllowed confirms the proven phone still belongs to this actor, and that it may sign in.
+func stillAllowed(ctx context.Context, tx pgx.Tx, actorType, actorID, phone string) error {
+	var query string
+	switch actorType {
+	case TypeCustomer:
+		query = `SELECT p.phone = $2, p.status = 'active' FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`
+	case TypeRider:
+		query = `SELECT p.phone = $2, p.status = 'active' AND r.status <> 'suspended' FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`
+	default:
+		return fmt.Errorf("identity: unknown user type %q", actorType)
+	}
+	var samePhone *bool
+	var active bool
+	err := tx.QueryRow(ctx, query, actorID, phone).Scan(&samePhone, &active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidOTP
+	}
+	if err != nil {
+		return err
+	}
+	if samePhone == nil || !*samePhone {
+		return ErrInvalidOTP
+	}
+	if !active {
+		return ErrAccountBlocked
+	}
+	return nil
+}
+
+// RequireSMS stops a sign-in service starting with no way to send a code. No SMS provider is built
+// yet, so only test mode can run. Production refuses test mode, so production cannot start until
+// real SMS exists. That is deliberate.
+func RequireSMS(cfg config.Config) error {
+	if !cfg.OTPTestMode {
+		return errors.New("OTP_TEST_MODE must be true until an SMS provider is built")
+	}
+	return nil
 }
