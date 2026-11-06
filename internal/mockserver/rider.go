@@ -8,6 +8,7 @@ import (
 
 // riderScenarios lists every rider scenario, from the rider KT doc and decision 0007.
 var riderScenarios = map[string]string{
+	"account_blocked":         "Sign-in and GET rider fail with account_blocked",
 	"rider_not_approved":      "An applicant: shift start fails with rider_not_approved",
 	"offer_arrives":           "An open offer. This is the same as no scenario",
 	"on_delivery":             "The rider has an order, packed and on the way",

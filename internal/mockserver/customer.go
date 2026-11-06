@@ -10,7 +10,7 @@ import (
 // from the customer KT doc. The rest come from the owner's flow in decision 0007.
 var customerScenarios = map[string]string{
 	"invalid_google_token":     "Google sign-in fails with invalid_google_token",
-	"account_blocked":          "Every sign-in and phone verification fail with account_blocked",
+	"account_blocked":          "Every sign-in, phone verification, change of sign-in method and GET me fail with account_blocked",
 	"phone_not_verified":       "GET me has no phone. Orders, gates, notify requests and tickets fail with phone_required",
 	"phone_already_registered": "Phone verification fails with phone_already_registered",
 	"sign_in_method_google":    "Phone sign-in fails with sign_in_method_mismatch, unless switch_to_phone is true",
