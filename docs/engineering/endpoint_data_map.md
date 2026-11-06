@@ -104,8 +104,8 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getMe` | `customers`, `people` | | | |
-| `updateMe` | `customers`, `people` | `customers`, `audit_events`, `idempotency_keys` | | |
-| `registerDevice` | `devices` | `devices`, `idempotency_keys` | | |
+| `updateMe` | `customers`, `people`, `refresh_tokens` | `customers`, `audit_events`, `idempotency_keys` | | |
+| `registerDevice` | `devices`, `customers`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeDevice` | `devices` | `devices`, `idempotency_keys` | | |
 | `listGates` | `gates` | | | |
 | `createGate` | `customers`, `people`, `zones`, `gates` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` | | |
@@ -138,11 +138,11 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `verifyOtp` | `otp_requests`, `riders`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
-| `getRider` | `riders` | | | |
+| `getRider` | `riders`, `people` | | | |
 | `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
 | `getVerification` | `rider_verifications` | | | |
 | `startVerification` | `riders` | `rider_verifications`, `audit_events`, `idempotency_keys` | | DigiLocker, a mock for now |
-| `registerRiderDevice` | `devices` | `devices`, `idempotency_keys` | | |
+| `registerRiderDevice` | `devices`, `riders`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeRiderDevice` | `devices` | `devices`, `idempotency_keys` | | |
 | `startShift` | `riders`, `rider_verifications`, `shifts`, `staging_nodes` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `endShift` | `shifts`, `offers` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |

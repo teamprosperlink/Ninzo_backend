@@ -8,6 +8,7 @@ import (
 
 // riderScenarios lists every rider scenario, from the rider KT doc and decision 0007.
 var riderScenarios = map[string]string{
+	"account_blocked":         "Sign-in and GET rider fail with account_blocked",
 	"rider_not_approved":      "An applicant: shift start fails with rider_not_approved",
 	"offer_arrives":           "An open offer. This is the same as no scenario",
 	"on_delivery":             "The rider has an order, packed and on the way",
@@ -192,6 +193,10 @@ func riderRoutes() []route {
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/riders/me", handle: func(c *call) {
+			if c.scenario == "account_blocked" {
+				accountBlocked(c)
+				return
+			}
 			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01"}})
 		}},
 		{method: "GET", path: "/riders/me/state", handle: func(c *call) {

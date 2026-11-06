@@ -54,7 +54,7 @@ func RequireActor(signer Signer, actorType string) func(http.Handler) http.Handl
 // MountSessions adds refreshToken and signOut for one API's user type.
 func MountSessions(r chi.Router, s *Sessions, actorType string) {
 	r.With(s.Limits.byAddress(ruleRefreshMinute)).Post("/auth/refresh", s.handleRefresh(actorType))
-	r.With(RequireActor(s.Signer, actorType), s.Limits.bySession()).Post("/auth/signout", s.handleSignOut())
+	r.With(RequireActor(s.Signer, actorType), s.Limits.BySession()).Post("/auth/signout", s.handleSignOut())
 }
 
 func serverTime() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -224,7 +224,7 @@ func MountGoogle(r chi.Router, g *GoogleSignIn) {
 		case errors.Is(err, ErrGoogleToken):
 			httpserver.WriteError(w, http.StatusUnauthorized, "invalid_google_token", "Google could not confirm this sign-in.", false)
 		case errors.Is(err, ErrAccountBlocked):
-			writeBlocked(w)
+			WriteBlocked(w)
 		case err != nil:
 			g.Log.Error("identity: Google sign-in failed", "request_id", httpserver.RequestID(req.Context()), "error", err.Error())
 			w.Header().Set("Retry-After", "5")
@@ -242,7 +242,8 @@ func MountGoogle(r chi.Router, g *GoogleSignIn) {
 	})
 }
 
-func writeBlocked(w http.ResponseWriter) {
+// WriteBlocked sends the reply for a blocked person.
+func WriteBlocked(w http.ResponseWriter) {
 	httpserver.WriteJSON(w, http.StatusForbidden, map[string]any{
 		"code": "account_blocked", "message": "This account is blocked.", "retryable": false,
 		"missing_permission": "account_active", "server_time": serverTime(),
@@ -252,7 +253,7 @@ func writeBlocked(w http.ResponseWriter) {
 // MountPhoneVerification adds requestPhoneOtp and verifyPhone. Only the customer API has them.
 func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 	r.Group(func(signedIn chi.Router) {
-		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.bySession())
+		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.BySession())
 		// The same counts as /auth/otp/request, because each code costs the same.
 		signedIn.With(o.Limits.byAddress(ruleCodeRequestMinute, ruleCodeRequestHour)).Post("/me/phone/otp", func(w http.ResponseWriter, req *http.Request) {
 			actor, _ := ActorFrom(req.Context())
@@ -307,7 +308,7 @@ func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 				w.Header().Set("Retry-After", strconv.Itoa(int(otpResendAfter.Seconds())))
 				httpserver.WriteError(w, http.StatusTooManyRequests, "otp_attempts_exceeded", "Too many wrong codes. Ask for a new one.", false)
 			case errors.Is(err, ErrAccountBlocked):
-				writeBlocked(w)
+				WriteBlocked(w)
 			case errors.Is(err, ErrPhoneAlreadySet):
 				httpserver.WriteError(w, http.StatusConflict, "phone_already_set", "This account already has a different verified phone.", false)
 			case errors.Is(err, ErrPhoneAlreadyRegistered):

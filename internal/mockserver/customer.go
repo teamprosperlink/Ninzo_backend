@@ -2,6 +2,7 @@ package mockserver
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -9,7 +10,7 @@ import (
 // from the customer KT doc. The rest come from the owner's flow in decision 0007.
 var customerScenarios = map[string]string{
 	"invalid_google_token":     "Google sign-in fails with invalid_google_token",
-	"account_blocked":          "Every sign-in and phone verification fail with account_blocked",
+	"account_blocked":          "Every sign-in, phone verification, change of sign-in method and GET me fail with account_blocked",
 	"phone_not_verified":       "GET me has no phone. Orders, gates, notify requests and tickets fail with phone_required",
 	"phone_already_registered": "Phone verification fails with phone_already_registered",
 	"sign_in_method_google":    "Phone sign-in fails with sign_in_method_mismatch, unless switch_to_phone is true",
@@ -114,18 +115,40 @@ func customerRoutes() []route {
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/me", handle: func(c *call) {
+			if c.scenario == "account_blocked" {
+				accountBlocked(c)
+				return
+			}
 			var phone any = "+919876543210"
 			if c.scenario == "phone_not_verified" {
 				phone = nil
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": mockMethod(c)}})
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "email": nil, "sign_in_method": mockMethod(c)}})
 		}},
 		{method: "PATCH", path: "/me", handle: func(c *call) {
-			body, ok := needsBody(c, "name")
+			body, ok := needsBody(c)
 			if !ok {
 				return
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"], "sign_in_method": mockMethod(c)}})
+			_, hasName := body["name"]
+			_, hasEmail := body["email"]
+			if !hasName && !hasEmail {
+				c.fail(400, "invalid_request", "Send name or email.", false)
+				return
+			}
+			if v, isText := body["name"].(string); hasName && (!isText || strings.TrimSpace(v) == "") {
+				c.fail(400, "invalid_request", "That name is not valid.", false)
+				return
+			}
+			if v, isText := body["email"].(string); hasEmail && body["email"] != nil && (!isText || !strings.Contains(v, "@")) {
+				c.fail(400, "invalid_request", "That email is not valid.", false)
+				return
+			}
+			name := body["name"]
+			if !hasName {
+				name = "Test Customer"
+			}
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": name, "email": body["email"], "sign_in_method": mockMethod(c)}})
 		}},
 		{method: "POST", path: "/me/devices", handle: registerDevice},
 		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},

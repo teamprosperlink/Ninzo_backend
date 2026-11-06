@@ -209,14 +209,14 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | A customer loses their Google account | As above, with their verified phone. With no verified phone they have no orders, and start again |
 | A phone customer wants Google, or the reverse | `changeSignInMethod` in settings, while signed in, after proving the new method |
 | Changing to a Google account held by an empty account | The empty account is removed. If it has a phone, a rider profile or a block, this is refused with `google_account_in_use` |
-| A customer adds an email in their profile | Contact details only, never a way to log in. Built with the profile |
+| A customer adds an email in their profile | Contact details only, never a way to log in. It is not unique, and not verified |
 | A customer with a verified phone verifies a different number | Refused with `phone_already_set`. Changing a phone is a separate flow, because it moves every role |
 | The reply to `verifyPhone` is lost | A retry returns 401 or `invalid_otp`, because the old access token can last 15 minutes. They sign in again, and the phone is already verified |
 | A weak network during renewal | The retry returns a valid pair, and the rider is not signed out |
 
 **One sign-in method. Owner, decision 0009:**
 - The method is `sign_in_method` on `customers`, set at sign-up. It is per customer, because riders always use a phone.
-- Changing it removes the old Google link, ends every session, tells the phone, and is recorded in the audit log, with the old Google account named.
+- Changing it removes the old Google link and every device, ends every session, tells the phone, and is recorded in the audit log, with the old Google account named.
 - A correct code is needed before the reply reveals a customer's method, so only the phone's holder learns it.
 - The customer is always told what happened, so a change of method never looks like a fault with the OTP. **Owner.** The suggested wording is in `contracts/README.md`.
 - Each method is a component, switched on with `SIGNIN_METHODS`. The rule itself lives in `internal/identity/method.go`.

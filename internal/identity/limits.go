@@ -105,8 +105,8 @@ func (l *Limits) byAddress(rules ...ratelimit.Rule) func(http.Handler) http.Hand
 	}
 }
 
-// bySession limits one signed-in session. Use it after RequireActor.
-func (l *Limits) bySession() func(http.Handler) http.Handler {
+// BySession limits one signed-in session. Use it after RequireActor.
+func (l *Limits) BySession() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if actor, ok := ActorFrom(r.Context()); ok && !l.allow(w, r, actor.ChainID, ruleSession, "rate_limited") {

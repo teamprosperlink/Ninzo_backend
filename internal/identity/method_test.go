@@ -374,6 +374,20 @@ func TestChangingToPhoneInSettings(t *testing.T) {
 	f.mustRefresh(v.Pair.RefreshToken, TypeCustomer)
 }
 
+func TestAChangeOfMethodRemovesEveryDevice(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	stranger := f.googleWithPhone("stranger", phoneA)
+	f.exec("INSERT INTO devices (actor_type, actor_id, platform, push_token) VALUES ('customer', $1, 'android', 'stranger-phone')", stranger.Actor.ID)
+	req := f.askCode(phoneA)
+	if _, err := f.o.VerifyAndSwitch(ctx, req.ID, testCode); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count("SELECT count(*) FROM devices"); n != 0 {
+		t.Error("the stranger's phone would keep getting this account's notifications")
+	}
+}
+
 func TestAnEndedSessionCannotUndoASwitch(t *testing.T) {
 	f := newGoogleFixture(t)
 	ctx := context.Background()

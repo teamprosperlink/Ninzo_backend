@@ -15,6 +15,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
+	"github.com/teamprosperlink/Ninzo_backend/internal/profile"
 )
 
 func main() {
@@ -33,6 +34,8 @@ func main() {
 			otps := identity.NewOTPs(d.DB, sessions, d.Config, d.Log)
 			otps.Limits = limits
 			identity.MountOTP(r, otps, identity.TypeRider)
+			profiles := &profile.Service{Pool: d.DB, Log: d.Log}
+			profiles.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rider-api:", err)

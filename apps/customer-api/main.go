@@ -15,6 +15,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
+	"github.com/teamprosperlink/Ninzo_backend/internal/profile"
 )
 
 func main() {
@@ -38,6 +39,8 @@ func main() {
 			identity.MountMethods(r, d.Config.SignInMethods, identity.PhoneMethod{OTPs: otps, ActorType: identity.TypeCustomer}, google)
 			identity.MountPhoneVerification(r, otps, sessions.Signer)
 			identity.MountMethodChange(r, d.Config.SignInMethods, otps, google, sessions.Signer)
+			profiles := &profile.Service{Pool: d.DB, Log: d.Log}
+			profiles.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

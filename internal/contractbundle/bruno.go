@@ -115,7 +115,11 @@ func sampleValue(doc, schema map[string]any, depth int) any {
 		out := map[string]any{}
 		props, _ := schema["properties"].(map[string]any)
 		required, _ := schema["required"].([]any)
-		if choices, ok := schema["oneOf"].([]any); ok && len(choices) > 0 {
+		choices, ok := schema["oneOf"].([]any)
+		if !ok {
+			choices, ok = schema["anyOf"].([]any)
+		}
+		if ok && len(choices) > 0 {
 			first, _ := choices[0].(map[string]any)
 			extra, _ := first["required"].([]any)
 			required = append(append([]any{}, required...), extra...)

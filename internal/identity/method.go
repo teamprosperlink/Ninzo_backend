@@ -114,6 +114,29 @@ func sessionLive(ctx context.Context, q interface {
 	return live, err
 }
 
+// SessionLive says whether this access token's session still exists, for reads that take no lock.
+func SessionLive(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, a Actor) (bool, error) {
+	return sessionLive(ctx, q, a)
+}
+
+// CheckSession refuses an access token whose session has ended. It takes the actor lock, so a change
+// that ends the session, and removes its devices, cannot miss what this goes on to add.
+func CheckSession(ctx context.Context, tx pgx.Tx, a Actor) error {
+	if err := lockActor(ctx, tx, a.Type, a.ID); err != nil {
+		return err
+	}
+	live, err := sessionLive(ctx, tx, a)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return ErrSessionInvalid
+	}
+	return nil
+}
+
 // switchToPhone removes the linked accounts, so they can no longer sign in here.
 func switchToPhone(ctx context.Context, tx pgx.Tx, s *Sessions, customer, from, reason string) error {
 	var person string
@@ -146,6 +169,11 @@ func recordMethodChange(ctx context.Context, tx pgx.Tx, s *Sessions, customer, p
 		return err
 	}
 	if err := s.EndAll(ctx, tx, TypeCustomer, customer, ""); err != nil {
+		return err
+	}
+	// Otherwise whoever was removed would keep getting this account's notifications. The app
+	// registers its device again with the new session.
+	if _, err := tx.Exec(ctx, "DELETE FROM devices WHERE actor_type = 'customer' AND actor_id = $1", customer); err != nil {
 		return err
 	}
 	// One intercepted code could change this, so the phone must be told. Delivered by the worker,
@@ -353,7 +381,7 @@ func (g *GoogleSignIn) freeGoogleAccount(ctx context.Context, tx pgx.Tx, subject
 // MountMethodChange adds changeSignInMethod. Only the customer API has it.
 func MountMethodChange(r chi.Router, enabled []string, o *OTPs, g *GoogleSignIn, signer Signer) {
 	r.Group(func(signedIn chi.Router) {
-		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.bySession())
+		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.BySession())
 		signedIn.Post("/me/sign-in-method", func(w http.ResponseWriter, req *http.Request) {
 			actor, _ := ActorFrom(req.Context())
 			var body struct {
@@ -388,7 +416,7 @@ func MountMethodChange(r chi.Router, enabled []string, o *OTPs, g *GoogleSignIn,
 				w.Header().Set("Retry-After", strconv.Itoa(int(otpResendAfter.Seconds())))
 				httpserver.WriteError(w, http.StatusTooManyRequests, "otp_attempts_exceeded", "Too many wrong codes. Ask for a new one.", false)
 			case errors.Is(err, ErrAccountBlocked):
-				writeBlocked(w)
+				WriteBlocked(w)
 			case errors.Is(err, ErrSameMethod):
 				httpserver.WriteError(w, http.StatusConflict, "sign_in_method_unchanged", "This account already uses that sign-in method.", false)
 			case errors.Is(err, ErrGoogleInUse):
