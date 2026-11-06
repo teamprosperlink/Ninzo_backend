@@ -506,6 +506,73 @@ func TestEndAllWaitsForASignInInProgress(t *testing.T) {
 	f.refused(inProgress.RefreshToken, TypeCustomer)
 }
 
+// These two force the race, by making the second request arrive while the first still holds its
+// lock. If the lock is gone, the second reads the old state and wrongly succeeds.
+func TestVerifyWaitsSoACodeCannotBeUsedTwice(t *testing.T) {
+	f := newOTPFixture(t)
+	ctx := context.Background()
+	req, err := f.o.Request(ctx, TypeCustomer, phoneA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM otp_requests WHERE id = $1 FOR UPDATE", req.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.o.Verify(ctx, TypeCustomer, req.ID, testCode)
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	// The first sign-in uses the code, and commits.
+	if _, err := tx.Exec(ctx, "UPDATE otp_requests SET consumed_at = now() WHERE id = $1", req.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrInvalidOTP) {
+		t.Errorf("the second use of a code: %v", err)
+	}
+	if n := f.count("SELECT count(*) FROM refresh_tokens"); n != 0 {
+		t.Errorf("%d sessions from a used code", n)
+	}
+}
+
+func TestRequestWaitsSoABurstCannotSlipPast(t *testing.T) {
+	f := newOTPFixture(t)
+	ctx := context.Background()
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 1))", TypeCustomer+":"+phoneA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO otp_requests (actor_type, purpose, phone, code_hash, expires_at)
+		VALUES ($1, $2, $3, $4, now() + interval '5 minutes')`, TypeCustomer, purposeSignIn, phoneA, strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.o.Request(ctx, TypeCustomer, phoneA)
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrResendLimit) {
+		t.Errorf("the second request in a burst: %v", err)
+	}
+}
+
 // ---------- HTTP
 
 func (f *otpFixture) otpServer(actorType string) *httptest.Server {
