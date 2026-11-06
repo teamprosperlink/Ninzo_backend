@@ -1,6 +1,6 @@
 # Authentication rules: ninzo-backend
 
-Version: 0.2.0 · Updated: 2026-11-05 · Discussion: Issue #25
+Version: 0.2.0 · Updated: 2026-11-06 · Discussion: Issue #25
 
 The record of how people sign in, what roles they hold, and why. Read this before changing sign-in, sessions, roles or the `identity` module. If a rule here and the contracts disagree, the contracts win for what is built today, and the difference is a bug to raise as an Issue. Section 11 lists the contract changes already planned.
 
@@ -135,7 +135,7 @@ The owner first described the backend exchanging an authorization code. That flo
 ### What an unregistered person sees
 This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. The owner approved that a failed sign-in never reveals whether the ID exists. Sending no SMS, and this screen wording, are **Proposed**.
 
-**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone, so an unknown account locks like any other. Blocked or suspended is revealed only after a correct code or password.
+**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone or ID, so an unknown account, or one with no password, locks like any other. Blocked or suspended is revealed only after a correct code or password.
 
 ### Rider application
 ```
@@ -157,12 +157,12 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 1. The first sign-in is by OTP, and then they set a password.
 2. A forgotten password is reset by OTP. If the phone is lost too, support resets it after checking who they are.
 3. Passwords are stored only as strong hashes, attempts are limited, and a failed sign-in never reveals whether the ID exists.
-4. Each role has its own password, so a weak rider password cannot open a staff account.
+4. Each role has its own password, so a weak partner password cannot open a staff account.
 
 **Limits on resets. Proposed:**
 - **Owner**, 2026-11-05: support can reset passwords only for partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
 - If the only admin is locked out, an audited internal script does the reset.
-- Every reset is audited, and revokes all that role's tokens, so a stolen 90-day token does not survive it.
+- Every reset is audited, and revokes all that role's tokens, so a stolen token does not survive it.
 
 ## 7. Conflict rules
 **Owner**

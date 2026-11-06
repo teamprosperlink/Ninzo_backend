@@ -103,7 +103,7 @@ func sampleValue(doc, schema map[string]any, depth int) any {
 	if values, ok := schema["enum"].([]any); ok && len(values) > 0 {
 		return values[0]
 	}
-	// A oneOf beside properties only says which fields are required, as in "phone or rider ID".
+	// A oneOf beside properties only says which fields are required, as in "one of these two fields".
 	_, hasProps := schema["properties"]
 	if choices, ok := schema["oneOf"].([]any); ok && len(choices) > 0 && !hasProps {
 		first, _ := choices[0].(map[string]any)

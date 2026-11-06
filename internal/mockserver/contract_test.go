@@ -998,13 +998,14 @@ func TestRiderSignInUsesAPhoneOnly(t *testing.T) {
 	srv := httptest.NewServer(New().Handler())
 	defer srv.Close()
 	for _, c := range []struct {
-		method, path, body string
-		want               int
+		path, body string
+		want       int
 	}{
-		{"POST", "/auth/otp/request", `{"phone":"+919876543210"}`, 200},
-		{"POST", "/auth/otp/request", `{}`, 400},
-		{"POST", "/auth/password/login", `{"phone":"+919876543210","password":"long-enough"}`, 404},
-		{"POST", "/auth/password/reset", `{"request_id":"r","otp":"123456","new_password":"long-enough"}`, 404},
+		{"/auth/otp/request", `{"phone":"+919876543210"}`, 200},
+		{"/auth/otp/request", `{}`, 400},
+		{"/auth/password/login", `{"phone":"+919876543210","password":"long-enough"}`, 404},
+		{"/auth/password/reset", `{"request_id":"r","otp":"123456","new_password":"long-enough"}`, 404},
+		{"/riders/me/password", `{"new_password":"long-enough"}`, 404},
 	} {
 		resp, err := http.Post(srv.URL+"/rider/v1"+c.path, "application/json", strings.NewReader(c.body))
 		if err != nil {
