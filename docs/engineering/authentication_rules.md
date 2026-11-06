@@ -91,6 +91,7 @@ Only when they sign out, Ninzo suspends the role, a token looks stolen, their pa
 - Each renewal is one generation further along the chain. A token is good until a token of a later generation has been used, or another token of its own generation has. **Proposed**
 - So a used token can come back, however long ago, and get a new pair. A lost reply or a delayed duplicate never signs anyone out: the extra tokens are simply never used.
 - If two different tokens of one generation are both used, or an old token comes back after a later one was used, there are two holders of the session, so one may be a thief. The chain ends and the user signs in again, including the thief.
+- **Accepted risk:** a stolen token works undetected until the real app next renews, so while the app is idle a thief can use it. Tying tokens to a device would close this, and can be added later. **Proposed**
 - **The one exception:** a duplicate delayed until after the app's next renewal looks the same as theft. That needs a request stuck for about 15 minutes, past every timeout.
 - A database outage returns 503, never 401, so an outage cannot sign anyone out.
 - Everything that changes a chain takes turns, so ending a chain cannot miss a token a refresh in progress is making.
