@@ -34,11 +34,16 @@ func env(values map[string]string) func(string) string {
 		if v, ok := values[k]; ok {
 			return v
 		}
-		if k == "JWT_SIGNING_KEY" {
+		switch k {
+		case "JWT_SIGNING_KEY":
 			if values["APP_ENV"] == "local" || values["APP_ENV"] == "" {
 				return localKey
 			}
 			return realKey
+		case "OTP_TEST_MODE":
+			return "true"
+		case "OTP_TEST_CODE":
+			return "123456"
 		}
 		return ""
 	}
@@ -49,7 +54,7 @@ func TestLoadGoodSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.IsLocal() || c.Port != 8080 || c.DBMaxConns != 5 || c.LogLevel != slog.LevelInfo || c.OTPTestMode {
+	if !c.IsLocal() || c.Port != 8080 || c.DBMaxConns != 5 || c.LogLevel != slog.LevelInfo {
 		t.Errorf("defaults: %+v", c)
 	}
 	c, err = Load(env(map[string]string{
@@ -60,9 +65,6 @@ func TestLoadGoodSettings(t *testing.T) {
 	}
 	if c.IsLocal() || c.Port != 9000 || c.DBMaxConns != 3 || c.LogLevel != slog.LevelDebug || !c.OTPTestMode {
 		t.Errorf("staging: %+v", c)
-	}
-	if _, err = Load(env(map[string]string{"APP_ENV": "production", "DATABASE_URL": serviceURL})); err != nil {
-		t.Errorf("production with test OTPs off: %v", err)
 	}
 }
 
@@ -82,6 +84,10 @@ func TestLoadRefuses(t *testing.T) {
 		{"staging on the other project", map[string]string{"APP_ENV": "staging", "DATABASE_URL": "postgres://ninzo_service." + otherRef + ":S3CRET@" + pooler + ":5432/postgres?sslmode=require"}, "refusing project"},
 		{"staging with no TLS", map[string]string{"APP_ENV": "staging", "DATABASE_URL": "postgres://ninzo_service." + dbtarget.NinzoRef + ":S3CRET@" + pooler + ":5432/postgres"}, "sslmode=require"},
 		{"production with test OTPs", map[string]string{"APP_ENV": "production", "DATABASE_URL": serviceURL, "OTP_TEST_MODE": "true"}, "must be false in production"},
+		{"no SMS provider yet", map[string]string{"APP_ENV": "staging", "DATABASE_URL": serviceURL, "OTP_TEST_MODE": "false"}, "until an SMS provider is built"},
+		{"production with no SMS provider yet", map[string]string{"APP_ENV": "production", "DATABASE_URL": serviceURL, "OTP_TEST_MODE": "false"}, "until an SMS provider is built"},
+		{"a test code that is not six digits", map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "OTP_TEST_CODE": "12"}, "six digits"},
+		{"no test code", map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "OTP_TEST_CODE": ""}, "six digits"},
 		{"unclear test OTP setting", map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "OTP_TEST_MODE": "maybe"}, "true or false"},
 		{"bad port", map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "HTTP_PORT": "0"}, "HTTP_PORT"},
 		{"too many connections", map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "DB_MAX_CONNS": "50"}, "DB_MAX_CONNS"},

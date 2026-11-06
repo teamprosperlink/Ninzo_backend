@@ -240,6 +240,10 @@ func (s *Sessions) SignOut(ctx context.Context, a Actor) error {
 // reset or a phone change. keepChain is left running, for the session making the change, and may
 // be empty. Access tokens already issued last up to their TTL, so status is also checked at refresh.
 func (s *Sessions) EndAll(ctx context.Context, tx pgx.Tx, actorType, actorID, keepChain string) error {
+	// A sign-in in progress finishes first, so its new session is seen and ended below.
+	if err := lockActor(ctx, tx, actorType, actorID); err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, `SELECT DISTINCT chain_id::text FROM refresh_tokens
 		WHERE actor_type = $1 AND actor_id = $2 AND revoked_at IS NULL AND ($3 = '' OR chain_id::text <> $3)
 		ORDER BY 1`, actorType, actorID, keepChain)

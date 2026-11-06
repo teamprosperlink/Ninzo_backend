@@ -20,7 +20,9 @@ func main() {
 	if err := service.Run(ctx, service.Options{
 		Name: "customer-api",
 		Mount: func(r chi.Router, d service.Deps) {
-			identity.MountSessions(r, identity.NewSessions(d.DB, d.Config, d.Log), identity.TypeCustomer)
+			sessions := identity.NewSessions(d.DB, d.Config, d.Log)
+			identity.MountSessions(r, sessions, identity.TypeCustomer)
+			identity.MountOTP(r, identity.NewOTPs(d.DB, sessions, d.Config, d.Log), identity.TypeCustomer)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

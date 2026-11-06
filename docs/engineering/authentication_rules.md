@@ -110,7 +110,9 @@ Revoking only the chain, not all the user's tokens, is **Proposed**, so that one
 
 ## 5. How each sign-in method works
 ### Phone OTP
-The backend makes a code, sends it, stores only a hash, and checks it. Attempts and sends are rate limited.
+The backend makes a six-digit code, sends it, stores only a keyed hash, and checks it. A code lasts 5 minutes, and allows 5 attempts. A phone can ask once every 30 seconds, and 5 times an hour, per app. **Proposed**
+
+A failed send frees the limit. In test mode the code is fixed and no SMS goes out, and production refuses test mode. Real SMS is not built yet, so nothing can start outside test mode until it is.
 
 Each code is tied to one purpose, such as sign-in or applying as a rider, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
 
@@ -135,7 +137,7 @@ The owner first described the backend exchanging an authorization code. That flo
 ### What an unregistered person sees
 This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. The owner approved that a failed sign-in never reveals whether the ID exists. Sending no SMS, and this screen wording, are **Proposed**.
 
-**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone or ID, so an unknown account, or one with no password, locks like any other. Blocked or suspended is revealed only after a correct code or password.
+**Keeping the replies identical. Proposed:** an unknown rider number gets a real request row, with a code nobody knows and no SMS, so wrong guesses, expiry and limits give the same errors as a real request. Blocked or suspended is revealed only after a correct code.
 
 ### Rider application
 ```
