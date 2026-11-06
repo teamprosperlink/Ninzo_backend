@@ -114,6 +114,13 @@ func sessionLive(ctx context.Context, q interface {
 	return live, err
 }
 
+// SessionLive says whether this access token's session still exists, for reads that take no lock.
+func SessionLive(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, a Actor) (bool, error) {
+	return sessionLive(ctx, q, a)
+}
+
 // CheckSession refuses an access token whose session has ended. It takes the actor lock, so a change
 // that ends the session, and removes its devices, cannot miss what this goes on to add.
 func CheckSession(ctx context.Context, tx pgx.Tx, a Actor) error {

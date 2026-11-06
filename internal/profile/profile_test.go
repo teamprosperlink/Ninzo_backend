@@ -264,13 +264,16 @@ func TestBadProfileValuesAreRefused(t *testing.T) {
 	longEmail := strings.Repeat("a", 250) + "@b.co"
 	for _, body := range []string{
 		`{}`, `not json`, `{"other":"x"}`,
-		`{"name":""}`, `{"name":"   "}`, `{"name":null}`, `{"name":5}`, `{"name":"` + long + `"}`, `{"name":"a\u0000b"}`, `{"name":"a\nb"}`,
+		`{"name":""}`, `{"name":"   "}`, `{"name":null}`, `{"name":5}`, `{"name":"` + long + `"}`, `{"name":"a\u0000b"}`, `{"name":"a\nb"}`, `{"name":"\u200b"}`, `{"name":"a\u202eb"}`, `{"name":"..."}`,
 		`{"email":""}`, `{"email":"nope"}`, `{"email":5}`, `{"email":"A <a@b.co>"}`, `{"email":"a\n@b.co"}`, `{"email":"` + longEmail + `"}`,
 	} {
 		code, out := f.send(f.customer, "PATCH", "/me", token, body)
 		if code != 400 || out["code"] != "invalid_request" {
 			t.Errorf("%s: %d %v", body[:min(len(body), 30)], code, out)
 		}
+	}
+	if code, _ := f.send(f.customer, "PATCH", "/me", token, `{"name":"क्\u200dष"}`); code != 200 {
+		t.Errorf("a joiner in an Indian script: %d", code)
 	}
 	if code, _ := f.send(f.customer, "PATCH", "/me", token, `{"name":"`+strings.Repeat("क", 80)+`"}`); code != 200 {
 		t.Errorf("80 Hindi letters fit: %d", code)
@@ -305,6 +308,14 @@ func TestAnEndedSessionCannotChangeAnything(t *testing.T) {
 	f.exec("UPDATE refresh_tokens SET revoked_at = now()")
 	if code, _ := f.send(f.customer, "PATCH", "/me", token, `{"name":"A"}`); code != 401 {
 		t.Errorf("profile: %d", code)
+	}
+	if code, _ := f.send(f.customer, "GET", "/me", token, ""); code != 401 {
+		t.Errorf("reading a profile: %d", code)
+	}
+	_, rider := f.newRider("+919800000002")
+	f.exec("UPDATE refresh_tokens SET revoked_at = now()")
+	if code, _ := f.send(f.rider, "GET", "/riders/me", rider, ""); code != 401 {
+		t.Errorf("reading a rider: %d", code)
 	}
 	if code, _ := f.send(f.customer, "POST", "/me/devices", token, `{"platform":"android","push_token":"stranger"}`); code != 401 {
 		t.Errorf("device: %d", code)

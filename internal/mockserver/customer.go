@@ -2,6 +2,7 @@ package mockserver
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -114,6 +115,10 @@ func customerRoutes() []route {
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/me", handle: func(c *call) {
+			if c.scenario == "account_blocked" {
+				accountBlocked(c)
+				return
+			}
 			var phone any = "+919876543210"
 			if c.scenario == "phone_not_verified" {
 				phone = nil
@@ -129,6 +134,14 @@ func customerRoutes() []route {
 			_, hasEmail := body["email"]
 			if !hasName && !hasEmail {
 				c.fail(400, "invalid_request", "Send name or email.", false)
+				return
+			}
+			if v, isText := body["name"].(string); hasName && (!isText || strings.TrimSpace(v) == "") {
+				c.fail(400, "invalid_request", "That name is not valid.", false)
+				return
+			}
+			if v, isText := body["email"].(string); hasEmail && body["email"] != nil && (!isText || !strings.Contains(v, "@")) {
+				c.fail(400, "invalid_request", "That email is not valid.", false)
 				return
 			}
 			name := body["name"]

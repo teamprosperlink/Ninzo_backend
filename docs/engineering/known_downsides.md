@@ -25,6 +25,13 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 | A stolen access token on a live session can change a phone customer to Google, without a code. That ends the owner's sessions | A phone customer whose token is stolen | It needs a token from a live session. The owner can take the account back with their phone: sign in by OTP and switch. It is audited, and the phone is told once the worker exists | Accepted, and review before launch | [0009](../decisions/0009-one-sign-in-method.md) |
 | An access token keeps working for up to 15 minutes after sign-out or a change of method | Everyone | Sensitive endpoints must check status. Changing method and asking for a code already refuse an ended session | Accepted | [Rules, section 4](authentication_rules.md#4-sessions) |
 
+## Profile and devices
+| Downside | Who it affects | What limits it today | Status | Source |
+|---|---|---|---|---|
+| A device stays registered after sign-out without `removeDevice`, after verifying a phone, or for a blocked or suspended person, so it could get that account's notifications | Anyone sharing or losing a phone | Nothing sends notifications yet | **Before the push worker:** tie devices to sessions, send only to live sessions and active people | #58 |
+| Someone who has another person's push token can move it to their own account, which cuts that person's notifications | The token's owner | Push tokens are hard to get. Registering it again takes it back | Accepted | #58 |
+| A stored `updateMe` reply holds name, email and phone, and nothing purges stored replies yet | Customers | It is only returned for the same key and body, even after a block or an ended session | **Before launch:** purge in #56 | #56 |
+
 ## Ordering
 | Downside | Who it affects | What limits it today | Status | Source |
 |---|---|---|---|---|

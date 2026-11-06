@@ -89,6 +89,21 @@ func (s *Service) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
+// requireLive stops an access token outliving its session from reading personal data, such as after
+// someone is removed from an account by a change of sign-in method.
+func (s *Service) requireLive(w http.ResponseWriter, r *http.Request, a identity.Actor) bool {
+	live, err := identity.SessionLive(r.Context(), s.Pool, a)
+	if err != nil {
+		s.fail(w, r, err)
+		return false
+	}
+	if !live {
+		s.fail(w, r, identity.ErrSessionInvalid)
+		return false
+	}
+	return true
+}
+
 // ---------- Customer
 
 type customerRow struct {
@@ -123,6 +138,9 @@ func (c customerRow) reply() map[string]any {
 
 func (s *Service) getCustomer(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
+	if !s.requireLive(w, r, actor) {
+		return
+	}
 	c, err := readCustomer(r.Context(), s.Pool, actor.ID)
 	if err != nil {
 		s.fail(w, r, err)
@@ -137,7 +155,16 @@ func cleanName(raw string) (string, bool) {
 	if !utf8.ValidString(name) || name == "" || utf8.RuneCountInString(name) > maxNameRunes {
 		return "", false
 	}
-	return name, !strings.ContainsFunc(name, unicode.IsControl)
+	if strings.ContainsFunc(name, func(c rune) bool { return unicode.IsControl(c) || isBidiControl(c) }) {
+		return "", false
+	}
+	// Joiners are needed in Indian scripts, so they stay, but a name must hold something visible.
+	return name, strings.ContainsFunc(name, func(c rune) bool { return unicode.IsLetter(c) || unicode.IsNumber(c) })
+}
+
+// isBidiControl finds what can make a name read backwards on a rider's screen.
+func isBidiControl(c rune) bool {
+	return (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069)
 }
 
 // cleanEmail accepts one plain address. It is contact details only, and never signs anyone in.
@@ -238,6 +265,9 @@ func (s *Service) updateCustomer(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) getRider(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
+	if !s.requireLive(w, r, actor) {
+		return
+	}
 	var id, status, personStatus string
 	var name *string
 	err := s.Pool.QueryRow(r.Context(), `SELECT r.id::text, r.name, r.status, p.status

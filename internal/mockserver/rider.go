@@ -192,6 +192,10 @@ func riderRoutes() []route {
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/riders/me", handle: func(c *call) {
+			if c.scenario == "account_blocked" {
+				accountBlocked(c)
+				return
+			}
 			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01"}})
 		}},
 		{method: "GET", path: "/riders/me/state", handle: func(c *call) {

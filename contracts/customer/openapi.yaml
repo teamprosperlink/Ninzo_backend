@@ -377,6 +377,8 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
         '403':
           $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
     patch:
@@ -425,8 +427,12 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /me/devices:
     post:
       tags: [profile]
@@ -469,8 +475,12 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /me/devices/{device_id}:
     delete:
       tags: [profile]
@@ -497,8 +507,12 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /gates:
     get:
       tags: [gates]
