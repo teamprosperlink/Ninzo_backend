@@ -129,6 +129,9 @@ func (o *OTPs) handleRequest(actorType string) http.HandlerFunc {
 			return
 		}
 		req, err := o.Request(r.Context(), actorType, body.Phone)
+		if err != nil {
+			o.Limits.refundPhone(r, body.Phone)
+		}
 		var wait *RetryAfterError
 		switch {
 		case errors.Is(err, ErrBadPhone):
@@ -250,7 +253,8 @@ func writeBlocked(w http.ResponseWriter) {
 func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 	r.Group(func(signedIn chi.Router) {
 		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.bySession())
-		signedIn.Post("/me/phone/otp", func(w http.ResponseWriter, req *http.Request) {
+		// The same counts as /auth/otp/request, because each code costs the same.
+		signedIn.With(o.Limits.byAddress(ruleCodeRequestMinute, ruleCodeRequestHour)).Post("/me/phone/otp", func(w http.ResponseWriter, req *http.Request) {
 			actor, _ := ActorFrom(req.Context())
 			var body struct {
 				Phone string `json:"phone"`
@@ -263,6 +267,9 @@ func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 				return
 			}
 			out, err := o.RequestPhone(req.Context(), actor, body.Phone)
+			if err != nil {
+				o.Limits.refundPhone(req, body.Phone)
+			}
 			var wait *RetryAfterError
 			switch {
 			case errors.Is(err, ErrBadPhone):

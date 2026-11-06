@@ -340,6 +340,21 @@ func TestShutdownLetsRequestsFinish(t *testing.T) {
 	}
 }
 
+func TestARepeatedHeaderUsesTheLastValue(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Add("X-Real-IP", "6.6.6.6")
+	r.Header.Add("X-Real-IP", "9.9.9.9")
+	if got := ClientIP(r, "X-Real-IP"); got != "9.9.9.9" {
+		t.Errorf("got %s", got)
+	}
+	if !HasClientIP(r, "X-Real-IP") {
+		t.Error("the header is usable")
+	}
+	if HasClientIP(r, "X-Misspelled") {
+		t.Error("that header is missing")
+	}
+}
+
 func TestClientIP(t *testing.T) {
 	for _, c := range []struct{ name, remote, header, value, want string }{
 		{"no header set up", "1.2.3.4:5", "", "9.9.9.9", "1.2.3.4"},

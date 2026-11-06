@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
@@ -27,7 +28,7 @@ var (
 	// One phone from one address. A stranger reaches this long before the wider otpPerHour, so they
 	// cannot lock the phone's owner out from another address.
 	rulePhoneAndAddress = ratelimit.Rule{Name: "otp_phone_ip_hour", Limit: 5, Window: time.Hour}
-	// One session.
+	// One session, on sign-in and account routes. Rider location pings must not share this rule.
 	ruleSession = ratelimit.Rule{Name: "session_min", Limit: 30, Window: time.Minute}
 )
 
@@ -40,10 +41,19 @@ type Limits struct {
 
 // NewLimits builds Limits from a service's settings.
 func NewLimits(l ratelimit.Limiter, cfg config.Config, log *slog.Logger) *Limits {
+	var warned sync.Once
 	return &Limits{
-		Limiter:  l,
-		ClientIP: func(r *http.Request) string { return httpserver.ClientIP(r, cfg.ClientIPHeader) },
-		Log:      log,
+		Limiter: l,
+		ClientIP: func(r *http.Request) string {
+			// Otherwise a misnamed header would quietly put every customer under one limit.
+			if cfg.ClientIPHeader != "" && !httpserver.HasClientIP(r, cfg.ClientIPHeader) {
+				warned.Do(func() {
+					log.Warn("identity: CLIENT_IP_HEADER is missing from a request, so callers may share one limit", "header", cfg.ClientIPHeader)
+				})
+			}
+			return httpserver.ClientIP(r, cfg.ClientIPHeader)
+		},
+		Log: log,
 	}
 }
 
@@ -113,4 +123,15 @@ func (l *Limits) allowPhone(w http.ResponseWriter, r *http.Request, phone string
 		return true // A bad number is refused next, and must not fill the table.
 	}
 	return l.allow(w, r, phone+"|"+l.ClientIP(r), rulePhoneAndAddress, "otp_resend_limit")
+}
+
+// refundPhone gives back the count when no code was made, such as during an SMS outage, or a tap
+// inside the 30 seconds. Those must not use up someone's 5 codes.
+func (l *Limits) refundPhone(r *http.Request, phone string) {
+	if l == nil || !phonePattern.MatchString(phone) {
+		return
+	}
+	if err := l.Limiter.Release(r.Context(), phone+"|"+l.ClientIP(r), rulePhoneAndAddress); err != nil {
+		l.Log.Warn("identity: rate limiter failed", "request_id", httpserver.RequestID(r.Context()), "rule", rulePhoneAndAddress.Name, "error", err.Error())
+	}
 }

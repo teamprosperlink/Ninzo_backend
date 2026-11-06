@@ -110,7 +110,7 @@ Revoking only the chain, not all the user's tokens, is **Proposed**, so that one
 
 ## 5. How each sign-in method works
 ### Phone OTP
-The backend makes a six-digit code, sends it, stores only a keyed hash, and checks it. A code lasts 5 minutes, and allows 5 attempts. A phone can ask once every 30 seconds, and 5 times an hour, per app. **Proposed**
+The backend makes a six-digit code, sends it, stores only a keyed hash, and checks it. A code lasts 5 minutes, and allows 5 attempts. A phone can ask once every 30 seconds per app, 20 times an hour per app, and 5 times an hour per app from one network address. Only a code really made counts toward the 5. **Proposed**
 
 Only Indian mobile numbers are accepted for the pilot, because a gateway that strips a leading zero could reach one person through two numbers, and foreign numbers invite SMS pumping. **Proposed**
 

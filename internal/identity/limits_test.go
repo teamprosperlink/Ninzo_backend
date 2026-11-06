@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -219,6 +221,137 @@ type brokenLimiter struct{}
 
 func (brokenLimiter) Allow(context.Context, string, ratelimit.Rule) (bool, time.Duration, error) {
 	return false, 0, errors.New("store down")
+}
+
+func (brokenLimiter) Release(context.Context, string, ratelimit.Rule) error {
+	return errors.New("store down")
+}
+
+// recordingLimiter lists the rules each request passes through.
+type recordingLimiter struct {
+	mu    sync.Mutex
+	rules []string
+}
+
+func (l *recordingLimiter) Allow(_ context.Context, _ string, rule ratelimit.Rule) (bool, time.Duration, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rules = append(l.rules, rule.Name)
+	return true, 0, nil
+}
+
+func (l *recordingLimiter) Release(context.Context, string, ratelimit.Rule) error { return nil }
+
+func TestEveryRouteHasItsRules(t *testing.T) {
+	f := newGoogleFixture(t)
+	srv := f.limitedServer()
+	r := f.googleSignIn("sub-1")
+	for _, c := range []struct {
+		path, bearer, body string
+		want               []ratelimit.Rule
+	}{
+		{"/v1/auth/otp/request", "", `{"phone":"` + phoneA + `"}`, []ratelimit.Rule{ruleCodeRequestMinute, ruleCodeRequestHour, rulePhoneAndAddress}},
+		{"/v1/auth/otp/verify", "", `{}`, []ratelimit.Rule{ruleCodeVerifyMinute, ruleCodeVerifyHour}},
+		{"/v1/auth/google", "", `{}`, []ratelimit.Rule{ruleGoogleMinute}},
+		{"/v1/auth/refresh", "", `{"refresh_token":"x"}`, []ratelimit.Rule{ruleRefreshMinute, ruleRefreshToken}},
+		{"/v1/me/phone/otp", r.Pair.AccessToken, `{"phone":"` + phoneB + `"}`, []ratelimit.Rule{ruleSession, ruleCodeRequestMinute, ruleCodeRequestHour, rulePhoneAndAddress}},
+		{"/v1/me/phone/verify", r.Pair.AccessToken, `{}`, []ratelimit.Rule{ruleSession}},
+		{"/v1/me/sign-in-method", r.Pair.AccessToken, `{}`, []ratelimit.Rule{ruleSession}},
+		{"/v1/auth/signout", r.Pair.AccessToken, `{}`, []ratelimit.Rule{ruleSession}},
+	} {
+		rec := &recordingLimiter{}
+		f.o.Limits.Limiter = rec
+		post(t, srv.URL+c.path, "1.1.1.1", c.bearer, c.body)
+		var want []string
+		for _, rule := range c.want {
+			want = append(want, rule.Name)
+		}
+		if strings.Join(rec.rules, ",") != strings.Join(want, ",") {
+			t.Errorf("%s: %v, want %v", c.path, rec.rules, want)
+		}
+	}
+}
+
+func TestSignedInCodeRequestsShareTheAddressLimit(t *testing.T) {
+	f := newGoogleFixture(t)
+	srv := f.limitedServer()
+	a, b := f.googleSignIn("sub-1"), f.googleSignIn("sub-2")
+	for i := 0; i < ruleCodeRequestMinute.Limit; i++ {
+		bearer := a.Pair.AccessToken
+		if i%2 == 0 {
+			bearer = b.Pair.AccessToken
+		}
+		post(t, srv.URL+"/v1/me/phone/otp", "1.1.1.1", bearer, `{"phone":"bad"}`)
+	}
+	resp := post(t, srv.URL+"/v1/me/phone/otp", "1.1.1.1", a.Pair.AccessToken, `{"phone":"bad"}`)
+	if resp.StatusCode != 429 {
+		t.Errorf("many sessions must not multiply the limit: %d", resp.StatusCode)
+	}
+}
+
+func TestOnlyACodeMadeUsesUpTheFive(t *testing.T) {
+	f := newGoogleFixture(t)
+	srv := f.limitedServer()
+	url := srv.URL + "/v1/auth/otp/request"
+	body := `{"phone":"` + phoneA + `"}`
+	f.sender.fail = errors.New("SMS is down")
+	for i := 0; i < rulePhoneAndAddress.Limit+2; i++ {
+		if resp := post(t, url, "6.6.6.6", "", body); resp.StatusCode != 503 {
+			t.Fatalf("an outage, attempt %d: %d", i+1, resp.StatusCode)
+		}
+	}
+	f.sender.fail = nil
+	if resp := post(t, url, "6.6.6.6", "", body); resp.StatusCode != 200 {
+		t.Fatalf("after the outage: %d", resp.StatusCode)
+	}
+	for i := 0; i < rulePhoneAndAddress.Limit+2; i++ {
+		resp := post(t, url, "6.6.6.6", "", body)
+		if resp.StatusCode != 429 {
+			t.Fatalf("inside the 30 seconds: %d", resp.StatusCode)
+		}
+		if wait, _ := strconv.Atoi(resp.Header.Get("Retry-After")); wait > 31 {
+			t.Fatalf("tapping resend used up the hour: Retry-After %d", wait)
+		}
+	}
+	for i := 1; i < rulePhoneAndAddress.Limit; i++ {
+		f.allowResend()
+		if resp := post(t, url, "6.6.6.6", "", body); resp.StatusCode != 200 {
+			t.Fatalf("code %d of 5: %d", i+1, resp.StatusCode)
+		}
+	}
+}
+
+func TestASignedInCodeRequestAlsoOnlyCountsWhenMade(t *testing.T) {
+	f := newGoogleFixture(t)
+	srv := f.limitedServer()
+	r := f.googleSignIn("sub-1")
+	body := `{"phone":"` + phoneA + `"}`
+	f.sender.fail = errors.New("SMS is down")
+	for i := 0; i < rulePhoneAndAddress.Limit+2; i++ {
+		if resp := post(t, srv.URL+"/v1/me/phone/otp", "6.6.6.6", r.Pair.AccessToken, body); resp.StatusCode != 503 {
+			t.Fatalf("an outage, attempt %d: %d", i+1, resp.StatusCode)
+		}
+	}
+	f.sender.fail = nil
+	if resp := post(t, srv.URL+"/v1/me/phone/otp", "6.6.6.6", r.Pair.AccessToken, body); resp.StatusCode != 200 {
+		t.Errorf("after the outage: %d", resp.StatusCode)
+	}
+}
+
+func TestAMisnamedHeaderIsWarnedAboutOnce(t *testing.T) {
+	var logs bytes.Buffer
+	limits := NewLimits(ratelimit.NewMemory(), config.Config{ClientIPHeader: "X-Misspelled"}, slog.New(slog.NewJSONHandler(&logs, nil)))
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest("POST", "/", nil)
+		req.Header.Set("X-Real-IP", "9.9.9.9")
+		limits.ClientIP(req)
+	}
+	if n := strings.Count(logs.String(), "CLIENT_IP_HEADER"); n != 1 {
+		t.Errorf("%d warnings: %s", n, logs.String())
+	}
+	if strings.Contains(logs.String(), "9.9.9.9") {
+		t.Errorf("an address in the logs: %s", logs.String())
+	}
 }
 
 func TestABrokenLimiterDoesNotStopSignIn(t *testing.T) {

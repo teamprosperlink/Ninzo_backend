@@ -20,6 +20,8 @@ Option 3 while each API runs one replica. `ratelimit.Limiter` has one method, so
 - **Per phone and address:** 5 codes an hour, so a stranger cannot lock out a phone's owner from another address. This was the recommended answer to the lockout question, and the owner did not overrule it.
 - **Per phone, all addresses:** raised from 5 to 20 codes an hour. This stays in Postgres, as the ceiling on SMS cost for one number.
 - **If the limiter fails, requests go through:** sign-in matters more, and the Postgres limits still hold.
+- **Finding the caller:** `CLIENT_IP_HEADER` names the proxy's header. On Railway that is `X-Real-IP`. Railway's docs name it, and its staff say the edge overwrites it, though not as a guarantee. **Before relying on it, forge the header on staging and confirm it is overwritten.** The API warns once if the header is missing.
+- **If the table fills up:** new keys share one larger bucket per rule, so the limit stays on without locking everyone out.
 
 ## Consequences
 See [Known downsides](../engineering/known_downsides.md). **Before running two replicas of an API, move to Redis**, or each replica allows the full limit.
