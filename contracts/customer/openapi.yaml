@@ -140,6 +140,27 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/InternalError'
         '503':
           $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /auth/signout:
+    post:
+      tags: [auth]
+      operationId: signOut
+      summary: Sign out on this device
+      description: Ends this device's session, so its refresh token stops working. Other devices stay signed in.
+      responses:
+        '200':
+          description: Signed out. Doing it twice is fine.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /auth/google:
     post:
       tags: [auth]

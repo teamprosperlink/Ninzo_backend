@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/dbtarget"
 )
@@ -22,8 +23,25 @@ var (
 	migrationURL = "postgres://postgres." + dbtarget.NinzoRef + ":S3CRET@" + pooler + ":5432/postgres?sslmode=require"
 )
 
+const (
+	localKey = LocalKeyPrefix + "key-for-tests-long-enough"
+	realKey  = "a-real-looking-signing-key-long-enough-S3CRET"
+)
+
+// env adds a valid signing key, which each case can override or remove.
 func env(values map[string]string) func(string) string {
-	return func(k string) string { return values[k] }
+	return func(k string) string {
+		if v, ok := values[k]; ok {
+			return v
+		}
+		if k == "JWT_SIGNING_KEY" {
+			if values["APP_ENV"] == "local" || values["APP_ENV"] == "" {
+				return localKey
+			}
+			return realKey
+		}
+		return ""
+	}
 }
 
 func TestLoadGoodSettings(t *testing.T) {
@@ -79,6 +97,50 @@ func TestLoadRefuses(t *testing.T) {
 				t.Errorf("the error shows the password: %v", err)
 			}
 		})
+	}
+}
+
+func TestSessionSettings(t *testing.T) {
+	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AccessTTL != 15*time.Minute || c.RefreshTTL != 90*24*time.Hour {
+		t.Errorf("defaults: %s, %s", c.AccessTTL, c.RefreshTTL)
+	}
+	c, err = Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "JWT_ACCESS_TTL_SECONDS": "600", "JWT_REFRESH_TTL_SECONDS": "7200"}))
+	if err != nil || c.AccessTTL != 10*time.Minute || c.RefreshTTL != 2*time.Hour {
+		t.Errorf("set: %s, %s, %v", c.AccessTTL, c.RefreshTTL, err)
+	}
+	for name, values := range map[string]map[string]string{
+		"no key":                         {"APP_ENV": "local", "DATABASE_URL": localURL, "JWT_SIGNING_KEY": ""},
+		"a short key":                    {"APP_ENV": "local", "DATABASE_URL": localURL, "JWT_SIGNING_KEY": "short"},
+		"the local key on staging":       {"APP_ENV": "staging", "DATABASE_URL": serviceURL, "JWT_SIGNING_KEY": localKey},
+		"the local key in production":    {"APP_ENV": "production", "DATABASE_URL": serviceURL, "JWT_SIGNING_KEY": localKey},
+		"an hour-long-plus access token": {"APP_ENV": "local", "DATABASE_URL": localURL, "JWT_ACCESS_TTL_SECONDS": "7200"},
+		"a bad access length":            {"APP_ENV": "local", "DATABASE_URL": localURL, "JWT_ACCESS_TTL_SECONDS": "x"},
+		"a tiny refresh length":          {"APP_ENV": "local", "DATABASE_URL": localURL, "JWT_REFRESH_TTL_SECONDS": "60"},
+	} {
+		_, err := Load(env(values))
+		if err == nil {
+			t.Errorf("%s must be refused", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "S3CRET") || strings.Contains(err.Error(), localKey) {
+			t.Errorf("%s: the error shows the key: %v", name, err)
+		}
+	}
+}
+
+func TestPrintingConfigHidesTheSigningKey(t *testing.T) {
+	c, err := Load(env(map[string]string{"APP_ENV": "staging", "DATABASE_URL": serviceURL}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"%v", "%+v", "%#v", "%s"} {
+		if strings.Contains(fmt.Sprintf(format, c), "real-looking") {
+			t.Errorf("%s shows the key", format)
+		}
 	}
 }
 

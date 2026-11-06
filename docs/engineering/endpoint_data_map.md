@@ -102,7 +102,8 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `signInWithGoogle` | `person_identities`, `people`, `customers` | `people`, `person_identities`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | Google's public keys |
 | `requestPhoneOtp` | `customers`, `people` | `otp_requests` | Rate limit | SMS gateway |
 | `verifyPhone` | `otp_requests`, `customers`, `people`, `person_identities`, `refresh_tokens` | `otp_requests`, `people`, `person_identities`, `customers`, `refresh_tokens`, `devices`, `outbox_events`, `audit_events` | Rate limit | |
-| `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens` | | |
+| `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens`, `audit_events` | | |
+| `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getMe` | `customers`, `people` | | | |
 | `updateMe` | `customers`, `people` | `customers`, `audit_events`, `idempotency_keys` | | |
 | `registerDevice` | `devices` | `devices`, `idempotency_keys` | | |
@@ -139,7 +140,8 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `signInWithPassword` | `riders`, `people`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `resetPassword` | `otp_requests`, `riders`, `people` | `otp_requests`, `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `setRiderPassword` | `riders`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events`, `idempotency_keys`, holding no tokens or passwords | | |
-| `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens` | | |
+| `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | | |
+| `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getRider` | `riders` | | | |
 | `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
 | `getVerification` | `rider_verifications` | | | |

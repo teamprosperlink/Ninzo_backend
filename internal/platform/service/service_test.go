@@ -18,6 +18,8 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 )
 
+const testSigningKey = config.LocalKeyPrefix + "key-for-tests-long-enough"
+
 func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
 	err := Run(context.Background(), Options{Name: "test", Getenv: func(k string) string {
 		if k == "DATABASE_URL" {
@@ -25,6 +27,9 @@ func TestRunRefusesBadSettingsBeforeConnecting(t *testing.T) {
 		}
 		if k == "APP_ENV" {
 			return "local"
+		}
+		if k == "JWT_SIGNING_KEY" {
+			return testSigningKey
 		}
 		return ""
 	}})
@@ -41,7 +46,7 @@ func TestRunGivesUpIfTheDatabaseStaysDown(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Name: "test", LogOutput: &logs, StartupTimeout: time.Second,
 		Getenv: func(k string) string {
-			return map[string]string{"APP_ENV": "local", "DATABASE_URL": "postgres://ninzo:S3CRET@127.0.0.1:1/ninzo?sslmode=disable"}[k]
+			return map[string]string{"APP_ENV": "local", "DATABASE_URL": "postgres://ninzo:S3CRET@127.0.0.1:1/ninzo?sslmode=disable", "JWT_SIGNING_KEY": testSigningKey}[k]
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "did not answer") {
@@ -80,7 +85,7 @@ func TestRunEndToEnd(t *testing.T) {
 		done <- Run(ctx, Options{
 			Name: "test-api", LogOutput: &logs,
 			Getenv: func(k string) string {
-				return map[string]string{"APP_ENV": "local", "DATABASE_URL": url, "HTTP_PORT": fmt.Sprint(port), "DB_MAX_CONNS": "2"}[k]
+				return map[string]string{"APP_ENV": "local", "DATABASE_URL": url, "HTTP_PORT": fmt.Sprint(port), "DB_MAX_CONNS": "2", "JWT_SIGNING_KEY": testSigningKey}[k]
 			},
 			Mount: func(r chi.Router, d Deps) {
 				r.Get("/now", func(w http.ResponseWriter, req *http.Request) {

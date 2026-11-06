@@ -89,8 +89,9 @@ Only when they sign out, Ninzo suspends the role, a token looks stolen, their pa
 ### Lost replies and stolen tokens
 - A client sends one refresh at a time, and other requests wait for it.
 - If a used token comes back and the pair issued from it has not been used, the reply was probably lost, so the server returns a valid pair, however long ago it was. A rider can lose signal for a long time, and must not be signed out for it.
-- **Accepted risk:** a stolen old token also works in that case, until the real app next renews. A 60-second limit was tried and rejected, because it signed out riders who lost signal. Tying retries to a device would close this, and can be added later. **Proposed**
-- If that pair has been used, the token may be stolen, so that chain is revoked and the user signs in again.
+- **Accepted risk:** a stolen old token also works in that case, until the real app next renews. That renewal presents a revoked token, which ends the chain, so the thief is signed out too. A 60-second limit was tried and rejected, because it signed out riders who lost signal. Tying retries to a device would close the gap, and can be added later. **Proposed**
+- If that pair has been used, or a revoked token comes back, the token may be stolen, so that chain is revoked and the user signs in again.
+- A database outage returns 503, never 401, so an outage cannot sign anyone out.
 - Queued offline work is never lost because a session needed renewing.
 
 Revoking only the chain, not all the user's tokens, is **Proposed**, so that one device's problem does not sign out another.

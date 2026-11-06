@@ -991,6 +991,28 @@ paths:
             summary: Get a new token pair
             tags:
                 - auth
+    /auth/signout:
+        post:
+            description: Ends this device's session, so its refresh token stops working. Other devices stay signed in.
+            operationId: signOut
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Done'
+                    description: Signed out. Doing it twice is fine.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Sign out on this device
+            tags:
+                - auth
     /availability:
         get:
             description: Returns only items truly in reach, with quantity left. This needs a saved gate, and saving a gate needs a verified phone.

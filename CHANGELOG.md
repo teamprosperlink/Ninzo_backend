@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Session system (#38)
+- Added: `internal/identity` with access and refresh tokens, renewal, the lost-reply retry and ending a chain. `customer-api` and `rider-api` serve `refreshToken` and `signOut`.
+- Added: `signOut` to both contracts and the mock.
+- Evidence: docs/testing/reports/38.md
+
 ### Idempotency, audit and outbox (#36)
 - Added: `internal/platform/idempotency`, `internal/audit`, `internal/platform/outbox` and `internal/platform/sensitive`. No endpoint uses them yet.
 - Evidence: docs/testing/reports/36.md
