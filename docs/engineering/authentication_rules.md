@@ -18,7 +18,7 @@ The record of how people sign in, what roles they hold, and why. Read this befor
 4. Session handling is the same system for every role. **Owner**
 5. Riders stay signed in through normal work. **Owner**
 6. Customers must verify a phone before their first order. **Owner**
-7. Accounts merge only on a phone proven by OTP, never on matching email. **Owner**
+7. A customer has one sign-in method at a time, and accounts never merge: the way you signed up is the way you log in, until you change it on purpose. **Owner**, decision 0009
 8. Services use a separate database login from `postgres`, which stays for migrations only. **Owner**
 
 ## 2. Sign-in options by user type
@@ -200,22 +200,25 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | A customer tries the rider app with no application | Offered the application. No rider data or orders are shown |
 | Support is also a rider | One person with two separate sessions |
 | Google sign-in for a new person | A person with no phone, and a customer profile. Until the phone is verified they can only view the menu and fill a cart, which stays in the app: orders, gates, notify requests and tickets return `phone_required`, and availability needs a saved gate. So an unverified profile holds nothing that a move would lose, except its name |
-| When a Google customer is asked for a phone | When they go to order, not straight after sign-in, because the rider and support need a working number by then. The app keeps the cart through verification, even if `customer_id` changes. **Owner** |
+| When a Google customer is asked for a phone | When they go to order, not straight after sign-in, because the rider and support need a working number by then. The app keeps the cart through verification. **Owner** |
 | A Google customer's cart may not be in reach | They choose from the full menu, and availability needs a saved gate, so they learn what is in reach only after verifying a phone. Checking a location without saving it would fix this: **Open**, for `v0.3.0` |
-| Google sign-in, then the phone proves to be an existing person | The Google identity moves to that person, and the new person is removed. It cannot have orders, because ordering needs a verified phone. See the rules below |
-| That existing person already has a different Google identity | Refused with a clear error, asking them to sign in with OTP. **Proposed** |
 | An SMS outage | People already signed in are not affected. Partners and staff can use passwords. New customers can use Google or Apple, but cannot verify a phone until it returns. A rider whose session has ended cannot sign in |
-| A Google or Apple outage | Those users can sign in with phone OTP, if their phone is verified |
+| A Google or Apple outage | Those users can switch to phone at sign-in, if their phone is verified. That change stays until they change back |
+| Google sign-in, then the number has another account | Refused with `phone_already_registered`, for a customer or a rider. Nothing joins. They log in with phone and OTP |
+| A Google customer uses phone and OTP | After a correct code: `sign_in_method_mismatch`, and the app offers to switch. Agreeing keeps the account, and removes the Google link |
+| A customer loses their Google account | As above, with their verified phone. With no verified phone they have no orders, and start again |
+| A phone customer wants Google, or the reverse | `changeSignInMethod` in settings, while signed in, after proving the new method |
+| Changing to a Google account held by an empty account | The empty account is removed. If it has a phone, a rider profile or a block, this is refused with `google_account_in_use` |
+| A customer adds an email in their profile | Contact details only, never a way to log in. Built with the profile |
 | A customer with a verified phone verifies a different number | Refused with `phone_already_set`. Changing a phone is a separate flow, because it moves every role |
 | The reply to `verifyPhone` is lost | A retry returns 401 or `invalid_otp`, because the old access token can last 15 minutes. They sign in again, and the phone is already verified |
 | A weak network during renewal | The retry returns a valid pair, and the rider is not signed out |
 
-**Moving a Google identity. Proposed:**
-- If the existing person has no customer profile, such as a rider-only person, the new customer profile moves to them. Otherwise the empty one is removed.
-- The reply is a new session, and `customer_id` can change, so the app replaces both and reloads.
-- Tokens for a removed profile are revoked in the same transaction. `refresh_tokens` and `devices` have no foreign key to profiles, so nothing else would stop them working.
-- A blocked person is refused.
-- An SMS tells the phone that a Google account was linked. One intercepted OTP could otherwise link an attacker's Google for good, without anyone knowing.
+**One sign-in method. Owner, decision 0009:**
+- The method is `sign_in_method` on `customers`, set at sign-up. It is per customer, because riders always use a phone.
+- Changing it removes the old Google link, ends every session, tells the phone, and is recorded in the audit log, with the old Google account named.
+- A correct code is needed before the reply reveals a customer's method, so only the phone's holder learns it.
+- Each method is a component, switched on with `SIGNIN_METHODS`. The rule itself lives in `internal/identity/method.go`.
 
 ## 9. Problems found, and how they were solved
 | Problem | Solution |
@@ -250,7 +253,6 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 - **A rider whose phone is lost:** other options are decided later. **Owner**
 - **Lockout by someone else's requests:** anyone can ask for codes for a number, so 5 requests in about 2.5 minutes block its owner for up to an hour, and repeating that keeps them out. **Open**, for the owner, with rate limiting in #39. Counting per phone and IP is one option.
 - **Guessing odds:** 5 attempts on each of 5 codes an hour, per app, is about 0.06% a day for one phone, but across many numbers an attacker's odds add up. IP limits in #39 must close this before launch.
-- **Unlinking a Google account:** someone with a Google account and an intercepted or read-out code can link it to a phone. That gives them lasting access, and until the worker exists the phone is told nothing. Nobody can unlink it yet. **Open**, in a new Issue. Must be done before launch.
 - **Recycled phone numbers:** a telecom can give an old number to someone new, who could then prove that phone. **Open.** Needs a rule before launch, especially for accounts with credit or history.
 - **Apple on iOS:** from memory, App Store rules require an option like Apple sign-in if an iOS app offers Google. Apple's developer program costs about $99 a year. Confirm both. If correct, Apple must be ready before the iOS release.
 - **Going live with Google:** from memory, the Google project starts in testing mode, limited to 100 test users, and must be switched to production before launch. Confirm in the console.
@@ -267,4 +269,6 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 ## 12. Related documents
 - Sign-in rules for apps: `contracts/README.md`
 - Tables: `docs/engineering/endpoint_data_map.md`
+- Every downside we accepted: `known_downsides.md`
+- Why one sign-in method: `docs/decisions/0009-one-sign-in-method.md`
 - Discussion and history: Issue #25

@@ -27,6 +27,7 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 | How it is built | `docs/engineering/architecture.md`, `data_flow.md`, `project_structure.md`, `tech_stack.md` |
 | What each endpoint reads and writes | `docs/engineering/endpoint_data_map.md` |
 | Sign-in, sessions, roles and why | `docs/engineering/authentication_rules.md` |
+| Every downside we accepted | `docs/engineering/known_downsides.md` |
 | Per-app docs | `apps/<name>/docs/` |
 | Accounts, keys and details the owner must supply | `docs/planning/owner_setup_checklist.md`, `docs/planning/sms_setup.md` |
 | Non-functional requirements | `docs/engineering/engineering_requirements.md` |

@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### One sign-in method per customer (#54)
+- Changed: a customer has one sign-in method, and accounts never merge. `phone_already_linked` is now `phone_already_registered`, and `customer_id` no longer changes.
+- Added: `sign_in_method_mismatch` and `switch_to_phone` on `verifyOtp`, and `changeSignInMethod`. Migration 0010, not applied to Supabase.
+- Added: sign-in methods as components, with `SIGNIN_METHODS`, and `docs/engineering/known_downsides.md`.
+- Evidence: docs/testing/reports/54.md
+
 ### When a Google customer verifies a phone (#52)
 - Changed: a Google customer is asked for a phone when they go to order, not straight after sign-in. No API change.
 

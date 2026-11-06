@@ -262,7 +262,7 @@ type GoogleResult struct {
 }
 
 // SignIn verifies the token, outside any transaction, then finds or creates the account. Email is
-// never used to find an account: accounts merge only on a phone proven by OTP.
+// never used to find an account, and accounts never merge. See decision 0009.
 func (g *GoogleSignIn) SignIn(ctx context.Context, idToken string) (GoogleResult, error) {
 	profile, err := g.Verifier.Verify(ctx, idToken)
 	if err != nil {
@@ -332,7 +332,7 @@ func findOrCreateGoogleCustomer(ctx context.Context, tx pgx.Tx, profile GooglePr
 	var id string
 	err = tx.QueryRow(ctx, "SELECT id::text FROM customers WHERE person_id = $1", person).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if err := tx.QueryRow(ctx, "INSERT INTO customers (person_id) VALUES ($1) RETURNING id::text", person).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, "INSERT INTO customers (person_id, sign_in_method) VALUES ($1, $2) RETURNING id::text", person, MethodGoogle).Scan(&id); err != nil {
 			return "", err
 		}
 		return id, audit.Record(ctx, tx, audit.Event{

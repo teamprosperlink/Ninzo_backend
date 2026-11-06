@@ -8,22 +8,25 @@ import (
 // customerScenarios lists every scenario, with what it shows. The first group comes
 // from the customer KT doc. The rest come from the owner's flow in decision 0007.
 var customerScenarios = map[string]string{
-	"invalid_google_token": "Google sign-in fails with invalid_google_token",
-	"account_blocked":      "Every sign-in and phone verification fail with account_blocked",
-	"phone_not_verified":   "GET me has no phone. Orders, gates, notify requests and tickets fail with phone_required",
-	"phone_already_linked": "Phone verification fails with phone_already_linked",
-	"phone_already_set":    "Phone verification fails with phone_already_set",
-	"no_scooter":           "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
-	"no_scooter_no_offer":  "No scooter available, and no longer ETA on offer",
-	"offer_timeout":        "No rider took the offer in time, so the order is at no_scooter",
-	"offer_accepted":       "The customer is shown rider_accepted",
-	"payment_declined":     "The order is at payment_failed, so the customer can retry",
-	"payment_captured":     "Payment confirmed, inside the 5-second cancel window. This is the same as no scenario",
-	"handed_over":          "The order is at handed_over",
-	"socket_drop":          "The stream drops after two events, with no close frame. GET still works",
-	"last_unit_taken":      "POST order fails with sold_out, and availability shows one left",
-	"gate_not_verified":    "POST order fails with gate_not_verified. Availability offers nothing",
-	"zone_offer_off":       "POST order fails with no_offer. Availability offers nothing",
+	"invalid_google_token":     "Google sign-in fails with invalid_google_token",
+	"account_blocked":          "Every sign-in and phone verification fail with account_blocked",
+	"phone_not_verified":       "GET me has no phone. Orders, gates, notify requests and tickets fail with phone_required",
+	"phone_already_registered": "Phone verification fails with phone_already_registered",
+	"sign_in_method_google":    "Phone sign-in fails with sign_in_method_mismatch, unless switch_to_phone is true",
+	"sign_in_method_unchanged": "Changing sign-in method fails with sign_in_method_unchanged",
+	"google_account_in_use":    "Changing to Google fails with google_account_in_use",
+	"phone_already_set":        "Phone verification fails with phone_already_set",
+	"no_scooter":               "No scooter available. The order is at no_scooter, with a longer ETA on offer. Availability offers nothing",
+	"no_scooter_no_offer":      "No scooter available, and no longer ETA on offer",
+	"offer_timeout":            "No rider took the offer in time, so the order is at no_scooter",
+	"offer_accepted":           "The customer is shown rider_accepted",
+	"payment_declined":         "The order is at payment_failed, so the customer can retry",
+	"payment_captured":         "Payment confirmed, inside the 5-second cancel window. This is the same as no scenario",
+	"handed_over":              "The order is at handed_over",
+	"socket_drop":              "The stream drops after two events, with no close frame. GET still works",
+	"last_unit_taken":          "POST order fails with sold_out, and availability shows one left",
+	"gate_not_verified":        "POST order fails with gate_not_verified. Availability offers nothing",
+	"zone_offer_off":           "POST order fails with no_offer. Availability offers nothing",
 
 	"awaiting_payment":         "The order is at payment, so checkout can resume and the gate can change",
 	"after_cancel_window":      "Payment confirmed, and the 5-second window has passed, so a cancel is refused",
@@ -90,8 +93,21 @@ func customerRoutes() []route {
 	return []route{
 		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: otpRequest},
 		{method: "POST", path: "/auth/otp/verify", open: true, noIdempotent: true, handle: func(c *call) {
+			if c.scenario == "sign_in_method_google" {
+				body, ok := needsBody(c, "request_id", "otp")
+				if !ok {
+					return
+				}
+				if body["switch_to_phone"] != true {
+					c.json(409, map[string]any{"code": "sign_in_method_mismatch", "message": "This account signs in another way.", "retryable": false, "sign_in_method": "google"})
+					return
+				}
+				c.json(200, sessionReply(map[string]any{"customer_id": "cus_mock0001", "phone_verified": true}))
+				return
+			}
 			otpVerify(c, map[string]any{"customer_id": "cus_mock0001", "phone_verified": true})
 		}},
+		{method: "POST", path: "/me/sign-in-method", noIdempotent: true, handle: changeSignInMethod},
 		{method: "POST", path: "/auth/google", open: true, noIdempotent: true, handle: googleSignIn},
 		{method: "POST", path: "/me/phone/otp", noIdempotent: true, handle: otpRequest},
 		{method: "POST", path: "/me/phone/verify", noIdempotent: true, handle: verifyPhone},
@@ -102,14 +118,14 @@ func customerRoutes() []route {
 			if c.scenario == "phone_not_verified" {
 				phone = nil
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer"}})
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": "phone"}})
 		}},
 		{method: "PATCH", path: "/me", handle: func(c *call) {
 			body, ok := needsBody(c, "name")
 			if !ok {
 				return
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"]}})
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"], "sign_in_method": "phone"}})
 		}},
 		{method: "POST", path: "/me/devices", handle: registerDevice},
 		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},
@@ -388,9 +404,9 @@ func googleSignIn(c *call) {
 
 func verifyPhone(c *call) {
 	switch c.scenario {
-	case "phone_already_linked":
+	case "phone_already_registered":
 		if _, ok := needsBody(c, "request_id", "otp"); ok {
-			c.fail(409, "phone_already_linked", "This phone already has a different Google account. Sign in with OTP.", false)
+			c.fail(409, "phone_already_registered", "This number already has an account. Log in with phone and OTP.", false)
 		}
 	case "phone_already_set":
 		if _, ok := needsBody(c, "request_id", "otp"); ok {
@@ -398,6 +414,22 @@ func verifyPhone(c *call) {
 		}
 	default:
 		otpVerify(c, map[string]any{"customer_id": "cus_mock0001", "phone_verified": true})
+	}
+}
+
+func changeSignInMethod(c *call) {
+	if _, ok := needsBody(c, "method"); !ok {
+		return
+	}
+	switch c.scenario {
+	case "sign_in_method_unchanged":
+		c.fail(409, "sign_in_method_unchanged", "This account already uses that sign-in method.", false)
+	case "google_account_in_use":
+		c.fail(409, "google_account_in_use", "This Google account is used by another account.", false)
+	case "account_blocked":
+		accountBlocked(c)
+	default:
+		c.json(200, sessionReply(map[string]any{"customer_id": "cus_mock0001", "phone_verified": true}))
 	}
 }
 

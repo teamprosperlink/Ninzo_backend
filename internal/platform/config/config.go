@@ -50,8 +50,10 @@ type Config struct {
 	JWTSigningKey Secret
 	// GoogleClientIDs are the audiences a Google ID token may name. They are public.
 	GoogleClientIDs []string
-	AccessTTL       time.Duration
-	RefreshTTL      time.Duration
+	// SignInMethods are the sign-in methods this customer API offers.
+	SignInMethods []string
+	AccessTTL     time.Duration
+	RefreshTTL    time.Duration
 }
 
 // IsLocal reports whether this runs on a developer's machine.
@@ -172,6 +174,18 @@ func Load(getenv func(string) string) (Config, error) {
 			continue
 		}
 		c.GoogleClientIDs = append(c.GoogleClientIDs, id)
+	}
+	methods := getenv("SIGNIN_METHODS")
+	if methods == "" {
+		methods = "phone,google"
+	}
+	for _, m := range strings.Split(methods, ",") {
+		m = strings.TrimSpace(m)
+		if m != "phone" && m != "google" {
+			problem("SIGNIN_METHODS must list phone or google, separated by commas")
+			continue
+		}
+		c.SignInMethods = append(c.SignInMethods, m)
 	}
 	c.JWTSigningKey = Secret(getenv("JWT_SIGNING_KEY"))
 	switch {

@@ -500,61 +500,6 @@ func TestADifferentPhoneIsRefused(t *testing.T) {
 	}
 }
 
-func TestPhoneOfAnExistingCustomerMergesIntoThem(t *testing.T) {
-	f := newGoogleFixture(t)
-	existing := f.signIn(TypeCustomer, phoneA)
-	r := f.googleSignIn("sub-1")
-	f.exec("INSERT INTO devices (actor_type, actor_id, platform, push_token) VALUES ('customer', $1, 'android', 'tok')", r.Actor.ID)
-	v, err := f.verify(r.Actor, phoneA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v.Actor.ID != existing.Actor.ID {
-		t.Errorf("customer_id must change to the phone's account: %s, %s", v.Actor.ID, existing.Actor.ID)
-	}
-	f.refused(r.Pair.RefreshToken, TypeCustomer) // The removed profile's tokens stop working.
-	f.mustRefresh(v.Pair.RefreshToken, TypeCustomer)
-	f.mustRefresh(existing.Pair.RefreshToken, TypeCustomer) // The phone's other devices carry on.
-	if n := f.count("SELECT count(*) FROM people"); n != 1 {
-		t.Errorf("%d people", n)
-	}
-	if n := f.count("SELECT count(*) FROM customers"); n != 1 {
-		t.Errorf("%d customers", n)
-	}
-	if n := f.count("SELECT count(*) FROM devices"); n != 0 {
-		t.Errorf("the removed profile kept %d devices", n)
-	}
-	if n := f.count("SELECT count(*) FROM outbox_events WHERE topic = 'identity.account_linked'"); n != 1 {
-		t.Errorf("the phone is not told: %d events", n)
-	}
-	// From now on, Google signs in to the one account.
-	if again := f.googleSignIn("sub-1"); again.Actor.ID != existing.Actor.ID || !again.PhoneVerified {
-		t.Errorf("%+v", again)
-	}
-}
-
-func TestPhoneOfARiderOnlyPersonMovesTheCustomerToThem(t *testing.T) {
-	f := newGoogleFixture(t)
-	rider := f.rider(phoneA)
-	r := f.googleSignIn("sub-1")
-	v, err := f.verify(r.Actor, phoneA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v.Actor.ID != r.Actor.ID {
-		t.Errorf("the customer should move, not change: %s, %s", v.Actor.ID, r.Actor.ID)
-	}
-	if n := f.count("SELECT count(*) FROM customers c JOIN riders r ON r.person_id = c.person_id WHERE r.id = $1", rider); n != 1 {
-		t.Error("the customer and rider are not one person")
-	}
-	if n := f.count("SELECT count(*) FROM people"); n != 1 {
-		t.Errorf("%d people", n)
-	}
-	f.mustRefresh(v.Pair.RefreshToken, TypeCustomer)
-	riderSession := f.signIn(TypeRider, phoneA)
-	f.mustRefresh(riderSession.Pair.RefreshToken, TypeRider)
-}
-
 func TestAPhoneWithADifferentGoogleAccountIsRefused(t *testing.T) {
 	f := newGoogleFixture(t)
 	first := f.googleSignIn("sub-1")
@@ -562,7 +507,7 @@ func TestAPhoneWithADifferentGoogleAccountIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := f.googleSignIn("sub-2")
-	if _, err := f.verify(second.Actor, phoneA); !errors.Is(err, ErrPhoneAlreadyLinked) {
+	if _, err := f.verify(second.Actor, phoneA); !errors.Is(err, ErrPhoneAlreadyRegistered) {
 		t.Errorf("got %v", err)
 	}
 	if n := f.count("SELECT count(*) FROM person_identities i JOIN people p ON p.id = i.person_id WHERE p.phone = $1", phoneA); n != 1 {
@@ -659,7 +604,7 @@ func TestTwoAccountsRacingForOnePhoneStayConsistent(t *testing.T) {
 		switch {
 		case err == nil:
 			worked.Add(1)
-		case !errors.Is(err, ErrPhoneAlreadyLinked):
+		case !errors.Is(err, ErrPhoneAlreadyRegistered):
 			t.Errorf("a race must not fail like this: %v", err)
 		}
 	}
@@ -698,108 +643,15 @@ func TestAPhoneOnlyCustomerIsNotToldAboutALink(t *testing.T) {
 	}
 }
 
-func TestABlockDuringAMergeLeavesEverythingAlone(t *testing.T) {
+func TestABlockedTokenCannotSendACode(t *testing.T) {
 	f := newGoogleFixture(t)
-	ctx := context.Background()
-	owner := f.signIn(TypeCustomer, phoneA)
-	r := f.googleSignIn("sub-1")
-	f.allowResend()
-	req, err := f.o.RequestPhone(ctx, r.Actor, phoneA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := f.s.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
-	if err := lockActor(ctx, tx, TypeCustomer, owner.Actor.ID); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := f.o.VerifyPhone(ctx, r.Actor, req.ID, testCode)
-		done <- err
-	}()
-	f.waitForBlockedQuery()
-	if _, err := tx.Exec(ctx, "UPDATE people SET status = 'blocked' WHERE phone = $1", phoneA); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-done; !errors.Is(err, ErrAccountBlocked) {
-		t.Errorf("got %v", err)
-	}
-	if n := f.count("SELECT count(*) FROM person_identities i JOIN people p ON p.id = i.person_id WHERE p.phone = $1", phoneA); n != 0 {
-		t.Error("the Google account moved onto a blocked person")
-	}
-	if n := f.count("SELECT count(*) FROM customers"); n != 2 {
-		t.Errorf("%d customers: the refused merge removed one", n)
-	}
-	if n := f.count("SELECT count(*) FROM audit_events WHERE action = 'customer.merged'"); n != 0 {
-		t.Error("a refused merge was recorded as done")
-	}
-}
-
-func TestAMergeIsTraceableForGood(t *testing.T) {
-	f := newGoogleFixture(t)
-	ctx := context.Background()
-	owner := f.signIn(TypeCustomer, phoneA)
-	r := f.googleSignIn("sub-1")
-	var removedPerson string
-	if err := f.s.Pool.QueryRow(ctx, "SELECT person_id::text FROM customers WHERE id = $1", r.Actor.ID).Scan(&removedPerson); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.verify(r.Actor, phoneA); err != nil {
-		t.Fatal(err)
-	}
-	var before, after string
-	if err := f.s.Pool.QueryRow(ctx, "SELECT before::text, after::text FROM audit_events WHERE action = 'customer.merged'").Scan(&before, &after); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{r.Actor.ID, removedPerson, "sub-1", "google"} {
-		if !strings.Contains(before, want) {
-			t.Errorf("the record does not name %s: %s", want, before)
-		}
-	}
-	if !strings.Contains(after, owner.Actor.ID) {
-		t.Errorf("the record does not name the target: %s", after)
-	}
-}
-
-func TestAPersonWithARiderProfileIsNeverMergedAway(t *testing.T) {
-	f := newGoogleFixture(t)
-	f.signIn(TypeCustomer, phoneA)
-	r := f.googleSignIn("sub-1")
-	f.exec("INSERT INTO riders (person_id) SELECT person_id FROM customers WHERE id = $1", r.Actor.ID)
-	if _, err := f.verify(r.Actor, phoneA); !errors.Is(err, ErrPhoneAlreadyLinked) {
-		t.Errorf("got %v", err)
-	}
-	if n := f.count("SELECT count(*) FROM riders"); n != 1 {
-		t.Errorf("%d riders", n)
-	}
-}
-
-func TestAnOldTokenCannotSendACodeAfterAMergeOrABlock(t *testing.T) {
-	f := newGoogleFixture(t)
-	ctx := context.Background()
-	f.signIn(TypeCustomer, phoneA)
-	merged := f.googleSignIn("sub-1")
-	if _, err := f.verify(merged.Actor, phoneA); err != nil {
-		t.Fatal(err)
-	}
-	sent := f.sender.count()
-	if _, err := f.o.RequestPhone(ctx, merged.Actor, phoneB); !errors.Is(err, ErrSessionInvalid) {
-		t.Errorf("merged away: %v", err)
-	}
 	blocked := f.googleSignIn("sub-2")
 	f.exec("UPDATE people SET status = 'blocked' WHERE id = (SELECT person_id FROM customers WHERE id = $1)", blocked.Actor.ID)
-	if _, err := f.o.RequestPhone(ctx, blocked.Actor, phoneB); !errors.Is(err, ErrSessionInvalid) {
+	if _, err := f.o.RequestPhone(context.Background(), blocked.Actor, phoneB); !errors.Is(err, ErrSessionInvalid) {
 		t.Errorf("blocked: %v", err)
 	}
-	if f.sender.count() != sent {
-		t.Error("an old token sent an SMS")
+	if len(f.sender.sent) != 0 {
+		t.Error("a blocked token sent an SMS")
 	}
 }
 
@@ -865,7 +717,7 @@ func TestTheSecondAccountForAPhoneWaitsAndIsToldProperly(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; !errors.Is(err, ErrPhoneAlreadyLinked) {
+	if err := <-done; !errors.Is(err, ErrPhoneAlreadyRegistered) {
 		t.Errorf("got %v", err)
 	}
 }
@@ -961,8 +813,8 @@ func TestPhoneVerificationEndpoints(t *testing.T) {
 	f.allowResend()
 	_, other := call(t, "POST", srv.URL+"/v1/me/phone/otp", second.Pair.AccessToken, `{"phone":"`+phoneA+`"}`)
 	code, out := call(t, "POST", srv.URL+"/v1/me/phone/verify", second.Pair.AccessToken, `{"request_id":"`+other["request_id"].(string)+`","otp":"`+testCode+`"}`)
-	if code != 409 || out["code"] != "phone_already_linked" {
-		t.Errorf("already linked: %d %v", code, out)
+	if code != 409 || out["code"] != "phone_already_registered" {
+		t.Errorf("already registered: %d %v", code, out)
 	}
 	f.allowResend()
 	_, change := call(t, "POST", srv.URL+"/v1/me/phone/otp", session["access_token"].(string), `{"phone":"`+phoneB+`"}`)

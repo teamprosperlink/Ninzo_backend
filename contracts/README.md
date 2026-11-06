@@ -71,7 +71,7 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 
 | Endpoint | Why |
 |---|---|
-| `signInWithGoogle`, `requestPhoneOtp`, `verifyPhone` | A stored reply would hold tokens or secrets. Each operation says how to recover from a lost reply |
+| `signInWithGoogle`, `requestPhoneOtp`, `verifyPhone`, `changeSignInMethod` | A stored reply would hold tokens or secrets. Each operation says how to recover from a lost reply |
 | OTP request, OTP verify, token refresh | Limited by rate and by single-use codes |
 | Sign out | Doing it twice is harmless |
 | Location ping | Pings are not repeated actions |
@@ -112,7 +112,8 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - A retry or a delayed duplicate of a refresh is safe, and every reply stays usable. If two different tokens from the same renewal are both used, or a used token comes back after its successor has been used, there are two holders, so the session ends and the user signs in again (**Proposed**).
 - Refresh tokens last 90 days for customers and riders, restarting at each use, so a working rider is not signed out (**Proposed**).
 - Phone number with OTP is the main customer sign-in. Google is the second option, and Apple comes later. Until a phone is verified, a customer can only view the menu: `createOrder`, `createGate`, `notifyWhenAvailable` and `createTicket` return `phone_required`. Availability needs a saved gate, so it waits too. A phone OTP sign-in is verified at once. The app asks a Google customer for a phone when they go to order, and keeps the cart, which stays in the app, through verification.
-- `verifyPhone` returns a new session, and the old tokens stop working. `customer_id` can change, if that phone already has an account.
+- `verifyPhone` returns a new session, and the old tokens stop working. `customer_id` stays the same.
+- A customer has one sign-in method at a time, and accounts never merge. A number held by another account gets `phone_already_registered`. A customer using the wrong method gets `sign_in_method_mismatch` after a correct code, and can choose to switch with `switch_to_phone`. `changeSignInMethod` changes it from settings.
 - Riders sign in with a phone number and OTP only. A failed rider sign-in never says whether the account exists.
 - A rider with status `applicant` can sign in, but cannot start a shift: `startShift` returns `rider_not_approved`.
 - Full rules and reasons: `docs/engineering/authentication_rules.md`.

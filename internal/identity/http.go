@@ -146,16 +146,23 @@ func (o *OTPs) handleRequest(actorType string) http.HandlerFunc {
 func (o *OTPs) handleVerify(actorType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			RequestID string `json:"request_id"`
-			OTP       string `json:"otp"`
+			RequestID     string `json:"request_id"`
+			OTP           string `json:"otp"`
+			SwitchToPhone bool   `json:"switch_to_phone"` // Customers only.
 		}
 		// A malformed code is a bad request, so it does not burn one of the five attempts.
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RequestID == "" || !otpFormat.MatchString(body.OTP) {
 			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send request_id and otp.", false)
 			return
 		}
-		v, err := o.Verify(r.Context(), actorType, body.RequestID, body.OTP)
+		v, err := o.verify(r.Context(), actorType, body.RequestID, body.OTP, body.SwitchToPhone && actorType == TypeCustomer)
+		var wrongMethod *WrongMethodError
 		switch {
+		case errors.As(err, &wrongMethod):
+			httpserver.WriteJSON(w, http.StatusConflict, map[string]any{
+				"code": "sign_in_method_mismatch", "message": "This account signs in another way.", "retryable": false,
+				"sign_in_method": wrongMethod.Method, "server_time": serverTime(),
+			})
 		case errors.Is(err, ErrInvalidOTP):
 			httpserver.WriteError(w, http.StatusBadRequest, "invalid_otp", "That code is wrong.", false)
 		case errors.Is(err, ErrOTPExpired):
@@ -287,8 +294,8 @@ func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 				writeBlocked(w)
 			case errors.Is(err, ErrPhoneAlreadySet):
 				httpserver.WriteError(w, http.StatusConflict, "phone_already_set", "This account already has a different verified phone.", false)
-			case errors.Is(err, ErrPhoneAlreadyLinked):
-				httpserver.WriteError(w, http.StatusConflict, "phone_already_linked", "This phone already has a different linked account. Sign in with OTP.", false)
+			case errors.Is(err, ErrPhoneAlreadyRegistered):
+				httpserver.WriteError(w, http.StatusConflict, "phone_already_registered", "This number already has an account. Log in with phone and OTP.", false)
 			case err != nil:
 				o.unavailable(w, req, err)
 			default:
