@@ -50,6 +50,8 @@ type Config struct {
 	JWTSigningKey Secret
 	// GoogleClientIDs are the audiences a Google ID token may name. They are public.
 	GoogleClientIDs []string
+	// ClientIPHeader names the header the platform's proxy sets to the caller's address.
+	ClientIPHeader string
 	// SignInMethods are the sign-in methods this customer API offers.
 	SignInMethods []string
 	AccessTTL     time.Duration
@@ -175,6 +177,7 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		c.GoogleClientIDs = append(c.GoogleClientIDs, id)
 	}
+	c.ClientIPHeader = strings.TrimSpace(getenv("CLIENT_IP_HEADER"))
 	methods := getenv("SIGNIN_METHODS")
 	if methods == "" {
 		methods = "phone,google"

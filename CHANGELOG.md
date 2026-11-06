@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rate limits (#39)
+- Added: limits per network address, per phone and address, per refresh token and per session, counted in memory behind one interface. Decision 0010.
+- Changed: 20 codes an hour per phone in all, and 5 per phone and address.
+- Added: the `CLIENT_IP_HEADER` setting, required outside local.
+- Evidence: docs/testing/reports/39.md
+
 ### One sign-in method per customer (#54)
 - Changed: a customer has one sign-in method, and accounts never merge. `phone_already_linked` is now `phone_already_registered`, and `customer_id` no longer changes.
 - Added: `sign_in_method_mismatch` and `switch_to_phone` on `verifyOtp`, and `changeSignInMethod`. Migration 0010, not applied to Supabase.

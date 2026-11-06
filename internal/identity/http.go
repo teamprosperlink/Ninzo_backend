@@ -53,8 +53,8 @@ func RequireActor(signer Signer, actorType string) func(http.Handler) http.Handl
 
 // MountSessions adds refreshToken and signOut for one API's user type.
 func MountSessions(r chi.Router, s *Sessions, actorType string) {
-	r.Post("/auth/refresh", s.handleRefresh(actorType))
-	r.With(RequireActor(s.Signer, actorType)).Post("/auth/signout", s.handleSignOut())
+	r.With(s.Limits.byAddress(ruleRefreshMinute)).Post("/auth/refresh", s.handleRefresh(actorType))
+	r.With(RequireActor(s.Signer, actorType), s.Limits.bySession()).Post("/auth/signout", s.handleSignOut())
 }
 
 func serverTime() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -66,6 +66,9 @@ func (s *Sessions) handleRefresh(actorType string) http.HandlerFunc {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RefreshToken == "" {
 			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send refresh_token.", false)
+			return
+		}
+		if !s.Limits.allow(w, r, hashToken(body.RefreshToken), ruleRefreshToken, "rate_limited") {
 			return
 		}
 		pair, _, err := s.Refresh(r.Context(), body.RefreshToken, actorType)
@@ -109,8 +112,8 @@ var otpFormat = regexp.MustCompile(`^[0-9]{4,8}$`)
 
 // MountOTP adds requestOtp and verifyOtp for one API's user type.
 func MountOTP(r chi.Router, o *OTPs, actorType string) {
-	r.Post("/auth/otp/request", o.handleRequest(actorType))
-	r.Post("/auth/otp/verify", o.handleVerify(actorType))
+	r.With(o.Limits.byAddress(ruleCodeRequestMinute, ruleCodeRequestHour)).Post("/auth/otp/request", o.handleRequest(actorType))
+	r.With(o.Limits.byAddress(ruleCodeVerifyMinute, ruleCodeVerifyHour)).Post("/auth/otp/verify", o.handleVerify(actorType))
 }
 
 func (o *OTPs) handleRequest(actorType string) http.HandlerFunc {
@@ -122,7 +125,13 @@ func (o *OTPs) handleRequest(actorType string) http.HandlerFunc {
 			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a phone number.", false)
 			return
 		}
+		if !o.Limits.allowPhone(w, r, body.Phone) {
+			return
+		}
 		req, err := o.Request(r.Context(), actorType, body.Phone)
+		if err != nil {
+			o.Limits.refundPhone(r, body.Phone)
+		}
 		var wait *RetryAfterError
 		switch {
 		case errors.Is(err, ErrBadPhone):
@@ -202,7 +211,7 @@ func (o *OTPs) unavailable(w http.ResponseWriter, r *http.Request, err error) {
 
 // MountGoogle adds signInWithGoogle. Only the customer API has it.
 func MountGoogle(r chi.Router, g *GoogleSignIn) {
-	r.Post("/auth/google", func(w http.ResponseWriter, req *http.Request) {
+	r.With(g.Limits.byAddress(ruleGoogleMinute)).Post("/auth/google", func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
 			IDToken string `json:"id_token"`
 		}
@@ -243,8 +252,9 @@ func writeBlocked(w http.ResponseWriter) {
 // MountPhoneVerification adds requestPhoneOtp and verifyPhone. Only the customer API has them.
 func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 	r.Group(func(signedIn chi.Router) {
-		signedIn.Use(RequireActor(signer, TypeCustomer))
-		signedIn.Post("/me/phone/otp", func(w http.ResponseWriter, req *http.Request) {
+		signedIn.Use(RequireActor(signer, TypeCustomer), o.Limits.bySession())
+		// The same counts as /auth/otp/request, because each code costs the same.
+		signedIn.With(o.Limits.byAddress(ruleCodeRequestMinute, ruleCodeRequestHour)).Post("/me/phone/otp", func(w http.ResponseWriter, req *http.Request) {
 			actor, _ := ActorFrom(req.Context())
 			var body struct {
 				Phone string `json:"phone"`
@@ -253,7 +263,13 @@ func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
 				httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a phone number.", false)
 				return
 			}
+			if !o.Limits.allowPhone(w, req, body.Phone) {
+				return
+			}
 			out, err := o.RequestPhone(req.Context(), actor, body.Phone)
+			if err != nil {
+				o.Limits.refundPhone(req, body.Phone)
+			}
 			var wait *RetryAfterError
 			switch {
 			case errors.Is(err, ErrBadPhone):

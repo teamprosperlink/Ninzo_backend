@@ -24,7 +24,7 @@ import (
 const (
 	otpLife        = 5 * time.Minute
 	otpResendAfter = 30 * time.Second
-	otpPerHour     = 5
+	otpPerHour     = 20 // Across all addresses. One address gets rulePhoneAndAddress, which is far lower.
 	otpMaxAttempts = 5
 	purposeSignIn  = "sign_in"
 )
@@ -66,6 +66,7 @@ type OTPs struct {
 	// TestCode replaces the random code when set. config refuses it in production.
 	TestCode string
 	Log      *slog.Logger
+	Limits   *Limits
 }
 
 // NewOTPs builds OTPs from a service's settings. Real SMS is not built yet, so config accepts only

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
 )
 
@@ -18,12 +21,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := service.Run(ctx, service.Options{
-		Name:     "rider-api",
-		Validate: identity.RequireSMS,
+		Name: "rider-api",
+		Validate: func(cfg config.Config) error {
+			return errors.Join(identity.RequireSMS(cfg), identity.RequireClientIP(cfg))
+		},
 		Mount: func(r chi.Router, d service.Deps) {
+			limits := identity.NewLimits(ratelimit.NewMemory(), d.Config, d.Log)
 			sessions := identity.NewSessions(d.DB, d.Config, d.Log)
+			sessions.Limits = limits
 			identity.MountSessions(r, sessions, identity.TypeRider)
-			identity.MountOTP(r, identity.NewOTPs(d.DB, sessions, d.Config, d.Log), identity.TypeRider)
+			otps := identity.NewOTPs(d.DB, sessions, d.Config, d.Log)
+			otps.Limits = limits
+			identity.MountOTP(r, otps, identity.TypeRider)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rider-api:", err)

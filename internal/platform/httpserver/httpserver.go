@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +43,56 @@ func WriteError(w http.ResponseWriter, status int, code, message string, retryab
 		"retryable":   retryable,
 		"server_time": time.Now().UTC().Format(time.RFC3339Nano),
 	})
+}
+
+// ClientIP is the caller's network address. header names the one the platform's proxy sets. Without
+// it, the connection's address is used. An IPv6 address counts as its /64, the block one customer
+// usually holds, so moving around inside it does not reset a limit.
+func ClientIP(r *http.Request, header string) string {
+	if ip, ok := headerIP(r, header); ok {
+		return normalizeIP(ip)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return host
+	}
+	return normalizeIP(ip)
+}
+
+// HasClientIP reports whether the request carries a usable address in that header. If it never does,
+// the header is misnamed, and every caller is being counted as the proxy.
+func HasClientIP(r *http.Request, header string) bool {
+	_, ok := headerIP(r, header)
+	return ok
+}
+
+// headerIP reads the last value, across repeated headers and lists. That is the one the nearest
+// proxy added, and a client writes the rest.
+func headerIP(r *http.Request, header string) (netip.Addr, bool) {
+	if header == "" {
+		return netip.Addr{}, false
+	}
+	lines := r.Header.Values(header)
+	if len(lines) == 0 {
+		return netip.Addr{}, false
+	}
+	values := strings.Split(lines[len(lines)-1], ",")
+	ip, err := netip.ParseAddr(strings.TrimSpace(values[len(values)-1]))
+	return ip, err == nil
+}
+
+func normalizeIP(ip netip.Addr) string {
+	ip = ip.Unmap().WithZone("")
+	if ip.Is6() {
+		if p, err := ip.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return ip.String()
 }
 
 type requestIDKey struct{}
