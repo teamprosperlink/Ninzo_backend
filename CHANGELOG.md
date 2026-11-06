@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### When a Google customer verifies a phone (#52)
+- Changed: a Google customer is asked for a phone when they go to order, not straight after sign-in. No API change.
+
 ### Branch and release setup (#50)
 - Added: decision 0008, `main` plus `production`, on the free GitHub plan.
 
