@@ -218,6 +218,7 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 - The method is `sign_in_method` on `customers`, set at sign-up. It is per customer, because riders always use a phone.
 - Changing it removes the old Google link, ends every session, tells the phone, and is recorded in the audit log, with the old Google account named.
 - A correct code is needed before the reply reveals a customer's method, so only the phone's holder learns it.
+- The customer is always told what happened, so a change of method never looks like a fault with the OTP. **Owner.** The suggested wording is in `contracts/README.md`.
 - Each method is a component, switched on with `SIGNIN_METHODS`. The rule itself lives in `internal/identity/method.go`.
 
 ## 9. Problems found, and how they were solved

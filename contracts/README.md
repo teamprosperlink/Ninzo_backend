@@ -118,6 +118,21 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - A rider with status `applicant` can sign in, but cannot start a shift: `startShift` returns `rider_not_approved`.
 - Full rules and reasons: `docs/engineering/authentication_rules.md`.
 
+### What the customer should read
+Never show a raw code, and never just say that sign-in failed. The customer must always be told what happened and what to do next. This is suggested wording, and the copy deck has the final word.
+
+| Reply | Suggested wording | Buttons |
+|---|---|---|
+| `sign_in_method_mismatch`, with `sign_in_method: google` | "You signed up with Google, so this account logs in with Google. Continue with Google, or log in with this phone number from now on?" | Continue with Google. Use phone from now on, which sends the same code with `switch_to_phone` |
+| Success after `switch_to_phone` | "You now log in with your phone number. Google sign-in has been removed from this account." | |
+| Success from `changeSignInMethod`, to Google | "You now log in with Google. Use Continue with Google next time." | |
+| `phone_already_registered` | "This number already has a Ninzo account, which logs in with phone and OTP. Log in with your phone number to order. Your cart is saved." | Log in with phone |
+| `otp_resend_limit`, using `Retry-After` | "Too many codes were requested for this number. Try again in {minutes} minutes. If you signed up with Google, you can use Continue with Google now." | Continue with Google |
+| `otp_attempts_exceeded` | "Too many wrong codes. Ask for a new code." | Send a new code |
+| `google_account_in_use` | "This Google account is already used by another Ninzo account." | |
+
+The limit wording mentions Google for everyone, because the server cannot say how an account logs in until the code is right. Otherwise anyone could type a number and learn that.
+
 ## Live streams
 1. The client connects and sends `{"type": "auth", "token": "<access_token>"}` as the first frame, within 5 seconds (**Proposed**).
 2. The server replies with an `auth_ok` event, and then sends events.
