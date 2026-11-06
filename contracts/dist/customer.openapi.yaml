@@ -1388,9 +1388,15 @@ paths:
                     application/json:
                         schema:
                             oneOf:
-                                - required:
+                                - properties:
+                                    method:
+                                        const: google
+                                  required:
                                     - id_token
-                                - required:
+                                - properties:
+                                    method:
+                                        const: phone
+                                  required:
                                     - request_id
                                     - otp
                             properties:

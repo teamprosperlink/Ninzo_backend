@@ -115,22 +115,17 @@ func customerRoutes() []route {
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/me", handle: func(c *call) {
 			var phone any = "+919876543210"
-			method := "phone"
 			if c.scenario == "phone_not_verified" {
 				phone = nil
-				method = "google" // Only a Google customer can have no phone.
 			}
-			if c.scenario == "sign_in_method_google" {
-				method = "google"
-			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": method}})
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": mockMethod(c)}})
 		}},
 		{method: "PATCH", path: "/me", handle: func(c *call) {
 			body, ok := needsBody(c, "name")
 			if !ok {
 				return
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"], "sign_in_method": "phone"}})
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"], "sign_in_method": mockMethod(c)}})
 		}},
 		{method: "POST", path: "/me/devices", handle: registerDevice},
 		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},
@@ -420,6 +415,14 @@ func verifyPhone(c *call) {
 	default:
 		otpVerify(c, map[string]any{"customer_id": "cus_mock0001", "phone_verified": true})
 	}
+}
+
+// mockMethod is the customer's sign-in method. Only a Google customer can have no phone.
+func mockMethod(c *call) string {
+	if c.scenario == "phone_not_verified" || c.scenario == "sign_in_method_google" {
+		return "google"
+	}
+	return "phone"
 }
 
 func changeSignInMethod(c *call) {

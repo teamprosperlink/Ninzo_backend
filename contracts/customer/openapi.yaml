@@ -320,7 +320,13 @@ paths:
               required: [method]
               oneOf:
                 - required: [id_token]
+                  properties:
+                    method:
+                      const: google
                 - required: [request_id, otp]
+                  properties:
+                    method:
+                      const: phone
               properties:
                 method:
                   type: string
