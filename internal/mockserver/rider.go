@@ -8,9 +8,7 @@ import (
 
 // riderScenarios lists every rider scenario, from the rider KT doc and decision 0007.
 var riderScenarios = map[string]string{
-	"rider_not_approved":      "An applicant: shift start and setting a password fail with rider_not_approved",
-	"invalid_credentials":     "Password sign-in fails with invalid_credentials",
-	"wrong_password":          "Changing the password fails with wrong_password",
+	"rider_not_approved":      "An applicant: shift start fails with rider_not_approved",
 	"offer_arrives":           "An open offer. This is the same as no scenario",
 	"on_delivery":             "The rider has an order, packed and on the way",
 	"offer_expired":           "The offer has expired, on the stream too. Accept and decline fail with offer_expired",
@@ -189,39 +187,12 @@ func riderRoutes() []route {
 		return false
 	}
 	return []route{
-		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: riderOtpRequest},
+		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: otpRequest},
 		{method: "POST", path: "/auth/otp/verify", open: true, noIdempotent: true, handle: func(c *call) { otpVerify(c, riderSessionFields(c)) }},
-		{method: "POST", path: "/auth/password/login", open: true, noIdempotent: true, handle: riderPasswordLogin},
-		{method: "POST", path: "/auth/password/reset", open: true, noIdempotent: true, handle: func(c *call) {
-			body, ok := needsBody(c, "request_id", "otp", "new_password")
-			if !ok {
-				return
-			}
-			switch {
-			case c.scenario == "invalid_otp" || body["otp"] != TestOTP:
-				c.fail(400, "invalid_otp", "That code is wrong.", false)
-			case c.scenario == "otp_expired":
-				c.fail(400, "otp_expired", "That code has expired.", false)
-			case c.scenario == "account_blocked":
-				accountBlocked(c)
-			case c.scenario == "rider_not_approved":
-				c.fail(409, "rider_not_approved", "This rider is not approved yet.", false)
-			default:
-				c.json(200, sessionReply(riderSessionFields(c)))
-			}
-		}},
-		{method: "POST", path: "/riders/me/password", handle: func(c *call) {
-			if offerError(c, "rider_not_approved", "wrong_password") {
-				return
-			}
-			if _, ok := needsBody(c, "new_password"); ok {
-				c.json(200, map[string]any{})
-			}
-		}},
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/riders/me", handle: func(c *call) {
-			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "rider_code": "RD1024", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01"}})
+			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01"}})
 		}},
 		{method: "GET", path: "/riders/me/state", handle: func(c *call) {
 			story := riderStoryFor(c.scenario, c.now)
@@ -463,46 +434,4 @@ func riderSessionFields(c *call) map[string]any {
 		status = "applicant"
 	}
 	return map[string]any{"rider_id": "rdr_mock0001", "status": status}
-}
-
-// oneRiderID checks for a phone or a rider ID, but not both.
-func oneRiderID(c *call, body map[string]any) bool {
-	_, hasPhone := body["phone"]
-	_, hasCode := body["rider_code"]
-	if hasPhone == hasCode {
-		c.fail(400, "invalid_request", "Send a phone or a rider ID, not both.", false)
-		return false
-	}
-	return true
-}
-
-func riderOtpRequest(c *call) {
-	switch c.scenario {
-	case "otp_resend_limit":
-		c.fail(429, "otp_resend_limit", "Too many codes requested.", true)
-		return
-	case "rate_limited":
-		c.fail(429, "rate_limited", "Too many requests.", true)
-		return
-	}
-	if body, ok := needsBody(c); ok && oneRiderID(c, body) {
-		c.json(200, map[string]any{"request_id": "otp_mock01", "expires_in_s": 300, "resend_after_s": 30})
-	}
-}
-
-func riderPasswordLogin(c *call) {
-	body, ok := needsBody(c, "password")
-	if !ok || !oneRiderID(c, body) {
-		return
-	}
-	switch c.scenario {
-	case "invalid_credentials":
-		c.fail(401, "invalid_credentials", "That sign-in did not work.", false)
-	case "account_blocked":
-		accountBlocked(c)
-	case "rate_limited":
-		c.fail(429, "otp_attempts_exceeded", "Too many attempts.", true)
-	default:
-		c.json(200, sessionReply(riderSessionFields(c)))
-	}
 }

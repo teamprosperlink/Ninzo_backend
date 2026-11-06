@@ -1,6 +1,6 @@
 # Authentication rules: ninzo-backend
 
-Version: 0.1.0 · Updated: 2026-11-05 · Discussion: Issue #25
+Version: 0.2.0 · Updated: 2026-11-05 · Discussion: Issue #25
 
 The record of how people sign in, what roles they hold, and why. Read this before changing sign-in, sessions, roles or the `identity` module. If a rule here and the contracts disagree, the contracts win for what is built today, and the difference is a bug to raise as an Issue. Section 11 lists the contract changes already planned.
 
@@ -26,8 +26,8 @@ The record of how people sign in, what roles they hold, and why. Read this befor
 
 | User | Identify by | Prove with | Who creates the account |
 |---|---|---|---|
-| Customer | Phone, Google or Apple | OTP, or the Google or Apple token | The customer, at first sign-in |
-| Rider | Phone or rider ID | OTP or password | The rider applies, and Ninzo approves (section 6) |
+| Customer | Phone number (main), then Google and Apple | OTP, or the Google or Apple token | The customer, at first sign-in |
+| Rider | Phone number only | OTP only | The rider applies, and Ninzo approves (section 6) |
 | Partner | Phone or partner ID | OTP or password | Ninzo |
 | Admin | Phone or staff ID | OTP or password, plus an authenticator app, always | Ninzo |
 | Help and support | Phone or staff ID | OTP or password, plus an authenticator app by default | Ninzo |
@@ -36,10 +36,14 @@ The record of how people sign in, what roles they hold, and why. Read this befor
 
 With that fallback, support signs in with a password first and then SMS OTP. OTP then OTP would be one proof used twice. **Proposed**
 
-**Order of building:** Google comes first, for the development phase. OTP and Apple follow on the same system. **Owner**
+**Order of building:** phone OTP and Google are built together. Apple comes last. **Owner**, 2026-11-06. Phone is the main sign-in because phone numbers are very accessible in India.
 
-### Why passwords exist for workers
-They keep working when SMS does not. A rider in the middle of a shift can still sign in during an SMS provider outage, and each password sign-in also saves a paid SMS.
+**Riders:** phone and OTP only. If a phone is lost, other options are decided later. **Owner**, 2026-11-06, replacing the earlier decision of a rider ID and password. The `rider_code` column and `rider_credentials` table stay, unused, because applied migrations are not edited and those options may need them.
+
+### Why passwords exist for partners and staff
+They keep working when SMS does not, and each password sign-in saves a paid SMS.
+
+**Accepted risk for riders:** during an SMS outage, a rider whose session has ended cannot sign in. Sessions last 90 days and renew with use, so a working rider should not normally meet this. Weigh it when deciding the phone-lost options.
 
 ### Why customers have no password
 They have Google, Apple and OTP. A customer password would add a reset flow and a store of secrets for no gain.
@@ -84,7 +88,7 @@ Person: phone, Google and Apple identities, overall status
 | Admin and support | 12 hours, with no restart | They can do the most damage |
 
 ### When a rider is signed out
-Only when they sign out, Ninzo suspends the role, a token looks stolen, their password is reset, their phone changes, or the app goes unused for 90 days. Never because of a weak network, or because a shift ended.
+Only when they sign out, Ninzo suspends the role, a token looks stolen, their phone changes, or the app goes unused for 90 days. Never because of a weak network, or because a shift ended.
 
 ### Lost replies and stolen tokens
 - A client sends one refresh at a time, and other requests wait for it.
@@ -108,7 +112,7 @@ Revoking only the chain, not all the user's tokens, is **Proposed**, so that one
 ### Phone OTP
 The backend makes a code, sends it, stores only a hash, and checks it. Attempts and sends are rate limited.
 
-Each code is tied to one purpose, such as sign-in, applying as a rider, or resetting a password, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
+Each code is tied to one purpose, such as sign-in or applying as a rider, so a code sent for one cannot be used for another. A phone verification code works only in the session that asked for it. **Proposed**
 
 ### Google
 The app gets an ID token from Google and sends it to the backend. The backend checks the signature against Google's keys, plus the issuer, audience and expiry. **Proposed**
@@ -131,7 +135,7 @@ The owner first described the backend exchanging an authorization code. That flo
 ### What an unregistered person sees
 This covers **worker sign-in**. Customers register by signing in, and rider applicants use the application path below. No SMS is sent, which costs nothing. The screen says "if this number is registered, you'll get a code", and a failed sign-in never says whether the ID exists. Otherwise anyone could find out which numbers belong to riders or staff. The owner approved that a failed sign-in never reveals whether the ID exists. Sending no SMS, and this screen wording, are **Proposed**.
 
-**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone or rider ID, so an unknown account, or one with no password, locks like any other. Blocked or suspended is revealed only after a correct code or password.
+**Keeping the replies identical. Proposed:** an unknown account gets a real-looking `request_id`, with its expiry and attempts kept in Redis, so wrong guesses and expiry give the same errors as a real request. Attempts are counted per submitted phone, so an unknown account locks like any other. Blocked or suspended is revealed only after a correct code or password.
 
 ### Rider application
 ```
@@ -139,7 +143,7 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
   → Applicant: can only fill in details and see progress
   → Documents verified, and requirements met
   → Ninzo approves
-  → Active rider: gets a rider ID, sets a password, can start shifts
+  → Active rider: can start shifts
 ```
 - The application sends an OTP to any phone, even a new one, so that a new person can apply. It is rate limited, because each SMS costs money. A phone already registered as a rider gets the same reply. **Proposed**
 - `riders.status` gains `applicant`, and the database must allow only known values. Its default today is `active`, so a new row could fail open: the default must become `applicant`. `name` must be allowed to be empty for an applicant. **Proposed**
@@ -148,15 +152,15 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 - Part-time means no fixed hours, which `startShift` and `endShift` already allow.
 - Until the console exists (v0.9.0), approval is an internal script with an audit record. **Proposed**
 
-### Passwords
+### Passwords, for partners and staff
 **Owner**
-1. The first sign-in is by OTP, and then they set a password. A rider sets one only once approved.
+1. The first sign-in is by OTP, and then they set a password.
 2. A forgotten password is reset by OTP. If the phone is lost too, support resets it after checking who they are.
 3. Passwords are stored only as strong hashes, attempts are limited, and a failed sign-in never reveals whether the ID exists.
 4. Each role has its own password, so a weak rider password cannot open a staff account.
 
 **Limits on resets. Proposed:**
-- **Owner**, 2026-11-05: support can reset passwords only for riders and partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
+- **Owner**, 2026-11-05: support can reset passwords only for partners. A staff password is reset only by an admin, and nobody can reset their own this way. Otherwise a support agent could take over an admin account.
 - If the only admin is locked out, an audited internal script does the reset.
 - Every reset is audited, and revokes all that role's tokens, so a stolen 90-day token does not survive it.
 
@@ -190,11 +194,10 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | Google sign-in for a new person | A person with no phone, and a customer profile. Until the phone is verified they can only view the menu: orders, gates, notify requests and tickets return `phone_required`, and availability needs a saved gate. So an unverified profile holds nothing that a move would lose, except its name |
 | Google sign-in, then the phone proves to be an existing person | The Google identity moves to that person, and the new person is removed. It cannot have orders, because ordering needs a verified phone. See the rules below |
 | That existing person already has a different Google identity | Refused with a clear error, asking them to sign in with OTP. **Proposed** |
-| An SMS outage | People already signed in are not affected. Riders, partners and staff can use passwords. New customers can use Google or Apple, but cannot verify a phone until it returns |
+| An SMS outage | People already signed in are not affected. Partners and staff can use passwords. New customers can use Google or Apple, but cannot verify a phone until it returns. A rider whose session has ended cannot sign in |
 | A Google or Apple outage | Those users can sign in with phone OTP, if their phone is verified |
 | A customer with a verified phone verifies a different number | Refused with `phone_already_set`. Changing a phone is a separate flow, because it moves every role |
 | The reply to `verifyPhone` is lost | A retry returns 401 or `invalid_otp`, because the old access token can last 15 minutes. They sign in again, and the phone is already verified |
-| The reply to a password reset is lost | The retry returns `invalid_otp`, so they try the new password |
 | A weak network during renewal | The retry returns a valid pair, and the rider is not signed out |
 
 **Moving a Google identity. Proposed:**
@@ -213,9 +216,8 @@ Customer taps "Become a rider", and signs in to the rider app with the same phon
 | "Ninzo creates every rider" conflicted with customers doing part-time work | Riders can apply themselves, and approval stays with Ninzo |
 | Part-time riders could outnumber the pilot's 4-8 scooters | Left to the business. The backend must not assume who supplies scooters. The contract already has `shift_limit_reached`, so the check exists, as a console setting that is off by default. **Proposed** |
 | A lost reply could have signed riders out on weak networks | The retry rule in section 4 |
-| A stored reply to a password change would have held live tokens in plain text | That reply holds no tokens, this session keeps its own, and the request hash leaves out passwords. Sign-in replies are never stored |
-| Reset could have let an applicant set a password | Reset refuses an applicant |
-| SMS outages could stop mid-shift sign-in | The password option for workers |
+| A stored reply could have held live tokens in plain text | Replies that carry tokens are never stored, and stored replies are stripped of secrets |
+| SMS outages could stop mid-shift sign-in | Long sessions that renew with use. Partners and staff also have passwords |
 
 ### Providers considered
 Checked on 2026-11-05. Prices came mostly from vendor blogs and comparison sites, so confirm them before relying on them.
@@ -235,6 +237,7 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 - **Scooter supply for part-timers, and any shift limit:** business decisions. **Owner** left these to the business.
 - **Requirements before approval:** KYC and documents through DigiLocker are confirmed for later. Food safety training and payout details were suggested, and need detail. Nothing stores payout details yet.
 - **Suspended during a delivery:** does the current order finish, or get reassigned? **Open.** Proposed: ops decides, and a safety case reassigns at once.
+- **A rider whose phone is lost:** other options are decided later. **Owner**
 - **Recycled phone numbers:** a telecom can give an old number to someone new, who could then prove that phone. **Open.** Needs a rule before launch, especially for accounts with credit or history.
 - **Apple on iOS:** from memory, App Store rules require an option like Apple sign-in if an iOS app offers Google. Apple's developer program costs about $99 a year. Confirm both. If correct, Apple must be ready before the iOS release.
 - **Going live with Google:** from memory, the Google project starts in testing mode, limited to 100 test users, and must be switched to production before launch. Confirm in the console.
@@ -242,7 +245,7 @@ MSG91 is not free: it charges per message. Development uses test OTPs at no cost
 ## 11. What comes when
 | Version | Work |
 |---|---|
-| `v0.2.0` | `people`, the identity table, rider ID, the `applicant` status, rider password storage, the OTP purpose, a separate service database login. Contract and mock updates, including `rider_not_approved`, and revoking only the chain. Session system. Customer Google and phone verification. Rider phone or ID sign-in, with OTP or password. Test OTPs until MSG91 and DLT are ready |
+| `v0.2.0` | `people`, the identity table, the `applicant` status, the OTP purpose, a separate service database login. Contract and mock updates, including `rider_not_approved`, and revoking only the chain. Session system. Customer Google and phone verification. Rider phone and OTP sign-in. Test OTPs until MSG91 and DLT are ready |
 | `v0.3.0` | The rider application flow, with rider profiles |
 | Before the iOS release | Apple sign-in |
 | `v0.8.0` | Partner sign-in. `refresh_tokens`, `otp_requests` and `devices` are widened to allow the new user type |

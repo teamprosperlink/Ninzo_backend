@@ -71,7 +71,7 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 
 | Endpoint | Why |
 |---|---|
-| `signInWithGoogle`, `signInWithPassword`, `requestPhoneOtp`, `verifyPhone`, `resetPassword` | A stored reply would hold tokens or secrets. Each operation says how to recover from a lost reply |
+| `signInWithGoogle`, `requestPhoneOtp`, `verifyPhone` | A stored reply would hold tokens or secrets. Each operation says how to recover from a lost reply |
 | OTP request, OTP verify, token refresh | Limited by rate and by single-use codes |
 | Sign out | Doing it twice is harmless |
 | Location ping | Pings are not repeated actions |
@@ -103,7 +103,7 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - Cursors are opaque. There is no offset paging.
 
 ## Sign-in
-- Requests send `Authorization: Bearer <access_token>`, except sign-in, password reset, refresh and webhook endpoints.
+- Requests send `Authorization: Bearer <access_token>`, except sign-in, refresh and webhook endpoints.
 - Access tokens last 15 minutes by default.
 - Refresh tokens are single use. Each refresh returns a new pair.
 - A client sends only one refresh at a time. Other requests wait for its result.
@@ -111,9 +111,9 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - If a used token comes back and the pair issued from it has not been used, the response was probably lost, so the server returns a valid pair (**Proposed**).
 - A retry or a delayed duplicate of a refresh is safe, and every reply stays usable. If two different tokens from the same renewal are both used, or a used token comes back after its successor has been used, there are two holders, so the session ends and the user signs in again (**Proposed**).
 - Refresh tokens last 90 days for customers and riders, restarting at each use, so a working rider is not signed out (**Proposed**).
-- Customers sign in with phone OTP or Google. Apple comes later. Until a phone is verified, a customer can only view the menu: `createOrder`, `createGate`, `notifyWhenAvailable` and `createTicket` return `phone_required`. Availability needs a saved gate, so it waits too.
+- Phone number with OTP is the main customer sign-in. Google is the second option, and Apple comes later. Until a phone is verified, a customer can only view the menu: `createOrder`, `createGate`, `notifyWhenAvailable` and `createTicket` return `phone_required`. Availability needs a saved gate, so it waits too. A phone OTP sign-in is verified at once.
 - `verifyPhone` returns a new session, and the old tokens stop working. `customer_id` can change, if that phone already has an account.
-- Riders sign in with a phone or a rider ID, using OTP or a password. A failed rider sign-in never says whether the account exists.
+- Riders sign in with a phone number and OTP only. A failed rider sign-in never says whether the account exists.
 - A rider with status `applicant` can sign in, but cannot start a shift: `startShift` returns `rider_not_approved`.
 - Full rules and reasons: `docs/engineering/authentication_rules.md`.
 

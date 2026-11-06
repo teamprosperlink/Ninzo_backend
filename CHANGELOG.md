@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider sign-in is phone and OTP only (#41)
+- Removed: rider ID and rider password endpoints and fields from the rider contract and mock.
+
 ### Session system (#38)
 - Added: `internal/identity` with access and refresh tokens, renewal, the lost-reply retry and ending a chain. `customer-api` and `rider-api` serve `refreshToken` and `signOut`.
 - Added: `signOut` to both contracts and the mock.
