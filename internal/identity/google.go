@@ -281,14 +281,14 @@ func (g *GoogleSignIn) SignIn(ctx context.Context, idToken string) (GoogleResult
 		if err := lockActor(ctx, tx, TypeCustomer, customer); err != nil {
 			return err
 		}
-		// Read again now the lock is held: a merge or a block may have just finished.
+		// Read again now the lock is held: a change of method or a block may have just finished.
 		var active, stillLinked, hasPhone bool
 		err = tx.QueryRow(ctx, `SELECT p.status = 'active', p.phone IS NOT NULL,
 				EXISTS (SELECT 1 FROM person_identities i WHERE i.person_id = p.id AND i.provider = $2 AND i.subject = $3)
 			FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`,
 			customer, providerGoogle, profile.Subject).Scan(&active, &hasPhone, &stillLinked)
 		if err != nil {
-			return err // Includes a customer just merged away: the app retries, and finds the right one.
+			return err // Includes a customer just removed: the app retries, and gets a fresh answer.
 		}
 		if !active {
 			return ErrAccountBlocked

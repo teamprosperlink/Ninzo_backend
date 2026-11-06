@@ -308,7 +308,9 @@ paths:
         this account, and otp. Returns a new session, and every other session ends, so replace the
         tokens. Errors: invalid_otp and otp_expired (both 400), invalid_google_token (401),
         account_blocked (403), otp_attempts_exceeded (429). All 409: sign_in_method_unchanged,
-        google_account_in_use, phone_required, phone_already_set.
+        google_account_in_use, phone_required, phone_already_set. An ended session gets 401, even if
+        the access token has not expired. If the reply is lost, a retry returns 401 or
+        sign_in_method_unchanged, because the change was made, so sign in again the new way.
       requestBody:
         required: true
         content:
@@ -316,10 +318,13 @@ paths:
             schema:
               type: object
               required: [method]
+              oneOf:
+                - required: [id_token]
+                - required: [request_id, otp]
               properties:
                 method:
                   type: string
-                  enum: [phone, google]
+                  enum: [google, phone]
                 id_token:
                   type: string
                 request_id:

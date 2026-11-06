@@ -102,6 +102,18 @@ func requirePhoneMethod(ctx context.Context, tx pgx.Tx, s *Sessions, customer st
 	return switchToPhone(ctx, tx, s, customer, method, "switched at sign-in, with the verified phone")
 }
 
+// sessionLive says whether this access token's session still exists. An access token outlives its
+// session by up to 15 minutes, which must not be enough to undo a change that ended it. Called with
+// the actor lock held, so it takes turns with EndAll.
+func sessionLive(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, a Actor) (bool, error) {
+	var live bool
+	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM refresh_tokens WHERE chain_id = $1 AND actor_id = $2
+		AND actor_type = $3 AND revoked_at IS NULL AND expires_at > now())`, a.ChainID, a.ID, a.Type).Scan(&live)
+	return live, err
+}
+
 // switchToPhone removes the linked accounts, so they can no longer sign in here.
 func switchToPhone(ctx context.Context, tx pgx.Tx, s *Sessions, customer, from, reason string) error {
 	var person string
@@ -169,6 +181,14 @@ func (o *OTPs) ChangeToPhone(ctx context.Context, a Actor, requestID, code strin
 		if err := lockActor(ctx, tx, TypeCustomer, a.ID); err != nil {
 			return err
 		}
+		live, err := sessionLive(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+		if !live {
+			refusal = ErrSessionInvalid
+			return nil
+		}
 		var status, method string
 		var current *string
 		err = tx.QueryRow(ctx, `SELECT p.status, p.phone, c.sign_in_method FROM customers c JOIN people p ON p.id = c.person_id
@@ -227,8 +247,15 @@ func (g *GoogleSignIn) ChangeToGoogle(ctx context.Context, a Actor, idToken stri
 		if err := lockActor(ctx, tx, TypeCustomer, a.ID); err != nil {
 			return err
 		}
+		live, err := sessionLive(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+		if !live {
+			return ErrSessionInvalid
+		}
 		var person, status, method string
-		err := tx.QueryRow(ctx, `SELECT p.id::text, p.status, c.sign_in_method FROM customers c JOIN people p ON p.id = c.person_id
+		err = tx.QueryRow(ctx, `SELECT p.id::text, p.status, c.sign_in_method FROM customers c JOIN people p ON p.id = c.person_id
 			WHERE c.id = $1`, a.ID).Scan(&person, &status, &method)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -270,14 +297,28 @@ func (g *GoogleSignIn) ChangeToGoogle(ctx context.Context, a Actor, idToken stri
 // freeGoogleAccount removes an empty account holding this Google account. With no phone, it cannot
 // have orders, gates or tickets. Anything else is refused.
 func (g *GoogleSignIn) freeGoogleAccount(ctx context.Context, tx pgx.Tx, subject, person string) error {
-	var owner, status, customer string
-	var empty bool
-	err := tx.QueryRow(ctx, `SELECT p.id::text, p.status, c.id::text,
-			p.phone IS NULL AND NOT EXISTS (SELECT 1 FROM riders r WHERE r.person_id = p.id)
-		FROM person_identities i JOIN people p ON p.id = i.person_id JOIN customers c ON c.person_id = p.id
-		WHERE i.provider = $1 AND i.subject = $2`, providerGoogle, subject).Scan(&owner, &status, &customer, &empty)
+	var customer string
+	err := tx.QueryRow(ctx, `SELECT c.id::text FROM person_identities i JOIN customers c ON c.person_id = i.person_id
+		WHERE i.provider = $1 AND i.subject = $2`, providerGoogle, subject).Scan(&customer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := lockActor(ctx, tx, TypeCustomer, customer); err != nil {
+		return err
+	}
+	// Read only now the lock is held, because that account may have just verified a phone. The row
+	// lock makes a block or a new rider profile take turns with this removal.
+	var owner, status string
+	var empty bool
+	err = tx.QueryRow(ctx, `SELECT p.id::text, p.status,
+			p.phone IS NULL AND NOT EXISTS (SELECT 1 FROM riders r WHERE r.person_id = p.id)
+		FROM person_identities i JOIN people p ON p.id = i.person_id
+		WHERE i.provider = $1 AND i.subject = $2 FOR UPDATE OF p`, providerGoogle, subject).Scan(&owner, &status, &empty)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // Switched to phone while this waited, so the Google account is free.
 	}
 	if err != nil {
 		return err
@@ -285,9 +326,6 @@ func (g *GoogleSignIn) freeGoogleAccount(ctx context.Context, tx pgx.Tx, subject
 	// A blocked account must stay, or removing it would undo the block.
 	if owner == person || !empty || status != "active" {
 		return ErrGoogleInUse
-	}
-	if err := lockActor(ctx, tx, TypeCustomer, customer); err != nil {
-		return err
 	}
 	if err := g.Sessions.EndAll(ctx, tx, TypeCustomer, customer, ""); err != nil {
 		return err

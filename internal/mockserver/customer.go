@@ -115,10 +115,15 @@ func customerRoutes() []route {
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/me", handle: func(c *call) {
 			var phone any = "+919876543210"
+			method := "phone"
 			if c.scenario == "phone_not_verified" {
 				phone = nil
+				method = "google" // Only a Google customer can have no phone.
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": "phone"}})
+			if c.scenario == "sign_in_method_google" {
+				method = "google"
+			}
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": method}})
 		}},
 		{method: "PATCH", path: "/me", handle: func(c *call) {
 			body, ok := needsBody(c, "name")
@@ -418,7 +423,23 @@ func verifyPhone(c *call) {
 }
 
 func changeSignInMethod(c *call) {
-	if _, ok := needsBody(c, "method"); !ok {
+	body, ok := needsBody(c, "method")
+	if !ok {
+		return
+	}
+	switch body["method"] {
+	case "google":
+		if v, has := body["id_token"]; !has || v == "" {
+			c.fail(400, "invalid_request", "Send id_token.", false)
+			return
+		}
+	case "phone":
+		if body["request_id"] == nil || body["otp"] == nil {
+			c.fail(400, "invalid_request", "Send request_id and otp.", false)
+			return
+		}
+	default:
+		c.fail(400, "invalid_request", "Send a sign-in method that is on.", false)
 		return
 	}
 	switch c.scenario {
@@ -426,6 +447,12 @@ func changeSignInMethod(c *call) {
 		c.fail(409, "sign_in_method_unchanged", "This account already uses that sign-in method.", false)
 	case "google_account_in_use":
 		c.fail(409, "google_account_in_use", "This Google account is used by another account.", false)
+	case "phone_not_verified":
+		c.fail(409, "phone_required", "Verify a phone first.", false)
+	case "phone_already_set":
+		c.fail(409, "phone_already_set", "This account has a different verified phone.", false)
+	case "invalid_google_token":
+		c.fail(401, "invalid_google_token", "Google could not confirm this sign-in.", false)
 	case "account_blocked":
 		accountBlocked(c)
 	default:

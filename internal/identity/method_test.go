@@ -374,6 +374,94 @@ func TestChangingToPhoneInSettings(t *testing.T) {
 	f.mustRefresh(v.Pair.RefreshToken, TypeCustomer)
 }
 
+func TestAnEndedSessionCannotUndoASwitch(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	stranger := f.googleWithPhone("stranger", phoneA)
+	req := f.askCode(phoneA)
+	owner, err := f.o.VerifyAndSwitch(ctx, req.ID, testCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The stranger's access token still passes its signature check, for up to 15 minutes.
+	if _, err := f.google.ChangeToGoogle(ctx, stranger.Actor, f.g.token(t, "stranger")); !errors.Is(err, ErrSessionInvalid) {
+		t.Errorf("back to Google: %v", err)
+	}
+	if m := f.method(owner.Actor.ID); m != MethodPhone {
+		t.Errorf("the owner's recovery was undone: %s", m)
+	}
+	f.mustRefresh(owner.Pair.RefreshToken, TypeCustomer)
+	if n := f.count("SELECT count(*) FROM person_identities"); n != 0 {
+		t.Error("the stranger's Google account came back")
+	}
+	sent := len(f.sender.sent)
+	f.allowResend()
+	if _, err := f.o.RequestPhone(ctx, stranger.Actor, phoneB); !errors.Is(err, ErrSessionInvalid) {
+		t.Errorf("asking for a code: %v", err)
+	}
+	if len(f.sender.sent) != sent {
+		t.Error("an ended session sent an SMS")
+	}
+}
+
+func TestAnEndedSessionCannotChangeToPhone(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	account := f.googleWithPhone("sub-1", phoneA)
+	f.allowResend()
+	req, err := f.o.RequestPhone(ctx, account.Actor, phoneA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.SignOut(ctx, account.Actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.o.ChangeToPhone(ctx, account.Actor, req.ID, testCode); !errors.Is(err, ErrSessionInvalid) {
+		t.Errorf("got %v", err)
+	}
+	if m := f.method(account.Actor.ID); m != MethodGoogle {
+		t.Errorf("got %s", m)
+	}
+}
+
+// The account holds its lock while it verifies a phone. A change to Google, waiting for that lock,
+// must then see the phone, and must not remove an account that is no longer empty.
+func TestAnAccountThatJustVerifiedAPhoneIsNotRemoved(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	busy := f.googleSignIn("sub-1")
+	owner := f.signIn(TypeCustomer, phoneA)
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if err := lockActor(ctx, tx, TypeCustomer, busy.Actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "UPDATE people SET phone = $1 WHERE id = (SELECT person_id FROM customers WHERE id = $2)", phoneB, busy.Actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.google.ChangeToGoogle(ctx, owner.Actor, f.g.token(t, "sub-1"))
+		done <- err
+	}()
+	f.waitForBlockedQuery()
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrGoogleInUse) {
+		t.Errorf("got %v", err)
+	}
+	if n := f.count("SELECT count(*) FROM customers WHERE id = $1", busy.Actor.ID); n != 1 {
+		t.Error("a verified account was deleted")
+	}
+	if m := f.method(owner.Actor.ID); m != MethodPhone {
+		t.Errorf("got %s", m)
+	}
+}
+
 // ---------- HTTP and components
 
 func (f *googleFixture) methodServer(enabled []string) *httptest.Server {

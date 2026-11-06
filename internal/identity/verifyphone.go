@@ -31,8 +31,13 @@ func (o *OTPs) RequestPhone(ctx context.Context, a Actor, phone string) (OTPRequ
 	if err != nil {
 		return OTPRequest{}, err
 	}
-	// An old access token works for up to 15 minutes, so it can outlive a block or a removal.
-	if !exists {
+	live, err := sessionLive(ctx, o.Pool, a)
+	if err != nil {
+		return OTPRequest{}, err
+	}
+	// An old access token works for up to 15 minutes, so it can outlive its session, a block or a
+	// removal. Each code costs money.
+	if !exists || !live {
 		return OTPRequest{}, ErrSessionInvalid
 	}
 	return o.request(ctx, a.Type, phone, purposeVerifyPhone, a.ID)
