@@ -145,7 +145,7 @@ paths:
       tags: [auth]
       operationId: signOut
       summary: Sign out on this device
-      description: Ends this device's session, so its refresh token stops working. Other devices stay signed in.
+      description: Ends this device's session, so its refresh token stops working. An access token already issued can work for up to 15 minutes more. Other devices stay signed in.
       responses:
         '200':
           description: Signed out. Doing it twice is fine.

@@ -56,7 +56,7 @@ Shared codes:
 | Status | Code | Retryable |
 |---|---|---|
 | 400 | `invalid_request`, `idempotency_key_required` | No |
-| 401 | `unauthorized`, `token_expired` | No. On `token_expired`, refresh and send again |
+| 401 | `unauthorized`, `token_expired` | No. On any 401 from a signed-in request, refresh once and send again. Only a 401 from the refresh itself means sign in |
 | 403 | `forbidden` | No |
 | 404 | `not_found` | No |
 | 409 | `conflict` | No |
@@ -107,9 +107,9 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` requires an `Idempotency-Key` header. 
 - Access tokens last 15 minutes by default.
 - Refresh tokens are single use. Each refresh returns a new pair.
 - A client sends only one refresh at a time. Other requests wait for its result.
-- `signOut` ends this device's session. A failed refresh returns 401 `unauthorized`, meaning sign in again. A 503 is an outage, so keep the tokens and retry.
+- `signOut` ends this device's session, and an access token already issued can work for up to 15 minutes more. A failed refresh returns 401 `unauthorized`, meaning sign in again. A 503 is an outage, so keep the tokens and retry.
 - If a used token comes back and the pair issued from it has not been used, the response was probably lost, so the server returns a valid pair (**Proposed**).
-- If that pair has been used, or a revoked token comes back, the token may have been stolen, so that token's chain is revoked and the user signs in again (**Proposed**).
+- A retry or a delayed duplicate of a refresh is safe, and every reply stays usable. If two different tokens from the same renewal are both used, or a used token comes back after its successor has been used, there are two holders, so the session ends and the user signs in again (**Proposed**).
 - Refresh tokens last 90 days for customers and riders, restarting at each use, so a working rider is not signed out (**Proposed**).
 - Customers sign in with phone OTP or Google. Apple comes later. Until a phone is verified, a customer can only view the menu: `createOrder`, `createGate`, `notifyWhenAvailable` and `createTicket` return `phone_required`. Availability needs a saved gate, so it waits too.
 - `verifyPhone` returns a new session, and the old tokens stop working. `customer_id` can change, if that phone already has an account.

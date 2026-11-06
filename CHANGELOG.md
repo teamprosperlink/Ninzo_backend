@@ -8,6 +8,8 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ### Session system (#38)
 - Added: `internal/identity` with access and refresh tokens, renewal, the lost-reply retry and ending a chain. `customer-api` and `rider-api` serve `refreshToken` and `signOut`.
 - Added: `signOut` to both contracts and the mock.
+- Added: migration 0009, the refresh token generation. Not yet applied to Supabase.
+- Changed: on any 401 from a signed-in request, apps refresh once and send it again.
 - Evidence: docs/testing/reports/38.md
 
 ### Idempotency, audit and outbox (#36)

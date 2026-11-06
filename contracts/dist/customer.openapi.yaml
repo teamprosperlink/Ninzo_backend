@@ -993,7 +993,7 @@ paths:
                 - auth
     /auth/signout:
         post:
-            description: Ends this device's session, so its refresh token stops working. Other devices stay signed in.
+            description: Ends this device's session, so its refresh token stops working. An access token already issued can work for up to 15 minutes more. Other devices stay signed in.
             operationId: signOut
             responses:
                 "200":

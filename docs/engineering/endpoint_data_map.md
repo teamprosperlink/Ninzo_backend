@@ -102,7 +102,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `signInWithGoogle` | `person_identities`, `people`, `customers` | `people`, `person_identities`, `customers`, `refresh_tokens`, `audit_events` | Rate limit | Google's public keys |
 | `requestPhoneOtp` | `customers`, `people` | `otp_requests` | Rate limit | SMS gateway |
 | `verifyPhone` | `otp_requests`, `customers`, `people`, `person_identities`, `refresh_tokens` | `otp_requests`, `people`, `person_identities`, `customers`, `refresh_tokens`, `devices`, `outbox_events`, `audit_events` | Rate limit | |
-| `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens`, `audit_events` | | |
+| `refreshToken` | `refresh_tokens`, `people`, `customers` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getMe` | `customers`, `people` | | | |
 | `updateMe` | `customers`, `people` | `customers`, `audit_events`, `idempotency_keys` | | |
@@ -140,7 +140,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `signInWithPassword` | `riders`, `people`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `resetPassword` | `otp_requests`, `riders`, `people` | `otp_requests`, `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `setRiderPassword` | `riders`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events`, `idempotency_keys`, holding no tokens or passwords | | |
-| `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | | |
+| `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getRider` | `riders` | | | |
 | `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
@@ -195,7 +195,7 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
 | `suggest_relocations` | `scooters`, `staging_nodes`, `orders`, `zone_settings` | `relocations`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
 | `suggest_restocks` | `scooters`, `scooter_stock`, `lots`, `zone_settings` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
-| `purge_platform_rows` | `idempotency_keys`, `outbox_events` | `idempotency_keys`, `outbox_events` | Daily. Deletes keys older than 24 hours and delivered events older than 7 days | |
+| `purge_platform_rows` | `idempotency_keys`, `outbox_events`, `refresh_tokens` | `idempotency_keys`, `outbox_events`, `refresh_tokens` | Daily. Deletes keys older than 24 hours, delivered events older than 7 days, and refresh tokens 30 days after they expire or end | |
 | `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided. `ninzo_service` cannot create tables, so this needs a narrow function made by a migration, in v0.5.0 | |
 
 ## 6. What must happen in one transaction

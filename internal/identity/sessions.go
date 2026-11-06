@@ -70,7 +70,7 @@ func (s *Sessions) Start(ctx context.Context, tx pgx.Tx, actorType, actorID stri
 		return Pair{}, Actor{}, err
 	}
 	actor := Actor{Type: actorType, ID: actorID, ChainID: chain}
-	pair, _, err := s.issue(ctx, tx, actor)
+	pair, _, err := s.issue(ctx, tx, actor, 0)
 	if err != nil {
 		return Pair{}, Actor{}, err
 	}
@@ -78,15 +78,15 @@ func (s *Sessions) Start(ctx context.Context, tx pgx.Tx, actorType, actorID stri
 }
 
 // issue adds one refresh token to a chain, with a fresh 90 days, and signs an access token.
-func (s *Sessions) issue(ctx context.Context, tx pgx.Tx, a Actor) (Pair, string, error) {
+func (s *Sessions) issue(ctx context.Context, tx pgx.Tx, a Actor, generation int) (Pair, string, error) {
 	token, hash, err := newRefreshToken()
 	if err != nil {
 		return Pair{}, "", err
 	}
 	var id string
-	err = tx.QueryRow(ctx, `INSERT INTO refresh_tokens (actor_type, actor_id, chain_id, token_hash, expires_at)
-		VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5)) RETURNING id::text`,
-		a.Type, a.ID, a.ChainID, hash, s.RefreshTTL.Seconds()).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO refresh_tokens (actor_type, actor_id, chain_id, generation, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6)) RETURNING id::text`,
+		a.Type, a.ID, a.ChainID, generation, hash, s.RefreshTTL.Seconds()).Scan(&id)
 	if err != nil {
 		return Pair{}, "", fmt.Errorf("identity: storing a refresh token: %w", err)
 	}
@@ -97,12 +97,12 @@ func (s *Sessions) issue(ctx context.Context, tx pgx.Tx, a Actor) (Pair, string,
 	return Pair{AccessToken: access, RefreshToken: token, ExpiresInS: int(s.Signer.TTL.Seconds())}, id, nil
 }
 
-// Refresh swaps a refresh token for a new pair. See section 4 of the rules:
-//   - An unused token gets a new pair.
-//   - A used token whose successor is unused means the reply was lost, so it gets a new pair, and
-//     that successor is revoked, because it can no longer be the app's only token.
-//   - Anything else used or revoked may be theft, so the whole chain ends. A real app whose token
-//     was replaced by a thief's retry therefore ends the thief's session too.
+// Refresh swaps a refresh token for a new pair. See section 4 of the rules. Each renewal is one
+// generation further along the chain:
+//   - A token is good until a token of a later generation has been used, or another token of its
+//     own generation has. A used token can therefore be sent again, so a lost reply or a delayed
+//     duplicate never signs anyone out: the extra tokens it makes are simply never used.
+//   - Otherwise there are two holders of this session, so one may be a thief, and the chain ends.
 func (s *Sessions) Refresh(ctx context.Context, token, wantType string) (Pair, Actor, error) {
 	var pair Pair
 	var actor Actor
@@ -121,30 +121,42 @@ func (s *Sessions) Refresh(ctx context.Context, token, wantType string) (Pair, A
 	return pair, actor, nil
 }
 
+// lockChain makes everything that changes a chain take turns until its transaction ends. Without
+// it, ending a chain could miss a token that a refresh in progress has not committed yet, and a
+// thief renewing in a loop could outlive a sign-out or a password reset.
+func lockChain(ctx context.Context, tx pgx.Tx, chain string) error {
+	_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", chain)
+	return err
+}
+
 // refresh reports a refusal separately from an error, so a chain's revocation still commits.
 func (s *Sessions) refresh(ctx context.Context, tx pgx.Tx, token, wantType string) (Pair, Actor, bool, error) {
-	var id string
-	var a Actor
-	var replacedBy *string
-	var used, revoked, expired bool
-	err := tx.QueryRow(ctx, `SELECT id::text, actor_type, actor_id::text, chain_id::text, replaced_by::text,
-			used_at IS NOT NULL, revoked_at IS NOT NULL, expires_at <= now()
-		FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`, hashToken(token)).
-		Scan(&id, &a.Type, &a.ID, &a.ChainID, &replacedBy, &used, &revoked, &expired)
+	hash := hashToken(token)
+	var chain string
+	err := tx.QueryRow(ctx, "SELECT chain_id::text FROM refresh_tokens WHERE token_hash = $1", hash).Scan(&chain)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Pair{}, Actor{}, true, nil
 	}
 	if err != nil {
 		return Pair{}, Actor{}, false, err
 	}
+	if err := lockChain(ctx, tx, chain); err != nil {
+		return Pair{}, Actor{}, false, err
+	}
+
+	var id string
+	var a Actor
+	var generation int
+	var revoked, expired bool
+	err = tx.QueryRow(ctx, `SELECT id::text, actor_type, actor_id::text, chain_id::text, generation,
+			revoked_at IS NOT NULL, expires_at <= now()
+		FROM refresh_tokens WHERE token_hash = $1`, hash).
+		Scan(&id, &a.Type, &a.ID, &a.ChainID, &generation, &revoked, &expired)
+	if err != nil {
+		return Pair{}, Actor{}, false, err
+	}
 	// Another role's token at this API is a mistake, not theft, so it changes nothing.
-	if a.Type != wantType {
-		return Pair{}, Actor{}, true, nil
-	}
-	if revoked {
-		return Pair{}, Actor{}, true, s.endChain(ctx, tx, a, "a revoked refresh token was presented")
-	}
-	if expired {
+	if a.Type != wantType || revoked || expired {
 		return Pair{}, Actor{}, true, nil
 	}
 	active, err := isActive(ctx, tx, a)
@@ -155,42 +167,25 @@ func (s *Sessions) refresh(ctx context.Context, tx pgx.Tx, token, wantType strin
 		return Pair{}, Actor{}, true, s.endChain(ctx, tx, a, "the account is blocked, suspended or gone")
 	}
 
-	if used {
-		lost, err := successorUnused(ctx, tx, replacedBy)
-		if err != nil {
-			return Pair{}, Actor{}, false, err
-		}
-		if !lost {
-			return Pair{}, Actor{}, true, s.endChain(ctx, tx, a, "a used refresh token was presented")
-		}
-		// The app never received the successor, so nothing can use it after this.
-		if _, err := tx.Exec(ctx, "UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1", *replacedBy); err != nil {
-			return Pair{}, Actor{}, false, err
-		}
-	}
-	pair, next, err := s.issue(ctx, tx, a)
+	var twoHolders bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM refresh_tokens
+		WHERE chain_id = $1 AND used_at IS NOT NULL AND (generation > $2 OR (generation = $2 AND id <> $3)))`,
+		a.ChainID, generation, id).Scan(&twoHolders)
 	if err != nil {
 		return Pair{}, Actor{}, false, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE refresh_tokens SET replaced_by = NULL WHERE id = $1`, id); err != nil {
+	if twoHolders {
+		return Pair{}, Actor{}, true, s.endChain(ctx, tx, a, "two holders of one session")
+	}
+
+	pair, next, err := s.issue(ctx, tx, a, generation+1)
+	if err != nil {
 		return Pair{}, Actor{}, false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE refresh_tokens SET used_at = COALESCE(used_at, now()), replaced_by = $2 WHERE id = $1`, id, next); err != nil {
 		return Pair{}, Actor{}, false, err
 	}
 	return pair, a, false, nil
-}
-
-func successorUnused(ctx context.Context, tx pgx.Tx, successor *string) (bool, error) {
-	if successor == nil {
-		return false, nil
-	}
-	var unused bool
-	err := tx.QueryRow(ctx, `SELECT used_at IS NULL AND revoked_at IS NULL FROM refresh_tokens WHERE id = $1 FOR UPDATE`, *successor).Scan(&unused)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	return unused, err
 }
 
 // isActive checks the person and the role. An applicant is active: they can sign in, and only
@@ -228,18 +223,41 @@ func (s *Sessions) endChain(ctx context.Context, tx pgx.Tx, a Actor, reason stri
 	})
 }
 
-// SignOut ends this device's session. Doing it twice is fine.
+// SignOut ends this device's session. Doing it twice is fine. An access token already issued lasts
+// up to its TTL.
 func (s *Sessions) SignOut(ctx context.Context, a Actor) error {
-	_, err := s.Pool.Exec(ctx, "UPDATE refresh_tokens SET revoked_at = now() WHERE chain_id = $1 AND actor_id = $2 AND actor_type = $3 AND revoked_at IS NULL",
-		a.ChainID, a.ID, a.Type)
-	return err
+	return database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
+		if err := lockChain(ctx, tx, a.ChainID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, "UPDATE refresh_tokens SET revoked_at = now() WHERE chain_id = $1 AND actor_id = $2 AND actor_type = $3 AND revoked_at IS NULL",
+			a.ChainID, a.ID, a.Type)
+		return err
+	})
 }
 
 // EndAll ends every session of one role, in the caller's transaction, for a suspension, a password
 // reset or a phone change. keepChain is left running, for the session making the change, and may
 // be empty. Access tokens already issued last up to their TTL, so status is also checked at refresh.
 func (s *Sessions) EndAll(ctx context.Context, tx pgx.Tx, actorType, actorID, keepChain string) error {
-	_, err := tx.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = now()
+	rows, err := tx.Query(ctx, `SELECT DISTINCT chain_id::text FROM refresh_tokens
+		WHERE actor_type = $1 AND actor_id = $2 AND revoked_at IS NULL AND ($3 = '' OR chain_id::text <> $3)
+		ORDER BY 1`, actorType, actorID, keepChain)
+	if err != nil {
+		return err
+	}
+	chains, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	// In a fixed order, so two calls cannot deadlock. A refresh in progress finishes first, and its
+	// new token is then seen and ended below.
+	for _, chain := range chains {
+		if err := lockChain(ctx, tx, chain); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = now()
 		WHERE actor_type = $1 AND actor_id = $2 AND revoked_at IS NULL AND ($3 = '' OR chain_id::text <> $3)`,
 		actorType, actorID, keepChain)
 	return err

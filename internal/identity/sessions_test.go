@@ -158,8 +158,7 @@ func TestALostReplyWorksHoweverLongAgo(t *testing.T) {
 	f := newFixture(t)
 	first, _ := f.start(TypeRider, f.profile("riders", f.person()))
 	f.mustRefresh(first.RefreshToken, TypeRider)
-	f.exec("UPDATE refresh_tokens SET used_at = now() - interval '6 hours'")
-	f.exec("UPDATE refresh_tokens SET used_at = NULL WHERE replaced_by IS NULL")
+	f.exec("UPDATE refresh_tokens SET used_at = now() - interval '6 hours' WHERE used_at IS NOT NULL")
 	f.mustRefresh(first.RefreshToken, TypeRider)
 }
 
@@ -171,7 +170,7 @@ func TestReusingAUsedTokenEndsTheChain(t *testing.T) {
 	f.refused(first.RefreshToken, TypeCustomer)
 	f.refused(third.RefreshToken, TypeCustomer) // The whole chain ended, including the newest.
 	var audited int
-	if err := f.s.Pool.QueryRow(context.Background(), "SELECT count(*) FROM audit_events WHERE action = 'session.ended'").Scan(&audited); err != nil {
+	if err := f.s.Pool.QueryRow(context.Background(), "SELECT count(*) FROM audit_events WHERE action = 'session.ended' AND reason = 'two holders of one session'").Scan(&audited); err != nil {
 		t.Fatal(err)
 	}
 	if audited != 1 {
@@ -179,15 +178,50 @@ func TestReusingAUsedTokenEndsTheChain(t *testing.T) {
 	}
 }
 
-// A thief's retry of an old token gets a pair and replaces the real app's token. When the real app
-// next renews, the chain ends, so the thief is signed out too.
+// A thief replays an old token and gets a token of the same generation as the real app's. Whichever
+// uses theirs second ends the session for both.
 func TestARealAppEndsAThiefsSession(t *testing.T) {
 	f := newFixture(t)
 	first, _ := f.start(TypeCustomer, f.customer())
 	real := f.mustRefresh(first.RefreshToken, TypeCustomer)
 	thief := f.mustRefresh(first.RefreshToken, TypeCustomer)
-	f.refused(real.RefreshToken, TypeCustomer)
+	realNext := f.mustRefresh(real.RefreshToken, TypeCustomer)
 	f.refused(thief.RefreshToken, TypeCustomer)
+	f.refused(realNext.RefreshToken, TypeCustomer)
+}
+
+func TestAThiefWhoUsesTheirsFirstIsStillCaught(t *testing.T) {
+	f := newFixture(t)
+	first, _ := f.start(TypeCustomer, f.customer())
+	real := f.mustRefresh(first.RefreshToken, TypeCustomer)
+	thief := f.mustRefresh(first.RefreshToken, TypeCustomer)
+	thiefNext := f.mustRefresh(thief.RefreshToken, TypeCustomer)
+	f.refused(real.RefreshToken, TypeCustomer)
+	f.refused(thiefNext.RefreshToken, TypeCustomer)
+}
+
+// Taking turns cannot hide a thief, because generations only move forward.
+func TestAThiefAndARealAppTakingTurnsAreCaught(t *testing.T) {
+	f := newFixture(t)
+	first, _ := f.start(TypeCustomer, f.customer())
+	a := f.mustRefresh(first.RefreshToken, TypeCustomer)
+	b := f.mustRefresh(first.RefreshToken, TypeCustomer)
+	a = f.mustRefresh(a.RefreshToken, TypeCustomer)
+	if _, err := f.refresh(b.RefreshToken, TypeCustomer); !errors.Is(err, ErrSessionInvalid) {
+		t.Fatalf("the second holder was not caught: %v", err)
+	}
+	f.refused(a.RefreshToken, TypeCustomer)
+}
+
+// A delayed duplicate of a request must not sign out a rider who holds a good token.
+func TestADelayedDuplicateDoesNotSignARiderOut(t *testing.T) {
+	f := newFixture(t)
+	first, _ := f.start(TypeRider, f.profile("riders", f.person()))
+	f.mustRefresh(first.RefreshToken, TypeRider)         // This reply was lost.
+	held := f.mustRefresh(first.RefreshToken, TypeRider) // The app's retry: it holds this.
+	f.mustRefresh(first.RefreshToken, TypeRider)         // A delayed duplicate of the request.
+	next := f.mustRefresh(held.RefreshToken, TypeRider)  // The app still renews.
+	f.mustRefresh(next.RefreshToken, TypeRider)
 }
 
 func TestOneDevicesProblemDoesNotSignOutAnother(t *testing.T) {
@@ -258,34 +292,105 @@ func TestARemovedProfileHasNoSession(t *testing.T) {
 	f.refused(pair.RefreshToken, TypeCustomer)
 }
 
-func TestManyRefreshesAtOnceStayConsistent(t *testing.T) {
+func TestManyRefreshesAtOnceLeaveEveryReplyUsable(t *testing.T) {
 	f := newFixture(t)
 	first, _ := f.start(TypeRider, f.profile("riders", f.person()))
 	const calls = 8
 	var wg sync.WaitGroup
-	errs := make(chan error, calls)
+	replies := make(chan Pair, calls)
 	for i := 0; i < calls; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, err := f.s.Refresh(context.Background(), first.RefreshToken, TypeRider)
-			errs <- err
+			pair, _, err := f.s.Refresh(context.Background(), first.RefreshToken, TypeRider)
+			if err != nil {
+				t.Errorf("a race must not fail: %v", err)
+				return
+			}
+			replies <- pair
 		}()
 	}
 	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil && !errors.Is(err, ErrSessionInvalid) {
-			t.Errorf("a database error from a race: %v", err)
+	close(replies)
+	var all []Pair
+	for pair := range replies {
+		all = append(all, pair)
+	}
+	if len(all) != calls {
+		t.Fatalf("%d replies", len(all))
+	}
+	// Whichever reply the app ended up with must still work.
+	f.mustRefresh(all[len(all)-1].RefreshToken, TypeRider)
+}
+
+// finishLater holds a chain as a refresh in progress does, having made a token it has not
+// committed. It returns that token, and a function that commits.
+func (f *fixture) refreshInProgress(a Actor) (string, func()) {
+	f.t.Helper()
+	ctx := context.Background()
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if err := lockChain(ctx, tx, a.ChainID); err != nil {
+		f.t.Fatal(err)
+	}
+	pair, _, err := f.s.issue(ctx, tx, a, 1)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return pair.RefreshToken, func() {
+		if err := tx.Commit(ctx); err != nil {
+			f.t.Fatal(err)
 		}
 	}
-	// One token in a chain has no live predecessor problem: the unique index would have failed above.
-	var live int
-	if err := f.s.Pool.QueryRow(context.Background(), "SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL AND used_at IS NULL").Scan(&live); err != nil {
-		t.Fatal(err)
+}
+
+func TestEndingAChainWaitsForARefreshInProgress(t *testing.T) {
+	ends := map[string]func(*fixture, Actor) error{
+		"sign-out": func(f *fixture, a Actor) error { return f.s.SignOut(context.Background(), a) },
+		"end-all": func(f *fixture, a Actor) error {
+			ctx := context.Background()
+			return database.InTx(ctx, f.s.Pool, func(tx pgx.Tx) error { return f.s.EndAll(ctx, tx, a.Type, a.ID, "") })
+		},
+		"two holders": func(f *fixture, a Actor) error { return nil },
 	}
-	if live != 1 {
-		t.Errorf("%d usable tokens after a race, want 1", live)
+	for name, end := range ends {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			first, actor := f.start(TypeCustomer, f.customer())
+			if name == "two holders" {
+				// The chain ends when a second holder of a generation appears.
+				one := f.mustRefresh(first.RefreshToken, TypeCustomer)
+				two := f.mustRefresh(first.RefreshToken, TypeCustomer)
+				f.mustRefresh(one.RefreshToken, TypeCustomer)
+				newToken, commit := f.refreshInProgress(actor)
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					_, _ = f.refresh(two.RefreshToken, TypeCustomer)
+				}()
+				time.Sleep(300 * time.Millisecond)
+				commit()
+				<-done
+				f.refused(newToken, TypeCustomer)
+				return
+			}
+			newToken, commit := f.refreshInProgress(actor)
+			done := make(chan error, 1)
+			go func() { done <- end(f, actor) }()
+			select {
+			case err := <-done:
+				t.Fatalf("it did not wait for the refresh in progress: %v", err)
+			case <-time.After(300 * time.Millisecond):
+			}
+			commit()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			f.refused(newToken, TypeCustomer)
+			f.refused(first.RefreshToken, TypeCustomer)
+		})
 	}
 }
 
