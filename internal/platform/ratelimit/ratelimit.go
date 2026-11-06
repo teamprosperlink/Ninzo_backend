@@ -16,7 +16,7 @@ type Rule struct {
 }
 
 // Limiter says whether a request may go ahead, and if not, how long to wait. A store that keeps
-// counts elsewhere, such as Redis, needs only this one method.
+// counts elsewhere, such as Redis, needs only these two methods.
 type Limiter interface {
 	Allow(ctx context.Context, key string, rule Rule) (bool, time.Duration, error)
 	// Release gives back one count, for a request that turned out not to use what the limit protects.
