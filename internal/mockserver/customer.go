@@ -118,14 +118,24 @@ func customerRoutes() []route {
 			if c.scenario == "phone_not_verified" {
 				phone = nil
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "sign_in_method": mockMethod(c)}})
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": phone, "name": "Test Customer", "email": nil, "sign_in_method": mockMethod(c)}})
 		}},
 		{method: "PATCH", path: "/me", handle: func(c *call) {
-			body, ok := needsBody(c, "name")
+			body, ok := needsBody(c)
 			if !ok {
 				return
 			}
-			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": body["name"], "sign_in_method": mockMethod(c)}})
+			_, hasName := body["name"]
+			_, hasEmail := body["email"]
+			if !hasName && !hasEmail {
+				c.fail(400, "invalid_request", "Send name or email.", false)
+				return
+			}
+			name := body["name"]
+			if !hasName {
+				name = "Test Customer"
+			}
+			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": name, "email": body["email"], "sign_in_method": mockMethod(c)}})
 		}},
 		{method: "POST", path: "/me/devices", handle: registerDevice},
 		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},

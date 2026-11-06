@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Profile and devices (#58)
+- Added: `getMe`, `updateMe`, `registerDevice`, `removeDevice`, `getRider`, `registerRiderDevice` and `removeRiderDevice`.
+- Added: an optional customer email, for contact only. Migration 0011, not applied to Supabase.
+- Changed: a change of sign-in method removes every device.
+- Evidence: docs/testing/reports/58.md
+
 ### Rate limits (#39)
 - Added: limits per network address, per phone and address, per refresh token and per session, counted in memory behind one interface. Decision 0010.
 - Changed: 20 codes an hour per phone in all, and 5 per phone and address.

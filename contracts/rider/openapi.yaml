@@ -192,6 +192,8 @@ paths:
                 $ref: '#/components/schemas/RiderResponse'
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /riders/me/state:
@@ -308,6 +310,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':

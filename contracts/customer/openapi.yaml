@@ -375,13 +375,17 @@ paths:
                 $ref: '#/components/schemas/CustomerResponse'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
     patch:
       tags: [profile]
       operationId: updateMe
       summary: Update the signed-in customer
-      description: Sets the customer's name.
+      description: >-
+        Send name, email or both. The other stays as it is. Null clears the email. The email is contact
+        details only, and never signs anyone in.
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -390,12 +394,20 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
+              anyOf:
+                - required: [name]
+                - required: [email]
               properties:
                 name:
                   type: string
                   minLength: 1
                   maxLength: 80
+                email:
+                  type:
+                    - string
+                    - 'null'
+                  maxLength: 254
+                  example: asha@example.com
       responses:
         '200':
           description: Updated.
@@ -407,6 +419,8 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '409':
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
@@ -418,7 +432,11 @@ paths:
       tags: [profile]
       operationId: registerDevice
       summary: Register a device for push
-      description: Registering a token that already exists updates it.
+      description: >-
+        Registering a token that already exists updates it, and moves it to whoever is signed in now.
+        A customer keeps up to 10 devices, and the one unused for longest goes first. Register again
+        after signing in, because a change of sign-in method removes every device. An ended session
+        gets 401.
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -445,6 +463,8 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '409':
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
@@ -456,7 +476,7 @@ paths:
       tags: [profile]
       operationId: removeDevice
       summary: Remove a device from push
-      description: Called on sign-out.
+      description: Called on sign-out. It works while the access token lasts, even after signOut.
       parameters:
         - $ref: '#/components/parameters/DeviceId'
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
@@ -1129,7 +1149,7 @@ components:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     Customer:
       type: object
-      required: [id, phone, sign_in_method]
+      required: [id, phone, name, email, sign_in_method]
       properties:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
@@ -1143,6 +1163,12 @@ components:
           type:
             - string
             - 'null'
+        email:
+          description: Contact details only. Null until the customer adds it.
+          type:
+            - string
+            - 'null'
+          example: asha@example.com
         sign_in_method:
           type: string
           enum: [phone, google, apple]

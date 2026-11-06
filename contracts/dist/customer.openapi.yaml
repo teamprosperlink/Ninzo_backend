@@ -174,6 +174,12 @@ components:
             type: object
         Customer:
             properties:
+                email:
+                    description: Contact details only. Null until the customer adds it.
+                    example: asha@example.com
+                    type:
+                        - string
+                        - "null"
                 id:
                     $ref: '#/components/schemas/Id'
                 name:
@@ -196,6 +202,8 @@ components:
             required:
                 - id
                 - phone
+                - name
+                - email
                 - sign_in_method
             type: object
         CustomerResponse:
@@ -1182,13 +1190,15 @@ paths:
                     description: The customer.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get the signed-in customer
             tags:
                 - profile
         patch:
-            description: Sets the customer's name.
+            description: Send name, email or both. The other stays as it is. Null clears the email. The email is contact details only, and never signs anyone in.
             operationId: updateMe
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1196,13 +1206,22 @@ paths:
                 content:
                     application/json:
                         schema:
+                            anyOf:
+                                - required:
+                                    - name
+                                - required:
+                                    - email
                             properties:
+                                email:
+                                    example: asha@example.com
+                                    maxLength: 254
+                                    type:
+                                        - string
+                                        - "null"
                                 name:
                                     maxLength: 80
                                     minLength: 1
                                     type: string
-                            required:
-                                - name
                             type: object
                 required: true
             responses:
@@ -1216,6 +1235,8 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
@@ -1227,7 +1248,7 @@ paths:
                 - profile
     /me/devices:
         post:
-            description: Registering a token that already exists updates it.
+            description: Registering a token that already exists updates it, and moves it to whoever is signed in now. A customer keeps up to 10 devices, and the one unused for longest goes first. Register again after signing in, because a change of sign-in method removes every device. An ended session gets 401.
             operationId: registerDevice
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1259,6 +1280,8 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
@@ -1270,7 +1293,7 @@ paths:
                 - profile
     /me/devices/{device_id}:
         delete:
-            description: Called on sign-out.
+            description: Called on sign-out. It works while the access token lasts, even after signOut.
             operationId: removeDevice
             parameters:
                 - $ref: '#/components/parameters/DeviceId'

@@ -1927,6 +1927,8 @@ paths:
                     description: The rider.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get the signed-in rider
@@ -1966,6 +1968,8 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
