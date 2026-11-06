@@ -18,29 +18,25 @@ const contractsDir = "../../contracts"
 
 // operationsWithoutIdempotency are the only writes allowed to skip Idempotency-Key.
 var operationsWithoutIdempotency = map[string]bool{
-	"requestOtp":         true,
-	"verifyOtp":          true,
-	"signInWithGoogle":   true,
-	"requestPhoneOtp":    true,
-	"verifyPhone":        true,
-	"signInWithPassword": true,
-	"resetPassword":      true,
-	"signOut":            true,
-	"refreshToken":       true,
-	"razorpayWebhook":    true,
-	"locationPing":       true,
-	"sendEventBatch":     true,
+	"requestOtp":       true,
+	"verifyOtp":        true,
+	"signInWithGoogle": true,
+	"requestPhoneOtp":  true,
+	"verifyPhone":      true,
+	"signOut":          true,
+	"refreshToken":     true,
+	"razorpayWebhook":  true,
+	"locationPing":     true,
+	"sendEventBatch":   true,
 }
 
 // operationsWithoutBearer are the only operations allowed to skip sign-in.
 var operationsWithoutBearer = map[string]bool{
-	"requestOtp":         true,
-	"verifyOtp":          true,
-	"signInWithGoogle":   true,
-	"signInWithPassword": true,
-	"resetPassword":      true,
-	"refreshToken":       true,
-	"razorpayWebhook":    true,
+	"requestOtp":       true,
+	"verifyOtp":        true,
+	"signInWithGoogle": true,
+	"refreshToken":     true,
+	"razorpayWebhook":  true,
 }
 
 // hiddenCustomerFields would reveal that a rider is allotted during the wait.

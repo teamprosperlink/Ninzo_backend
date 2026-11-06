@@ -22,7 +22,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `identity` | `person_identities` | Google and Apple accounts linked to a person | v0.2.0 |
 | `identity` | `customers` | Customer profiles | v0.2.0 |
 | `identity` | `riders` | Rider profiles, including applicants. `zone_id` is added in v0.3.0, when `zones` exists | v0.2.0 |
-| `identity` | `rider_credentials` | Hashed rider passwords and failed attempts | v0.2.0 |
+| `identity` | `rider_credentials` | Not used: riders sign in by OTP only. Kept for the phone-lost options | v0.2.0 |
 | `identity` | `rider_verifications` | Document status | v0.2.0 |
 | `identity` | `otp_requests` | Hashed codes, their purpose, and attempts | v0.2.0 |
 | `identity` | `refresh_tokens` | Hashed refresh tokens and their chains | v0.2.0 |
@@ -87,8 +87,8 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | Riders by map cell | `cell:{h3}` | `locationPing` |
 | Live stream fan-out | Pub/sub per order and per rider | Any change a stream reader can see |
 | Rate limits | OTP and ping counters | `requestOtp`, `verifyOtp`, `locationPing` |
-| Sign-in attempts | Per submitted phone or rider ID, so an unknown account locks like a real one | `signInWithPassword`, `verifyOtp`, `resetPassword` |
-| Decoy OTP requests | For an unknown rider account: expiry and attempts, so later errors match a real request | `requestOtp`, `verifyOtp`, `resetPassword` |
+| Sign-in attempts | Per submitted phone, so an unknown account locks like a real one | `requestOtp`, `verifyOtp` |
+| Decoy OTP requests | For an unknown rider account: expiry and attempts, so later errors match a real request | `requestOtp`, `verifyOtp` |
 | Availability cache | Short-lived, per gate | `getAvailability` |
 
 `locationPing` writes every ping to `location_pings`. The zone check uses that table, `location_zones` and `orders`, so a Redis failure cannot change a timer. If Redis is down, no new offers go out, because rider positions are unknown.
@@ -137,9 +137,6 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 |---|---|---|---|---|
 | `requestOtp` | `riders`, `people` | `otp_requests` | Rate limit | SMS gateway, only if the account exists |
 | `verifyOtp` | `otp_requests`, `riders`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
-| `signInWithPassword` | `riders`, `people`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
-| `resetPassword` | `otp_requests`, `riders`, `people` | `otp_requests`, `rider_credentials`, `refresh_tokens`, `audit_events` | Rate limit | |
-| `setRiderPassword` | `riders`, `rider_credentials` | `rider_credentials`, `refresh_tokens`, `audit_events`, `idempotency_keys`, holding no tokens or passwords | | |
 | `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getRider` | `riders` | | | |

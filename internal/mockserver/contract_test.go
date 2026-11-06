@@ -118,9 +118,7 @@ var sampleBodies = map[string]string{
 	"requestOtp": `{"phone":"+919876543210"}`, "verifyOtp": `{"request_id":"otp_mock01","otp":"123456"}`,
 	"refreshToken": `{"refresh_token":"mock-refresh-token"}`, "updateMe": `{"name":"Test"}`,
 	"signInWithGoogle": `{"id_token":"t"}`, "requestPhoneOtp": `{"phone":"+919876543210"}`, "verifyPhone": `{"request_id":"otp_mock01","otp":"123456"}`,
-	"signInWithPassword": `{"phone":"+919876543210","password":"long-enough"}`, "resetPassword": `{"request_id":"otp_mock01","otp":"123456","new_password":"long-enough"}`,
-	"setRiderPassword": `{"new_password":"long-enough"}`,
-	"registerDevice":   `{"platform":"android","push_token":"t"}`, "registerRiderDevice": `{"platform":"android","push_token":"t"}`,
+	"registerDevice": `{"platform":"android","push_token":"t"}`, "registerRiderDevice": `{"platform":"android","push_token":"t"}`,
 	"createGate": `{"label":"Back gate","lat":12.9,"lng":77.5}`, "notifyWhenAvailable": `{"gate_id":"gate_mock01"}`,
 	"createOrder": `{"gate_id":"gate_mock01","items":[{"item_id":"item_burger","qty":1}]}`, "cancelOrder": `{"reason":"changed my mind"}`,
 	"changeOrderGate": `{"gate_id":"gate_mock01"}`, "acceptLongerEta": `{"eta_offer_id":"eta_mock01"}`,
@@ -996,34 +994,26 @@ func TestDocsAndContractFilesAreServed(t *testing.T) {
 	}
 }
 
-func TestRiderSignInNeedsExactlyOneID(t *testing.T) {
+func TestRiderSignInUsesAPhoneOnly(t *testing.T) {
 	srv := httptest.NewServer(New().Handler())
 	defer srv.Close()
-	post := func(path, body string) int {
-		t.Helper()
-		resp, err := http.Post(srv.URL+"/rider/v1"+path, "application/json", strings.NewReader(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		return resp.StatusCode
-	}
-	const phone, code, pass = `"phone":"+919876543210"`, `"rider_code":"RD1024"`, `"password":"long-enough"`
 	for _, c := range []struct {
 		path, body string
 		want       int
 	}{
-		{"/auth/otp/request", "{" + phone + "}", 200},
-		{"/auth/otp/request", "{" + code + "}", 200},
-		{"/auth/otp/request", "{" + phone + "," + code + "}", 400},
-		{"/auth/otp/request", "{}", 400},
-		{"/auth/password/login", "{" + phone + "," + pass + "}", 200},
-		{"/auth/password/login", "{" + code + "," + pass + "}", 200},
-		{"/auth/password/login", "{" + phone + "," + code + "," + pass + "}", 400},
-		{"/auth/password/login", "{" + pass + "}", 400},
+		{"/auth/otp/request", `{"phone":"+919876543210"}`, 200},
+		{"/auth/otp/request", `{}`, 400},
+		{"/auth/password/login", `{"phone":"+919876543210","password":"long-enough"}`, 404},
+		{"/auth/password/reset", `{"request_id":"r","otp":"123456","new_password":"long-enough"}`, 404},
+		{"/riders/me/password", `{"new_password":"long-enough"}`, 404},
 	} {
-		if got := post(c.path, c.body); got != c.want {
-			t.Errorf("%s %s: got %d, want %d", c.path, c.body, got, c.want)
+		resp, err := http.Post(srv.URL+"/rider/v1"+c.path, "application/json", strings.NewReader(c.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != c.want {
+			t.Errorf("%s %s: got %d, want %d", c.path, c.body, resp.StatusCode, c.want)
 		}
 	}
 }
