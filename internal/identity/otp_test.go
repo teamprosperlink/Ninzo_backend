@@ -572,7 +572,7 @@ func (f *otpFixture) holdActor(actorType, actorID, phone, change string, args ..
 		_, err := f.o.Verify(ctx, actorType, req.ID, testCode)
 		done <- err
 	}()
-	time.Sleep(300 * time.Millisecond)
+	f.waitForBlockedQuery()
 	if _, err := tx.Exec(ctx, change, args...); err != nil {
 		f.t.Fatal(err)
 	}
@@ -630,6 +630,32 @@ func TestAMissingOrBadRequestIDIsCheapAndRefused(t *testing.T) {
 	}
 	if strings.Contains(string(src), "id::text = $1") {
 		t.Error("a cast on the column stops the primary key being used")
+	}
+}
+
+// waitForBlockedQuery waits until a request is really waiting on a lock, instead of guessing how
+// long that takes. If nothing ever waits, as with a lock removed, it gives up, so the test can fail.
+func (f *otpFixture) waitForBlockedQuery() {
+	f.t.Helper()
+	for i := 0; i < 60; i++ {
+		if f.count("SELECT count(*) FROM pg_locks WHERE NOT granted") > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestARiderWhoseNumberChangedBeforeTheCodeIsRefused(t *testing.T) {
+	f := newOTPFixture(t)
+	ctx := context.Background()
+	f.rider(phoneA)
+	req, err := f.o.Request(ctx, TypeRider, phoneA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.exec("UPDATE people SET phone = $1 WHERE phone = $2", phoneB, phoneA)
+	if _, err := f.o.Verify(ctx, TypeRider, req.ID, testCode); !errors.Is(err, ErrInvalidOTP) {
+		t.Errorf("this is a refusal, not an outage: %v", err)
 	}
 }
 

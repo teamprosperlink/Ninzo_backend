@@ -889,7 +889,7 @@ paths:
                                 phone:
                                     description: In E.164 format.
                                     example: "+919876543210"
-                                    pattern: ^\+[1-9][0-9]{7,14}$
+                                    pattern: ^\+91[6-9][0-9]{9}$
                                     type: string
                             required:
                                 - phone
@@ -1292,7 +1292,7 @@ paths:
                                 phone:
                                     description: In E.164 format.
                                     example: "+919876543210"
-                                    pattern: ^\+[1-9][0-9]{7,14}$
+                                    pattern: ^\+91[6-9][0-9]{9}$
                                     type: string
                             required:
                                 - phone

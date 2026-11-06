@@ -270,6 +270,9 @@ func (o *OTPs) signIn(ctx context.Context, tx pgx.Tx, actorType, phone string) (
 		var active bool
 		err := tx.QueryRow(ctx, `SELECT r.id::text, r.status, p.status = 'active' AND r.status <> 'suspended'
 			FROM riders r JOIN people p ON p.id = r.person_id WHERE p.phone = $1`, phone).Scan(&actorID, &v.Status, &active)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Verified{}, ErrInvalidOTP // The rider's phone changed after the code was sent.
+		}
 		if err != nil {
 			return Verified{}, err
 		}
