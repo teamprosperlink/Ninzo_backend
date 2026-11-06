@@ -119,9 +119,10 @@ func (g *GoogleVerifier) key(ctx context.Context, kid string) (*rsa.PublicKey, e
 	g.mu.Lock()
 	key, known := g.keys[kid]
 	stale := g.clock().Sub(g.fetchedAt) >= googleKeysLife
+	mayFetch := g.clock().Sub(g.attemptedAt) >= googleRefetchEvery
 	g.mu.Unlock()
 	if known {
-		if stale && g.fetching.TryLock() {
+		if stale && mayFetch && g.fetching.TryLock() {
 			go func() {
 				defer g.fetching.Unlock()
 				bg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -136,21 +137,20 @@ func (g *GoogleVerifier) key(ctx context.Context, kid string) (*rsa.PublicKey, e
 	defer g.fetching.Unlock()
 	g.mu.Lock()
 	key, known = g.keys[kid]
-	haveKeys, recent, lastFailed := g.keys != nil, g.clock().Sub(g.attemptedAt) < googleRefetchEvery, g.lastFailed
+	recent, lastFailed := g.clock().Sub(g.attemptedAt) < googleRefetchEvery, g.lastFailed
 	g.mu.Unlock()
 	switch {
 	case known:
 		return key, nil
-	case recent && lastFailed && !haveKeys:
-		return nil, ErrGoogleUnavailable
+	case recent && lastFailed:
+		return nil, ErrGoogleUnavailable // It may be a real new key: only a good list can say it is not.
 	case recent:
 		return nil, ErrGoogleToken
 	}
-	if err := g.refresh(ctx); err != nil {
-		if !haveKeys {
-			return nil, fmt.Errorf("%w: %v", ErrGoogleUnavailable, err)
-		}
-		return nil, ErrGoogleToken
+	// Not on this request's context: one client hanging up must not count as Google failing, and
+	// fail everyone else for a minute. fetch has its own time limit.
+	if err := g.refresh(context.WithoutCancel(ctx)); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrGoogleUnavailable, err)
 	}
 	g.mu.Lock()
 	key, known = g.keys[kid]

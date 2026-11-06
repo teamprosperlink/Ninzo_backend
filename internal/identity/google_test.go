@@ -207,6 +207,70 @@ func TestAHangingGoogleHoldsUpNobodyWithAKnownKey(t *testing.T) {
 	}
 }
 
+func TestOldKeysDuringAnOutageDoNotHammerGoogle(t *testing.T) {
+	g := newFakeGoogle(t)
+	ctx := context.Background()
+	now := time.Now()
+	v := g.verifier()
+	v.now = func() time.Time { return now }
+	if _, err := v.Verify(ctx, g.token(t, "s")); err != nil {
+		t.Fatal(err)
+	}
+	g.down.Store(true)
+	now = now.Add(2 * googleKeysLife)
+	long := g.claims("s")
+	long["exp"] = now.Add(time.Hour).Unix()
+	token := g.sign(t, long)
+	if _, err := v.Verify(ctx, token); err != nil {
+		t.Fatal(err)
+	}
+	// The background refresh records its attempt, and then the limit holds.
+	for i := 0; i < 200 && g.fetches.Load() < 2; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	v.fetching.Lock()
+	v.fetching.Unlock() //nolint:staticcheck // Waits for that refresh to finish.
+	for i := 0; i < 20; i++ {
+		if _, err := v.Verify(ctx, token); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := g.fetches.Load(); n != 2 {
+		t.Errorf("%d fetches: 20 requests during an outage must not each call Google", n)
+	}
+}
+
+func TestOneCancelledRequestHarmsNobody(t *testing.T) {
+	g := newFakeGoogle(t)
+	v := g.verifier()
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = v.Verify(cancelled, g.token(t, "s"))
+	if _, err := v.Verify(context.Background(), g.token(t, "s")); err != nil {
+		t.Errorf("a client hanging up must not fail the next sign-in: %v", err)
+	}
+}
+
+func TestANewKeyDuringAnOutageIsNotARefusal(t *testing.T) {
+	g := newFakeGoogle(t)
+	ctx := context.Background()
+	now := time.Now()
+	v := g.verifier()
+	v.now = func() time.Time { return now }
+	if _, err := v.Verify(ctx, g.token(t, "s")); err != nil {
+		t.Fatal(err)
+	}
+	g.kid = "key-2"
+	g.down.Store(true)
+	now = now.Add(2 * googleRefetchEvery)
+	for i := 0; i < 2; i++ { // The second attempt is the limit holding, with the same answer.
+		if _, err := v.Verify(ctx, g.token(t, "s")); !errors.Is(err, ErrGoogleUnavailable) {
+			t.Errorf("attempt %d: %v", i, err)
+		}
+	}
+}
+
 func TestGoogleEmailIsKeptOnlyIfVerified(t *testing.T) {
 	g := newFakeGoogle(t)
 	v := g.verifier()
