@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-06 | #47 | `v0.2.0` Google sign-in, phone verification and merging, local only, with fake signed tokens | See PR | PASS | [reports/47.md](reports/47.md) |
 | 2026-11-06 | #43 | `v0.2.0` phone OTP sign-in, test codes, local only | See PR | PASS | [reports/43.md](reports/43.md) |
 | 2026-11-06 | #38 | `v0.2.0` session system, local only | See PR | PASS | [reports/38.md](reports/38.md) |
 | 2026-11-05 | #36 | `v0.2.0` idempotency, audit and outbox, local only | See PR | PASS | [reports/36.md](reports/36.md) |

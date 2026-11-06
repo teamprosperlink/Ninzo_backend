@@ -250,8 +250,7 @@ paths:
         this phone already has an account. Reload anything that holds the old ID. Verifying the
         phone already on this account with a new code returns 200. If the reply is lost, a retry returns 401 or invalid_otp, because the old access token can last 15 minutes. Either way, sign in again: the phone is already verified. Errors: invalid_otp and
         otp_expired (both 400), otp_attempts_exceeded (429), account_blocked (403). All 409:
-        phone_already_set if this account has a different verified phone, phone_already_linked if
-        that phone's account has a different Google account.
+        phone_already_set if this account has a different verified phone, phone_already_linked if that phone's account has a different Google account. In that case, sign in by OTP, and wait out any Retry-After, because codes for that phone are limited.
       requestBody:
         required: true
         content:

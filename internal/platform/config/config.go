@@ -48,8 +48,10 @@ type Config struct {
 	OTPTestCode Secret
 	// JWTSigningKey signs access tokens.
 	JWTSigningKey Secret
-	AccessTTL     time.Duration
-	RefreshTTL    time.Duration
+	// GoogleClientIDs are the audiences a Google ID token may name. They are public.
+	GoogleClientIDs []string
+	AccessTTL       time.Duration
+	RefreshTTL      time.Duration
 }
 
 // IsLocal reports whether this runs on a developer's machine.
@@ -160,6 +162,17 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 
+	for _, id := range strings.Split(getenv("GOOGLE_CLIENT_IDS"), ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if !strings.HasSuffix(id, ".apps.googleusercontent.com") {
+			problem("GOOGLE_CLIENT_IDS must hold Google client IDs, separated by commas")
+			continue
+		}
+		c.GoogleClientIDs = append(c.GoogleClientIDs, id)
+	}
 	c.JWTSigningKey = Secret(getenv("JWT_SIGNING_KEY"))
 	switch {
 	case len(c.JWTSigningKey) < minSigningKey:

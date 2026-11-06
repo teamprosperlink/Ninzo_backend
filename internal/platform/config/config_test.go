@@ -149,6 +149,20 @@ func TestPrintingConfigHidesTheSigningKey(t *testing.T) {
 	}
 }
 
+func TestGoogleClientIDs(t *testing.T) {
+	a, b := "1-a.apps.googleusercontent.com", "2-b.apps.googleusercontent.com"
+	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "GOOGLE_CLIENT_IDS": a + " , " + b + ","}))
+	if err != nil || len(c.GoogleClientIDs) != 2 || c.GoogleClientIDs[0] != a || c.GoogleClientIDs[1] != b {
+		t.Errorf("%v, %v", c.GoogleClientIDs, err)
+	}
+	if _, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "GOOGLE_CLIENT_IDS": "not-a-client-id"})); err == nil {
+		t.Error("a bad client ID must be refused")
+	}
+	if c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL})); err != nil || len(c.GoogleClientIDs) != 0 {
+		t.Errorf("none set: %v, %v", c.GoogleClientIDs, err)
+	}
+}
+
 func TestPlatformPort(t *testing.T) {
 	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "PORT": "7000"}))
 	if err != nil || c.Port != 7000 {

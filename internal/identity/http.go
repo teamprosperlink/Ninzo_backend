@@ -192,3 +192,111 @@ func (o *OTPs) unavailable(w http.ResponseWriter, r *http.Request, err error) {
 	w.Header().Set("Retry-After", "5")
 	httpserver.WriteError(w, http.StatusServiceUnavailable, "service_unavailable", "Try again shortly.", true)
 }
+
+// MountGoogle adds signInWithGoogle. Only the customer API has it.
+func MountGoogle(r chi.Router, g *GoogleSignIn) {
+	r.Post("/auth/google", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			IDToken string `json:"id_token"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.IDToken == "" {
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send id_token.", false)
+			return
+		}
+		out, err := g.SignIn(req.Context(), body.IDToken)
+		switch {
+		case errors.Is(err, ErrGoogleToken):
+			httpserver.WriteError(w, http.StatusUnauthorized, "invalid_google_token", "Google could not confirm this sign-in.", false)
+		case errors.Is(err, ErrAccountBlocked):
+			writeBlocked(w)
+		case err != nil:
+			g.Log.Error("identity: Google sign-in failed", "request_id", httpserver.RequestID(req.Context()), "error", err.Error())
+			w.Header().Set("Retry-After", "5")
+			httpserver.WriteError(w, http.StatusServiceUnavailable, "service_unavailable", "Try again shortly.", true)
+		default:
+			httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+				"access_token":   out.Pair.AccessToken,
+				"refresh_token":  out.Pair.RefreshToken,
+				"expires_in_s":   out.Pair.ExpiresInS,
+				"customer_id":    out.Actor.ID,
+				"phone_verified": out.PhoneVerified,
+				"server_time":    serverTime(),
+			})
+		}
+	})
+}
+
+func writeBlocked(w http.ResponseWriter) {
+	httpserver.WriteJSON(w, http.StatusForbidden, map[string]any{
+		"code": "account_blocked", "message": "This account is blocked.", "retryable": false,
+		"missing_permission": "account_active", "server_time": serverTime(),
+	})
+}
+
+// MountPhoneVerification adds requestPhoneOtp and verifyPhone. Only the customer API has them.
+func MountPhoneVerification(r chi.Router, o *OTPs, signer Signer) {
+	r.Group(func(signedIn chi.Router) {
+		signedIn.Use(RequireActor(signer, TypeCustomer))
+		signedIn.Post("/me/phone/otp", func(w http.ResponseWriter, req *http.Request) {
+			actor, _ := ActorFrom(req.Context())
+			var body struct {
+				Phone string `json:"phone"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a phone number.", false)
+				return
+			}
+			out, err := o.RequestPhone(req.Context(), actor, body.Phone)
+			var wait *RetryAfterError
+			switch {
+			case errors.Is(err, ErrBadPhone):
+				httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "That phone number is not valid.", false)
+			case errors.As(err, &wait):
+				w.Header().Set("Retry-After", strconv.Itoa(wait.Seconds))
+				httpserver.WriteError(w, http.StatusTooManyRequests, "otp_resend_limit", "Too many codes requested.", true)
+			case errors.Is(err, ErrSessionInvalid):
+				httpserver.WriteError(w, http.StatusUnauthorized, "unauthorized", "Sign in again.", false)
+			case err != nil:
+				o.unavailable(w, req, err)
+			default:
+				httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+					"request_id": out.ID, "expires_in_s": out.ExpiresInS, "resend_after_s": out.ResendAfterS, "server_time": serverTime(),
+				})
+			}
+		})
+		signedIn.Post("/me/phone/verify", func(w http.ResponseWriter, req *http.Request) {
+			actor, _ := ActorFrom(req.Context())
+			var body struct {
+				RequestID string `json:"request_id"`
+				OTP       string `json:"otp"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.RequestID == "" || !otpFormat.MatchString(body.OTP) {
+				httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send request_id and otp.", false)
+				return
+			}
+			v, err := o.VerifyPhone(req.Context(), actor, body.RequestID, body.OTP)
+			switch {
+			case errors.Is(err, ErrInvalidOTP):
+				httpserver.WriteError(w, http.StatusBadRequest, "invalid_otp", "That code is wrong.", false)
+			case errors.Is(err, ErrOTPExpired):
+				httpserver.WriteError(w, http.StatusBadRequest, "otp_expired", "That code has expired.", false)
+			case errors.Is(err, ErrOTPAttempts):
+				w.Header().Set("Retry-After", strconv.Itoa(int(otpResendAfter.Seconds())))
+				httpserver.WriteError(w, http.StatusTooManyRequests, "otp_attempts_exceeded", "Too many wrong codes. Ask for a new one.", false)
+			case errors.Is(err, ErrAccountBlocked):
+				writeBlocked(w)
+			case errors.Is(err, ErrPhoneAlreadySet):
+				httpserver.WriteError(w, http.StatusConflict, "phone_already_set", "This account already has a different verified phone.", false)
+			case errors.Is(err, ErrPhoneAlreadyLinked):
+				httpserver.WriteError(w, http.StatusConflict, "phone_already_linked", "This phone already has a different linked account. Sign in with OTP.", false)
+			case err != nil:
+				o.unavailable(w, req, err)
+			default:
+				httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+					"access_token": v.Pair.AccessToken, "refresh_token": v.Pair.RefreshToken, "expires_in_s": v.Pair.ExpiresInS,
+					"customer_id": v.Actor.ID, "phone_verified": true, "server_time": serverTime(),
+				})
+			}
+		})
+	})
+}

@@ -27,7 +27,7 @@ Last updated: 2026-11-04
 
 ## Next actions
 0. Owner, before `v0.3.0`: answer `docs/planning/v0.3.0_open_questions.md` (#34). `docs/context/algorithms/` conflicts with the flow in force, which stays until then.
-1. `v0.2.0`: all 8 migrations are live on Supabase (#30). The sign-in contract and mock are live, and the developers are told in the shared Doc. The service skeleton is built (#32). Idempotency, audit and outbox are built (#36). The session system is built (#38). Phone OTP is built, with test codes (#43). Next are Google sign-in and phone verification, on #25. `ninzo_service` has no password yet: the owner sets one when the first service connects to Supabase.
+1. `v0.2.0`: all 8 migrations are live on Supabase (#30). The sign-in contract and mock are live, and the developers are told in the shared Doc. The service skeleton is built (#32). Idempotency, audit and outbox are built (#36). The session system is built (#38). Phone OTP is built, with test codes (#43). Google sign-in and phone verification are built (#47). Next are rate limiting (#39), then profile and devices, on #25. `ninzo_service` has no password yet: the owner sets one when the first service connects to Supabase.
 2. #9 stays open for developer feedback. The owner shares the shared index with them.
 2. Owner supplies what `v0.1.0` needs: see section 1 of `docs/planning/owner_setup_checklist.md`.
 3. Owner reviews `docs/engineering/tech_stack.md`, decisions 0001-0007 and `apps/customer-api/docs/`. Each decision moves to Accepted after review.

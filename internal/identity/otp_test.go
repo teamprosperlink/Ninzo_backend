@@ -633,16 +633,19 @@ func TestAMissingOrBadRequestIDIsCheapAndRefused(t *testing.T) {
 	}
 }
 
-// waitForBlockedQuery waits until a request is really waiting on a lock, instead of guessing how
-// long that takes. If nothing ever waits, as with a lock removed, it gives up, so the test can fail.
+// waitForBlockedQuery waits until a request is really waiting on a lock in this database, instead
+// of guessing how long that takes. Reaching the time limit fails the test, so it can never pass
+// without the race having happened.
 func (f *otpFixture) waitForBlockedQuery() {
 	f.t.Helper()
-	for i := 0; i < 60; i++ {
-		if f.count("SELECT count(*) FROM pg_locks WHERE NOT granted") > 0 {
+	for i := 0; i < 400; i++ {
+		if f.count(`SELECT count(*) FROM pg_locks WHERE NOT granted AND
+			(locktype = 'transactionid' OR database = (SELECT oid FROM pg_database WHERE datname = current_database()))`) > 0 {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	f.t.Fatal("no request ever waited on the lock")
 }
 
 func TestARiderWhoseNumberChangedBeforeTheCodeIsRefused(t *testing.T) {

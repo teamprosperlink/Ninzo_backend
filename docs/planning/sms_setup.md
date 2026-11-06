@@ -19,6 +19,11 @@ On an operator's portal, on a computer, under the company's legal name.
    ```
 8. Save the approved **DLT Template ID**.
 
+   Register a second template for phone verification, so the message warns what a code does:
+   ```
+   {#var#} is your Ninzo code to link this phone to your account. Do not share it with anyone.
+   ```
+
 ## B. Set up MSG91
 After A is approved.
 
