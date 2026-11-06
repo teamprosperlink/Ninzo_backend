@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### SMS setup steps (#45)
+- Added: `docs/planning/sms_setup.md`.
+
 ### Phone OTP sign-in (#43)
 - Added: `requestOtp` and `verifyOtp` on `customer-api` and `rider-api`, with test codes. Real SMS comes later.
 - Evidence: docs/testing/reports/43.md
