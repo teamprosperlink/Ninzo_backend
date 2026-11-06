@@ -558,6 +558,73 @@ func TestTwoAccountsRacingForOnePhoneStayConsistent(t *testing.T) {
 	}
 }
 
+func TestABlockWhileASignInWaitsStopsIt(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	first := f.googleSignIn("sub-1")
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if err := lockActor(ctx, tx, TypeCustomer, first.Actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.google.SignIn(ctx, f.g.token(t, "sub-1"))
+		done <- err
+	}()
+	f.waitForBlockedQuery()
+	if _, err := tx.Exec(ctx, "UPDATE people SET status = 'blocked'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrAccountBlocked) {
+		t.Errorf("got %v", err)
+	}
+	if n := f.count("SELECT count(*) FROM refresh_tokens"); n != 1 {
+		t.Errorf("%d sessions, want only the first", n)
+	}
+}
+
+// One account holds the phone lock while it takes the number. The other must wait, then be told
+// properly, and not hit a database error.
+func TestTheSecondAccountForAPhoneWaitsAndIsToldProperly(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx := context.Background()
+	a, b := f.googleSignIn("sub-1"), f.googleSignIn("sub-2")
+	req, err := f.o.RequestPhone(ctx, b.Actor, phoneA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 2))", phoneA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "UPDATE people SET phone = $1 WHERE id = (SELECT person_id FROM customers WHERE id = $2)", phoneA, a.Actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.o.VerifyPhone(ctx, b.Actor, req.ID, testCode)
+		done <- err
+	}()
+	f.waitForBlockedQuery()
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrPhoneAlreadyLinked) {
+		t.Errorf("got %v", err)
+	}
+}
+
 // ---------- HTTP
 
 func (f *googleFixture) server() *httptest.Server {

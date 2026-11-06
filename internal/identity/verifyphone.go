@@ -141,10 +141,7 @@ func (o *OTPs) merge(ctx context.Context, tx pgx.Tx, customer, person, owner, ph
 		if err := lockActor(ctx, tx, TypeCustomer, target); err != nil {
 			return Verified{}, err
 		}
-		// refresh_tokens and devices have no foreign key to profiles, so nothing else stops these.
-		if err := o.Sessions.EndAll(ctx, tx, TypeCustomer, customer, ""); err != nil {
-			return Verified{}, err
-		}
+		// devices has no foreign key to profiles. freshSession below ends this customer's sessions.
 		if _, err := tx.Exec(ctx, "DELETE FROM devices WHERE actor_type = $1 AND actor_id = $2", TypeCustomer, customer); err != nil {
 			return Verified{}, err
 		}
