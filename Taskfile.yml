@@ -56,14 +56,16 @@ tasks:
       - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local zones"
       - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local menu"
       - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local fleet"
+      - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local rider"
   staging:testdata:
     desc: Add the Bengaluru test zones and the test menu to the database in .env. Asks first, and needs the owner's okay
     dotenv: [".env"]
-    prompt: Add test zones and the test menu to the Supabase project in .env?
+    prompt: Add the test zones, menu, fleet and rider to the Supabase project in .env?
     cmds:
       - go run ./cmd/testdata -remote zones
       - go run ./cmd/testdata -remote menu
       - go run ./cmd/testdata -remote fleet
+      - go run ./cmd/testdata -remote rider
   riders:
     desc: "Approve a rider on local Postgres. Example: task riders -- approve -phone +919800000001 -zone ID -reason why -by name"
     cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/riders -local {{.CLI_ARGS}}"]

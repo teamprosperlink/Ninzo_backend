@@ -99,3 +99,19 @@ func TestTheTestFleetIsAddedOnce(t *testing.T) {
 		t.Errorf("%d nodes, %d scooters, %d lots", nodes, scooters, lots)
 	}
 }
+
+func TestTheTestRiderIsAddedOnce(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	url := pool.Config().ConnString()
+	for _, what := range []string{"zones", "rider", "rider"} {
+		if err := run(context.Background(), []string{"-local", what}, env(map[string]string{"DATABASE_URL": url}), &bytes.Buffer{}); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM riders r JOIN people p ON p.id = r.person_id
+		WHERE p.phone = $1 AND r.status = 'active' AND r.zone_id IS NOT NULL
+			AND EXISTS (SELECT 1 FROM rider_verifications v WHERE v.rider_id = r.id AND v.status = 'verified')`, testRiderPhone).Scan(&n); err != nil || n != 1 {
+		t.Errorf("%d %v", n, err)
+	}
+}
