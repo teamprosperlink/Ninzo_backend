@@ -43,7 +43,8 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 ## Ordering
 | Downside | Who it affects | What limits it today | Status | Source |
 |---|---|---|---|---|
-| A Google customer learns what is in reach only after verifying a phone | Google customers | A location check without saving anything would fix it | **Open**, for `v0.3.0` | #34 |
+| Reach is straight-line distance from a scooter's staging node, at a placeholder speed, not real roads or the rider's position | Customers | The settings are small, and refuse rather than stretch | **Until v0.5.0 and the road test:** rider GPS and real travel times | #72 |
+| Availability is checked when asked, not held, so the last unit can go to someone else before ordering | Customers | Orders reserve stock in `v0.4.0` | Accepted | #72 |
 
 ## Gates
 | Downside | Who it affects | What limits it today | Status | Source |

@@ -383,8 +383,9 @@ func registerDevice(c *call) {
 }
 
 func availability(c *call) {
-	if c.r.URL.Query().Get("gate_id") == "" {
-		c.fail(400, "invalid_request", "Missing gate_id.", false)
+	q := c.r.URL.Query()
+	if (q.Get("gate_id") == "") == (q.Get("lat") == "" || q.Get("lng") == "") {
+		c.fail(400, "invalid_request", "Send gate_id, or lat and lng, not both.", false)
 		return
 	}
 	body := map[string]any{"offer_available": true, "unavailable_reason": nil, "stale_at": stamp(c.now.Add(30 * time.Second))}

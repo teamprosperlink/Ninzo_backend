@@ -112,7 +112,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `checkLocation` | `zones` | | | |
 | `listMenuItems` | `menu_items` | | | |
 | `getMenuItem` | `menu_items` | | | |
-| `getAvailability` | `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooter_stock`, `lots`, `scooters`, `orders` | | Positions, cells, cache | Routing engine |
+| `getAvailability` | `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooter_stock`, `lots`, `scooters`, `shifts`, `riders`, `people`, `staging_nodes`, `refresh_tokens` | | Positions from v0.5.0 | Routing engine, after the road test |
 | `notifyWhenAvailable` | `customers`, `people`, `gates` | `availability_notifications`, `idempotency_keys` | | |
 | `listOrders` | `orders`, `order_items`, `payments`, `gates`, `riders`, `remedies` | | | |
 | `createOrder` | `people`, `customers`, `orders`, `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooters`, `scooter_stock`, `lots` | `orders`, `order_items`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |
