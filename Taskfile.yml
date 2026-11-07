@@ -36,7 +36,7 @@ tasks:
     cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/migrate -local status"]
   test:db:
     desc: Run the database tests on local Postgres, in throwaway databases
-    cmds: ["TEST_DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' REQUIRE_DB_TESTS=yes go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./cmd/settings/ ./cmd/testdata/"]
+    cmds: ["TEST_DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' REQUIRE_DB_TESTS=yes go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./internal/shifts/ ./cmd/riders/ ./cmd/settings/ ./cmd/testdata/"]
   run:customer:
     desc: Run customer-api on port 8080, against local Postgres only
     cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8080 GOOGLE_CLIENT_IDS=144794375699-vdlaflhhjmpfgdv8qscjlncp2909ea1l.apps.googleusercontent.com JWT_SIGNING_KEY=local-only-development-signing-key OTP_TEST_MODE=true OTP_TEST_CODE=123456 DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/customer-api"]
@@ -55,6 +55,7 @@ tasks:
     cmds:
       - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local zones"
       - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local menu"
+      - "DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/testdata -local fleet"
   staging:testdata:
     desc: Add the Bengaluru test zones and the test menu to the database in .env. Asks first, and needs the owner's okay
     dotenv: [".env"]
@@ -62,6 +63,15 @@ tasks:
     cmds:
       - go run ./cmd/testdata -remote zones
       - go run ./cmd/testdata -remote menu
+      - go run ./cmd/testdata -remote fleet
+  riders:
+    desc: "Approve a rider on local Postgres. Example: task riders -- approve -phone +919800000001 -zone ID -reason why -by name"
+    cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/riders -local {{.CLI_ARGS}}"]
+  staging:riders:
+    desc: Approve a rider on the database in .env. Asks first, and needs the owner's okay
+    dotenv: [".env"]
+    prompt: Approve this rider on the Supabase project in .env?
+    cmds: ["go run ./cmd/riders -remote {{.CLI_ARGS}}"]
   staging:settings:show:
     desc: Show the target and the order settings on the database in .env. Changes nothing
     dotenv: [".env"]

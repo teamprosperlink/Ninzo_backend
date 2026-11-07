@@ -79,3 +79,23 @@ func TestTheTestMenuIsAddedOnce(t *testing.T) {
 		t.Errorf("%d items, %d prices, %v", items, prices, err)
 	}
 }
+
+func TestTheTestFleetIsAddedOnce(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	url := pool.Config().ConnString()
+	if err := run(context.Background(), []string{"-local", "fleet"}, env(map[string]string{"DATABASE_URL": url}), &bytes.Buffer{}); err == nil {
+		t.Error("fleet ran with no zones")
+	}
+	for _, what := range []string{"zones", "menu", "fleet", "fleet"} {
+		if err := run(context.Background(), []string{"-local", what}, env(map[string]string{"DATABASE_URL": url}), &bytes.Buffer{}); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	var nodes, scooters, lots int
+	if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM staging_nodes), (SELECT count(*) FROM scooters), (SELECT count(*) FROM lots)`).Scan(&nodes, &scooters, &lots); err != nil {
+		t.Fatal(err)
+	}
+	if nodes != len(testZones) || scooters != 2*len(testZones) || lots != 10*len(testItems) {
+		t.Errorf("%d nodes, %d scooters, %d lots", nodes, scooters, lots)
+	}
+}
