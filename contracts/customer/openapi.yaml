@@ -518,7 +518,7 @@ paths:
       tags: [gates]
       operationId: listGates
       summary: List the customer's saved gates
-      description: Returns every gate the customer has saved.
+      description: Returns every gate the customer has saved, newest first.
       responses:
         '200':
           description: The gates.
@@ -528,6 +528,10 @@ paths:
                 $ref: '#/components/schemas/GateList'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
     post:
@@ -535,8 +539,10 @@ paths:
       operationId: createGate
       summary: Save a gate
       description: >-
-        Needs a verified phone. Errors: out_of_service_area (400), duplicate_gate and
-        phone_required (both 409).
+        Needs a verified phone. The pin must be inside an active service area, and a gate there is
+        verified at once. An order checks the area again, so a paused area stops its gates. A pin within 15 m of one of
+        this customer's saved gates is the same gate. A customer keeps up to 20. Errors:
+        out_of_service_area (400). All 409: duplicate_gate, phone_required, gate_limit.
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -573,10 +579,56 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '409':
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /locations/check:
+    get:
+      tags: [gates]
+      operationId: checkLocation
+      summary: Check whether a pin is served
+      description: >-
+        Says whether a pin is inside an active service area, and saves nothing. It needs a sign-in
+        but no verified phone, so a Google customer can check before giving one. An ended session
+        gets 401. Availability for
+        the pin comes with getAvailability.
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+      responses:
+        '200':
+          description: The result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationCheck'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /menu/items:
@@ -1228,6 +1280,19 @@ components:
       properties:
         gate:
           $ref: '#/components/schemas/Gate'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    LocationCheck:
+      type: object
+      required: [in_service_area, zone_id, server_time]
+      properties:
+        in_service_area:
+          type: boolean
+        zone_id:
+          description: Null outside every service area.
+          anyOf:
+            - $ref: '../shared/common.yaml#/components/schemas/Id'
+            - type: 'null'
         server_time:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     GateList:

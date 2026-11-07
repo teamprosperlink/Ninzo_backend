@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Zones, gates and the location check (#66)
+- Added: service areas on `zones`, `listGates`, `createGate`, and `checkLocation`, which saves nothing. Migration 0013, not applied to Supabase.
+- Added: `task testdata` and `task staging:testdata`, for the Bengaluru test zones.
+- Evidence: docs/testing/reports/66.md
+
 ### Settings store (#64)
 - Added: `zones` and versioned `zone_settings`, seeded with the starting values. Migration 0012, not applied to Supabase.
 - Added: `task settings` and `task staging:settings`, audited, until the console exists.

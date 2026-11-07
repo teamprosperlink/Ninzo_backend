@@ -378,6 +378,22 @@ components:
             example: ord_01HZX3Q7
             minLength: 1
             type: string
+        LocationCheck:
+            properties:
+                in_service_area:
+                    type: boolean
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+                zone_id:
+                    anyOf:
+                        - $ref: '#/components/schemas/Id'
+                        - type: "null"
+                    description: Null outside every service area.
+            required:
+                - in_service_area
+                - zone_id
+                - server_time
+            type: object
         MaskedCall:
             properties:
                 expires_at:
@@ -1110,7 +1126,7 @@ paths:
                 - menu
     /gates:
         get:
-            description: Returns every gate the customer has saved.
+            description: Returns every gate the customer has saved, newest first.
             operationId: listGates
             responses:
                 "200":
@@ -1121,13 +1137,17 @@ paths:
                     description: The gates.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: List the customer's saved gates
             tags:
                 - gates
         post:
-            description: 'Needs a verified phone. Errors: out_of_service_area (400), duplicate_gate and phone_required (both 409).'
+            description: 'Needs a verified phone. The pin must be inside an active service area, and a gate there is verified at once. An order checks the area again, so a paused area stops its gates. A pin within 15 m of one of this customer''s saved gates is the same gate. A customer keeps up to 20. Errors: out_of_service_area (400). All 409: duplicate_gate, phone_required, gate_limit.'
             operationId: createGate
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1168,13 +1188,56 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Save a gate
+            tags:
+                - gates
+    /locations/check:
+        get:
+            description: Says whether a pin is inside an active service area, and saves nothing. It needs a sign-in but no verified phone, so a Google customer can check before giving one. An ended session gets 401. Availability for the pin comes with getAvailability.
+            operationId: checkLocation
+            parameters:
+                - in: query
+                  name: lat
+                  required: true
+                  schema:
+                    maximum: 90
+                    minimum: -90
+                    type: number
+                - in: query
+                  name: lng
+                  required: true
+                  schema:
+                    maximum: 180
+                    minimum: -180
+                    type: number
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LocationCheck'
+                    description: The result.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Check whether a pin is served
             tags:
                 - gates
     /me:
