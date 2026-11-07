@@ -6,7 +6,7 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ## [Unreleased]
 
 ### A far-away database (#60)
-- Fixed: a 2-second database check could never finish a new connection from another region, which stopped both APIs starting on staging. It is now 8 seconds, and each API keeps one connection open.
+- Changed: the database check allows 8 seconds, not 2, because a new connection from another region often took longer, which made starting slow and hid the database's real error. Each API keeps one connection open.
 
 ### Profile and devices (#58)
 - Added: `getMe`, `updateMe`, `registerDevice`, `removeDevice`, `getRider`, `registerRiderDevice` and `removeRiderDevice`.

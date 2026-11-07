@@ -17,9 +17,8 @@ import (
 
 const (
 	connectTimeout = 5 * time.Second
-	// PingTimeout must outlast a whole new connection, or a ping can never succeed when none is open.
-	// A new connection from another region took 1.8 seconds, with TLS and sign-in: a 2-second limit
-	// stopped both staging APIs starting, with no sign of why.
+	// PingTimeout must outlast a whole new connection. A new connection from another region can take
+	// 2 seconds or more, so a 2-second limit often failed, and hid the database's real error.
 	PingTimeout = connectTimeout + 3*time.Second
 )
 
