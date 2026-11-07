@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Settings store (#64)
+- Added: `zones` and versioned `zone_settings`, seeded with the starting values. Migration 0012, not applied to Supabase.
+- Added: `task settings` and `task staging:settings`, audited, until the console exists.
+- Evidence: docs/testing/reports/64.md
+
 ### Staging (#60)
 - Added: the customer and rider APIs on Railway, in Singapore, with test data only. Migrations 0009 to 0011 are applied to Supabase.
 - Evidence: docs/testing/reports/60.md

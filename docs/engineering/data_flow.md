@@ -49,6 +49,13 @@ Stored in the database, changed in the admin console, and audited. Until the con
 | Time to choose after no scooter, before an automatic refund | Zone | Not set |
 | Cancel window after payment is confirmed | Zone | 5 seconds |
 | Remedy if the timer ends before 100 m | Zone | Credit, amount not set |
+| Release the handover code after no ping | Zone | 30 s |
+| Reassign the order after no ping | Zone | 2 minutes (decision 0011) |
+| Sweet spot travel budget | Zone | 80 s, until the road test in Bengaluru |
+| Straight-line speed, until real road times | Zone | 15 km/h, a placeholder |
+| Widest rider search, past which the order is refused before payment | Zone | 1,500 m, a placeholder |
+
+The names, units and allowed ranges are in `internal/geo/settings.go`. Until the console exists, `task settings` changes them locally, and `task staging:settings` on staging, with a reason and a name. Each change is a new version and is audited.
 
 The location-based radius algorithm, written later by the owner, will supply the location value. It plugs in behind the same lookup, so the order flow does not change.
 
