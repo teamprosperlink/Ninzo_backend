@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -193,11 +194,24 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 	return out
 }
 
+// builtInV030 lists the v0.3.0 tables built so far, because v0.3.0 is built step by step. Add each
+// table here as it is built. When v0.3.0 is finished, compare with every v0.2.0 and v0.3.0 table.
+var builtInV030 = []string{"zones", "zone_settings"}
+
 func TestSchemaMatchesTheDataMap(t *testing.T) {
 	db, p := freshDB(t)
 	up(t, p)
 	got := strings.Join(publicTables(t, db), ",")
-	want := strings.Join(plannedTables(t, "v0.2.0"), ",")
+	planned := plannedTables(t, "v0.3.0")
+	built := plannedTables(t, "v0.2.0")
+	for _, table := range builtInV030 {
+		if !slices.Contains(planned, table) {
+			t.Errorf("%s is listed as built in v0.3.0, but the data map does not plan it for v0.3.0", table)
+		}
+		built = append(built, table)
+	}
+	sort.Strings(built)
+	want := strings.Join(built, ",")
 	if got != want {
 		t.Errorf("tables differ from the data map.\n got: %s\nwant: %s", got, want)
 	}
