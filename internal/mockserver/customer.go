@@ -49,7 +49,7 @@ var customerScenarios = map[string]string{
 	"invalid_otp":              "POST verify fails with invalid_otp",
 	"otp_expired":              "POST verify fails with otp_expired",
 	"otp_resend_limit":         "POST OTP request fails with otp_resend_limit",
-	"out_of_service_area":      "POST gate fails with out_of_service_area",
+	"out_of_service_area":      "POST gate fails with out_of_service_area, and the location check says not served",
 	"duplicate_gate":           "POST gate fails with duplicate_gate",
 	"rate_limited":             "POST OTP request returns 429",
 	"server_error":             "POST order returns a retryable 500",
@@ -175,6 +175,17 @@ func customerRoutes() []route {
 			g["id"], g["label"], g["lat"], g["lng"], g["verified"] = "gate_mock02", body["label"], body["lat"], body["lng"], false
 			g["entry_notes"] = body["entry_notes"]
 			c.json(201, map[string]any{"gate": g})
+		}},
+		{method: "GET", path: "/locations/check", handle: func(c *call) {
+			if c.r.URL.Query().Get("lat") == "" || c.r.URL.Query().Get("lng") == "" {
+				c.fail(400, "invalid_request", "Send lat and lng.", false)
+				return
+			}
+			if c.scenario == "out_of_service_area" {
+				c.json(200, map[string]any{"in_service_area": false, "zone_id": nil})
+				return
+			}
+			c.json(200, map[string]any{"in_service_area": true, "zone_id": "zone_mock01"})
 		}},
 		{method: "GET", path: "/menu/items", handle: func(c *call) {
 			c.json(200, map[string]any{"items": []map[string]any{menuItem("item_burger", "Burger", 14900), menuItem("item_chai", "Masala chai", 4900)}})

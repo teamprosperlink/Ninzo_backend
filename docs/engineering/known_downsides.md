@@ -37,6 +37,12 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 |---|---|---|---|---|
 | A Google customer learns what is in reach only after verifying a phone | Google customers | A location check without saving anything would fix it | **Open**, for `v0.3.0` | #34 |
 
+## Gates
+| Downside | Who it affects | What limits it today | Status | Source |
+|---|---|---|---|---|
+| A new gate is unverified, and orders need a verified gate, but nothing verifies one yet | Every customer, from `v0.4.0` | Ops verify gates once the console exists. Until then, a gate is verified by a script | **Open:** how gates are verified is not decided | #66 |
+| The test zones are rough boxes, not real service areas | Staging | They are marked as test data | Until the owner gives real areas | #66 |
+
 ## Repository and setup
 | Downside | Who it affects | What limits it today | Status | Source |
 |---|---|---|---|---|

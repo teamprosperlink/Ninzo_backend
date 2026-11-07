@@ -1,4 +1,4 @@
-// Package geo holds zones, gates and the settings that shape an order. It holds no HTTP code.
+// Package geo holds zones, gates and the settings that shape an order.
 package geo
 
 import (

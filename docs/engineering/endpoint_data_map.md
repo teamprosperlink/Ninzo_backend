@@ -107,8 +107,9 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `updateMe` | `customers`, `people`, `refresh_tokens` | `customers`, `audit_events`, `idempotency_keys` | | |
 | `registerDevice` | `devices`, `customers`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeDevice` | `devices` | `devices`, `idempotency_keys` | | |
-| `listGates` | `gates` | | | |
-| `createGate` | `customers`, `people`, `zones`, `gates` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` | | |
+| `listGates` | `gates`, `customers`, `people`, `refresh_tokens` | | | |
+| `createGate` | `customers`, `people`, `zones`, `gates`, `refresh_tokens` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` | | |
+| `checkLocation` | `zones` | | | |
 | `listMenuItems` | `menu_items` | | | |
 | `getMenuItem` | `menu_items` | | | |
 | `getAvailability` | `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooter_stock`, `lots`, `scooters`, `orders` | | Positions, cells, cache | Routing engine |

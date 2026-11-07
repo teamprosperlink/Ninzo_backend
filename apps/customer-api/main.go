@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
@@ -41,6 +42,8 @@ func main() {
 			identity.MountMethodChange(r, d.Config.SignInMethods, otps, google, sessions.Signer)
 			profiles := &profile.Service{Pool: d.DB, Log: d.Log}
 			profiles.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			places := &geo.Service{Pool: d.DB, Log: d.Log}
+			places.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)
