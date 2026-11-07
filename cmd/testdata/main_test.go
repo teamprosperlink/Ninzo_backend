@@ -60,3 +60,22 @@ func TestZonesAreAddedOnceAndRealOnesAreLeftAlone(t *testing.T) {
 		t.Error("test data touched a real zone")
 	}
 }
+
+func TestTheTestMenuIsAddedOnce(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	url := pool.Config().ConnString()
+	var out bytes.Buffer
+	for i := 0; i < 2; i++ {
+		out.Reset()
+		if err := run(context.Background(), []string{"-local", "menu"}, env(map[string]string{"DATABASE_URL": url}), &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Count(out.String(), "kept") != len(testItems) {
+		t.Errorf("running again must change nothing: %s", out.String())
+	}
+	var items, prices int
+	if err := pool.QueryRow(context.Background(), "SELECT (SELECT count(*) FROM menu_items WHERE is_test AND status = 'active'), (SELECT count(*) FROM price_history WHERE reason = 'test data')").Scan(&items, &prices); err != nil || items != len(testItems) || prices != len(testItems) {
+		t.Errorf("%d items, %d prices, %v", items, prices, err)
+	}
+}

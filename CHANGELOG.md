@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Menu (#68)
+- Added: `menu_items` and `price_history`, `listMenuItems` and `getMenuItem`, and three test items. Migration 0014, not applied to Supabase.
+- Evidence: docs/testing/reports/68.md
+
 ### Zones, gates and the location check (#66)
 - Added: service areas on `zones`, `listGates`, `createGate`, and `checkLocation`, which saves nothing. Migration 0013, not applied to Supabase.
 - Added: `task testdata` and `task staging:testdata`, for the Bengaluru test zones.

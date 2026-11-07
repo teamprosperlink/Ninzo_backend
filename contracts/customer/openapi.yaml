@@ -636,7 +636,9 @@ paths:
       tags: [menu]
       operationId: listMenuItems
       summary: List the menu
-      description: The full menu. Use availability to see what is in reach of a gate.
+      description: >-
+        The items on sale, in menu order, with prices in paise. Use availability to see what is in
+        reach of a gate.
       responses:
         '200':
           description: The menu.
@@ -646,6 +648,8 @@ paths:
                 $ref: '#/components/schemas/MenuItemList'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /menu/items/{item_id}:
@@ -667,6 +671,8 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /availability:
