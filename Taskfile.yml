@@ -50,11 +50,21 @@ tasks:
   settings:
     desc: "Show or change order settings on local Postgres. Example: task settings -- set -reason why -by name timer_length_s=100"
     cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/settings -local {{.CLI_ARGS}}"]
-  staging:settings:
-    desc: Change order settings on the database in .env. Asks first, and needs the owner's okay
+  staging:settings:show:
+    desc: Show the target and the order settings on the database in .env. Changes nothing
     dotenv: [".env"]
-    prompt: Change settings on the target shown by `task staging:settings -- show`?
-    cmds: ["go run ./cmd/settings -remote {{.CLI_ARGS}}"]
+    cmds: ["go run ./cmd/settings -remote show {{.CLI_ARGS}}"]
+  staging:settings:
+    desc: "Change order settings on the database in .env. Shows the target, then asks. Example: task staging:settings -- -reason why -by name timer_length_s=100"
+    cmds:
+      - task: staging:settings:show
+      - task: staging:settings:apply
+        vars: {CLI_ARGS: "{{.CLI_ARGS}}"}
+  staging:settings:apply:
+    internal: true
+    dotenv: [".env"]
+    prompt: Change settings on the target shown above?
+    cmds: ["go run ./cmd/settings -remote set {{.CLI_ARGS}}"]
   staging:migrate:
     desc: Show the target, ask, then apply migrations to the database in .env. Needs the owner's okay
     cmds:

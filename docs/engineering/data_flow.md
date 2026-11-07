@@ -55,7 +55,7 @@ Stored in the database, changed in the admin console, and audited. Until the con
 | Straight-line speed, until real road times | Zone | 15 km/h, a placeholder |
 | Widest rider search, past which the order is refused before payment | Zone | 1,500 m, a placeholder |
 
-The names, units and allowed ranges are in `internal/geo/settings.go`. Until the console exists, `task settings` changes them locally, and `task staging:settings` on staging, with a reason and a name. Each change is a new version and is audited.
+The names, units and allowed ranges are in `internal/geo/settings.go`. Until the console exists, `task settings` changes them locally, and `task staging:settings` on staging, which shows the target and asks first, with a reason and a name. Each change is a new version and is audited.
 
 The location-based radius algorithm, written later by the owner, will supply the location value. It plugs in behind the same lookup, so the order flow does not change.
 

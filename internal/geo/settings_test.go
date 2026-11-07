@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -208,5 +209,92 @@ func TestDescribeShowsEverySetting(t *testing.T) {
 	}
 	if !strings.Contains(out, "not set") {
 		t.Error("unset values must say so")
+	}
+}
+
+func TestAGlobalChangeAndAZoneChangeCannotPassEachOther(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	ctx := context.Background()
+	zone := newZone(t, pool, "Race test")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := ChangeSettings(ctx, tx, "", []Change{{"zone_radius_m", ptr(200)}}, "global change", "test"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := change(t, pool, zone, Change{"arrival_perimeter_m", ptr(250)})
+		done <- err
+	}()
+	waitForLock(t, pool)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrInvalidSetting) {
+		t.Errorf("both changes were stored, so the zone's perimeter is outside its radius: %v", err)
+	}
+	if err := load(t, pool, zone).check(); err != nil {
+		t.Errorf("a stored contradiction: %v", err)
+	}
+}
+
+// waitForLock waits until a change is really waiting for another, and fails if none ever does.
+func waitForLock(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	for i := 0; i < 400; i++ {
+		var n int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype = 'advisory'
+			AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the second change never waited for the first")
+}
+
+func TestNobodyCanWipeTheVersions(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_trigger WHERE tgrelid = 'zone_settings'::regclass
+		AND tgname = 'zone_settings_no_truncate' AND NOT tgisinternal`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("no truncate guard: %d %v", n, err)
+	}
+	if _, err := pool.Exec(context.Background(), "TRUNCATE zone_settings"); err == nil {
+		t.Error("the service login wiped every version")
+	}
+}
+
+func TestLoadingGivesTheRowsToKeep(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	zone := newZone(t, pool, "Pin test")
+	if _, err := change(t, pool, zone, Change{"timer_length_s", ptr(120)}); err != nil {
+		t.Fatal(err)
+	}
+	e := load(t, pool, zone)
+	var gv, zv int
+	if err := pool.QueryRow(context.Background(), "SELECT (SELECT version FROM zone_settings WHERE id = $1), (SELECT version FROM zone_settings WHERE id = $2)", e.GlobalRowID, e.ZoneRowID).Scan(&gv, &zv); err != nil {
+		t.Fatal(err)
+	}
+	if gv != e.GlobalVersion || zv != e.ZoneVersion || zv != 1 {
+		t.Errorf("%+v, %d %d", e, gv, zv)
+	}
+	if g := load(t, pool, ""); g.ZoneRowID != "" || g.ZoneVersion != 0 {
+		t.Errorf("the global settings named a zone row: %+v", g)
+	}
+}
+
+func TestTheShorterWaitMustBeShorter(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	if _, err := change(t, pool, "", Change{"min_search_wait_s", ptr(20)}, Change{"in_zone_wait_s", ptr(30)}); !errors.Is(err, ErrInvalidSetting) {
+		t.Errorf("got %v", err)
+	}
+	if _, err := change(t, pool, "", Change{"min_search_wait_s", ptr(20)}, Change{"in_zone_wait_s", ptr(10)}); err != nil {
+		t.Errorf("got %v", err)
 	}
 }

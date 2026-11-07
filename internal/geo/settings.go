@@ -58,7 +58,9 @@ func find(name string) (Setting, bool) {
 type Effective struct {
 	Values        map[string]*int // Nil means not set.
 	GlobalVersion int
-	ZoneVersion   int // 0 when the zone overrides nothing.
+	ZoneVersion   int    // 0 when the zone overrides nothing.
+	GlobalRowID   string // An order keeps both row ids, so its values never change under it.
+	ZoneRowID     string // Empty when the zone overrides nothing.
 }
 
 // Get returns a value, and whether it is set.
@@ -109,29 +111,42 @@ func latest(ctx context.Context, q querier, zoneID string) (map[string]*int, int
 	return out, *dest[0].(*int), nil
 }
 
-// LoadSettings returns what a zone runs with now. An empty zoneID gives the global values.
+// LoadSettings returns what a zone runs with now. An empty zoneID gives the global values. Both rows
+// come from one statement, so they are always from the same moment.
 func LoadSettings(ctx context.Context, q querier, zoneID string) (Effective, error) {
-	global, gv, err := latest(ctx, q, "")
+	n := len(Settings)
+	global, own := make([]*int, n), make([]*int, n)
+	var gid, zid *string
+	var gv, zv *int
+	dest := []any{&gid, &gv, &zid, &zv}
+	for i := range global {
+		dest = append(dest, &global[i])
+	}
+	for i := range own {
+		dest = append(dest, &own[i])
+	}
+	g, z := make([]string, n), make([]string, n)
+	for i, st := range Settings {
+		g[i], z[i] = "g."+st.Name, "z."+st.Name
+	}
+	err := q.QueryRow(ctx, `SELECT g.id::text, g.version, z.id::text, z.version, `+strings.Join(g, ", ")+`, `+strings.Join(z, ", ")+`
+		FROM (SELECT * FROM zone_settings WHERE zone_id IS NULL ORDER BY version DESC LIMIT 1) g
+		LEFT JOIN (SELECT * FROM zone_settings WHERE zone_id = NULLIF($1, '')::uuid ORDER BY version DESC LIMIT 1) z ON true`,
+		zoneID).Scan(dest...)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Effective{}, errors.New("geo: no global settings, so migration 0012 has not run")
+	}
 	if err != nil {
 		return Effective{}, err
 	}
-	if gv == 0 {
-		return Effective{}, errors.New("geo: no global settings, so migration 0012 has not run")
+	e := Effective{Values: map[string]*int{}, GlobalVersion: *gv, GlobalRowID: *gid}
+	if zv != nil {
+		e.ZoneVersion, e.ZoneRowID = *zv, *zid
 	}
-	e := Effective{Values: map[string]*int{}, GlobalVersion: gv}
-	for name, v := range global {
-		e.Values[name] = v
-	}
-	if zoneID != "" {
-		own, zv, err := latest(ctx, q, zoneID)
-		if err != nil {
-			return Effective{}, err
-		}
-		e.ZoneVersion = zv
-		for name, v := range own {
-			if v != nil {
-				e.Values[name] = v
-			}
+	for i, st := range Settings {
+		e.Values[st.Name] = global[i]
+		if own[i] != nil {
+			e.Values[st.Name] = own[i]
 		}
 	}
 	return e, nil
@@ -183,8 +198,9 @@ func ChangeSettings(ctx context.Context, tx pgx.Tx, zoneID string, changes []Cha
 	if by == "" {
 		return 0, fmt.Errorf("%w: say who is making the change", ErrInvalidSetting)
 	}
-	// One change at a time for the same row, so two cannot take the same version.
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 5))", "zone_settings:"+zoneID); err != nil {
+	// One change at a time, everywhere. A global change and a zone change can contradict each other,
+	// and each check would miss the other's row. Changes are rare, so nobody waits long.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('zone_settings', 5))"); err != nil {
 		return 0, err
 	}
 	if zoneID != "" {
@@ -277,6 +293,11 @@ func (e Effective) check() error {
 	}
 	if search, _ := e.Get("max_search_radius_m"); search < radius {
 		return fmt.Errorf("the widest search (%d m) must reach at least the zone radius (%d m)", search, radius)
+	}
+	if inZone, ok := e.Get("in_zone_wait_s"); ok {
+		if search, ok := e.Get("min_search_wait_s"); ok && inZone > search {
+			return fmt.Errorf("the wait for a rider already in the zone (%d s) must not be longer than the usual wait (%d s)", inZone, search)
+		}
 	}
 	signal, _ := e.Get("signal_release_s")
 	reassign, _ := e.Get("reassign_after_s")

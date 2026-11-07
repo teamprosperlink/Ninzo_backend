@@ -49,6 +49,9 @@ CREATE INDEX zone_settings_latest_idx ON zone_settings (zone_id, version DESC);
 ALTER TABLE zone_settings ENABLE ROW LEVEL SECURITY;
 CREATE TRIGGER zone_settings_append_only BEFORE UPDATE OR DELETE ON zone_settings
     FOR EACH ROW EXECUTE FUNCTION forbid_change();
+-- Orders will keep the rows they started with, so even the migration login must not wipe them.
+CREATE TRIGGER zone_settings_no_truncate BEFORE TRUNCATE ON zone_settings
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_change();
 
 -- Starting values: decisions 0007 and 0011. The sweet spot budget, speed and search radius are
 -- placeholders until the road test in Bengaluru.
