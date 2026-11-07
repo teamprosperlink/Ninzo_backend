@@ -154,14 +154,14 @@ func TestSavingAndListingGates(t *testing.T) {
 	if code != 200 || len(out["gates"].([]any)) != 0 {
 		t.Fatalf("%d %v", code, out)
 	}
-	code, out = f.send("POST", "/gates", token, `{"label":"  Home gate ","lat":12.935,"lng":77.625,"entry_notes":"Ring twice\nThen wait"}`)
+	code, out = f.send("POST", "/gates", token, `{"label":"  Home gate ","lat":12.935,"lng":77.625,"entry_notes":"Ring twice\r\nThen wait"}`)
 	if code != 201 {
 		t.Fatalf("%d %v", code, out)
 	}
 	checkFields(t, out, "GateResponse")
 	g := out["gate"].(map[string]any)
 	checkFields(t, g, "Gate")
-	if g["label"] != "Home gate" || g["verified"] != false || g["entry_notes"] != "Ring twice\nThen wait" {
+	if g["label"] != "Home gate" || g["verified"] != true || g["entry_notes"] != "Ring twice\nThen wait" {
 		t.Errorf("%v", g)
 	}
 	_, out = f.send("GET", "/gates", token, "")
@@ -242,6 +242,8 @@ func TestBadGatesAreRefused(t *testing.T) {
 		`{"label":"A","lat":"12.9","lng":77.625}`, `{"label":"` + strings.Repeat("a", 81) + `","lat":12.935,"lng":77.625}`,
 		`{"label":"A","lat":12.935,"lng":77.625,"entry_notes":"` + strings.Repeat("a", 501) + `"}`,
 		`{"label":"A","lat":12.935,"lng":77.625,"entry_notes":"a\u0000b"}`,
+		`{"label":"a\u200fb","lat":12.935,"lng":77.625}`, `{"label":"a\u061cb","lat":12.935,"lng":77.625}`,
+		`{"label":"A","lat":12.935,"lng":77.625,"entry_notes":"a\u2028b"}`,
 	} {
 		if code, out := f.send("POST", "/gates", token, body); code != 400 || out["code"] != "invalid_request" {
 			t.Errorf("%s: %d %v", body[:min(len(body), 40)], code, out)
@@ -290,6 +292,10 @@ func TestCheckingALocationSavesNothing(t *testing.T) {
 	if code, _ := f.send("GET", "/locations/check?lat=12.935&lng=77.625", "", ""); code != 401 {
 		t.Errorf("no token: %d", code)
 	}
+	f.exec("UPDATE refresh_tokens SET revoked_at = now()")
+	if code, _ := f.send("GET", "/locations/check?lat=12.935&lng=77.625", token, ""); code != 401 {
+		t.Errorf("an ended session: %d", code)
+	}
 	if n := f.count("SELECT count(*) FROM gates") + f.count("SELECT count(*) FROM audit_events WHERE action LIKE 'gate.%'"); n != 0 {
 		t.Error("a check saved something")
 	}
@@ -315,5 +321,73 @@ func TestZoneAtEdgesAndOverlaps(t *testing.T) {
 	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO zones (name, city, area) VALUES ('Bad shape', 'Bengaluru',
 		extensions.ST_GeomFromText('MULTIPOLYGON(((77.6 12.9, 77.7 13.0, 77.7 12.9, 77.6 13.0, 77.6 12.9)))', 4326))`); err == nil {
 		t.Error("a self-crossing zone was stored")
+	}
+}
+
+func TestAnIndianNameWithAJoinerIsKept(t *testing.T) {
+	f := newFixture(t)
+	_, token := f.customer("+919800000001")
+	if code, out := f.send("POST", "/gates", token, `{"label":"क्\u200dष गेट","lat":12.935,"lng":77.625}`); code != 201 {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestTwoTapsSaveOneGate(t *testing.T) {
+	f := newFixture(t)
+	_, token := f.customer("+919800000001")
+	codes := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		go func(i int) {
+			req, _ := http.NewRequest("POST", f.srv.URL+"/v1/gates", strings.NewReader(gateBody("Home", inLat, inLng)))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Idempotency-Key", fmt.Sprintf("two-taps-%d-key", i))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes <- 0
+				return
+			}
+			resp.Body.Close()
+			codes <- resp.StatusCode
+		}(i)
+	}
+	got := map[int]int{<-codes: 1}
+	got[<-codes]++
+	if got[201] != 1 || got[409] != 1 {
+		t.Errorf("want one saved and one duplicate: %v", got)
+	}
+}
+
+func TestErasingACustomersGates(t *testing.T) {
+	f := newFixture(t)
+	id, token := f.customer("+919800000001")
+	_, out := f.send("POST", "/gates", token, `{"label":"Flat 4B","lat":12.93512,"lng":77.62534,"entry_notes":"Blue door"}`)
+	gid := out["gate"].(map[string]any)["id"].(string)
+	if err := database.InTx(context.Background(), f.s.Pool, func(tx pgx.Tx) error { return RedactGates(context.Background(), tx, id) }); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(`SELECT count(*) FROM gate_history WHERE gate_id = $1 AND label = '(removed)' AND entry_notes IS NULL
+		AND lat = 12.94 AND lng = 77.63 AND redacted_at IS NOT NULL`, gid); n != 1 {
+		t.Error("the history still holds the address")
+	}
+	if n := f.count(`SELECT count(*) FROM gates WHERE id = $1 AND label = '(removed)' AND entry_notes IS NULL AND lat = 12.94`, gid); n != 1 {
+		t.Error("the gate still holds the address")
+	}
+	// Redaction is the only change history allows, and only once.
+	for _, sql := range []string{
+		"UPDATE gate_history SET label = 'x'",
+		"UPDATE gate_history SET redacted_at = now()",
+		"DELETE FROM gate_history",
+	} {
+		if _, err := f.s.Pool.Exec(context.Background(), sql); err == nil {
+			t.Errorf("%s was allowed", sql)
+		}
+	}
+}
+
+func TestAnEmptyZoneIsRefused(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.s.Pool.Exec(context.Background(), `INSERT INTO zones (name, city, area) VALUES ('Empty', 'Bengaluru',
+		extensions.ST_GeomFromText('MULTIPOLYGON EMPTY', 4326))`); err == nil {
+		t.Error("an empty area was stored")
 	}
 }

@@ -539,8 +539,8 @@ paths:
       operationId: createGate
       summary: Save a gate
       description: >-
-        Needs a verified phone. The pin must be inside an active service area. A new gate is
-        unverified until ops check it, and orders need a verified gate. A pin within 15 m of one of
+        Needs a verified phone. The pin must be inside an active service area, and a gate there is
+        verified at once. An order checks the area again, so a paused area stops its gates. A pin within 15 m of one of
         this customer's saved gates is the same gate. A customer keeps up to 20. Errors:
         out_of_service_area (400). All 409: duplicate_gate, phone_required, gate_limit.
       parameters:
@@ -598,7 +598,8 @@ paths:
       summary: Check whether a pin is served
       description: >-
         Says whether a pin is inside an active service area, and saves nothing. It needs a sign-in
-        but no verified phone, so a Google customer can check before giving one. Availability for
+        but no verified phone, so a Google customer can check before giving one. An ended session
+        gets 401. Availability for
         the pin comes with getAvailability.
       parameters:
         - name: lat

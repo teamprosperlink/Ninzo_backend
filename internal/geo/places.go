@@ -156,12 +156,13 @@ func isBidiControl(c rune) bool {
 
 // cleanText trims text a rider will read, and refuses what could hide or reverse it.
 func cleanText(raw string, max int, newlines bool) (string, bool) {
-	text := strings.TrimSpace(raw)
+	text := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
 	if !utf8.ValidString(text) || utf8.RuneCountInString(text) > max {
 		return "", false
 	}
 	bad := strings.ContainsFunc(text, func(c rune) bool {
-		return (unicode.IsControl(c) && !(newlines && c == '\n')) || isBidiControl(c)
+		return (unicode.IsControl(c) && !(newlines && c == '\n')) || isBidiControl(c) ||
+			(unicode.Is(unicode.Cf, c) && c != 0x200C && c != 0x200D) || c == 0x2028 || c == 0x2029
 	})
 	return text, !bad
 }
@@ -235,8 +236,10 @@ func (s *Service) createGate(w http.ResponseWriter, r *http.Request) {
 			return errGateLimit
 		}
 		g := gate{Label: label, Lat: lat, Lng: lng, EntryNotes: notes}
-		if err := tx.QueryRow(r.Context(), `INSERT INTO gates (customer_id, zone_id, label, lat, lng, entry_notes)
-			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text, verified`, actor.ID, zone, label, lat, lng, notes).Scan(&g.ID, &g.Verified); err != nil {
+		// Verified because it is inside an area we serve (owner, decision 0012). An order checks the
+		// zone again, so pausing an area stops its gates without changing them.
+		if err := tx.QueryRow(r.Context(), `INSERT INTO gates (customer_id, zone_id, label, lat, lng, entry_notes, verified)
+			VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id::text, verified`, actor.ID, zone, label, lat, lng, notes).Scan(&g.ID, &g.Verified); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), `INSERT INTO gate_history (gate_id, version, label, lat, lng, entry_notes, verified, reason)
@@ -263,6 +266,14 @@ func (s *Service) createGate(w http.ResponseWriter, r *http.Request) {
 // checkLocation says whether a pin is served, and saves nothing, so a customer can look before
 // giving a phone (decision 0011).
 func (s *Service) checkLocation(w http.ResponseWriter, r *http.Request) {
+	actor, _ := identity.ActorFrom(r.Context())
+	if live, err := identity.SessionLive(r.Context(), s.Pool, actor); err != nil || !live {
+		if err == nil {
+			err = identity.ErrSessionInvalid
+		}
+		s.fail(w, r, err)
+		return
+	}
 	lat, err1 := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	lng, err2 := strconv.ParseFloat(r.URL.Query().Get("lng"), 64)
 	if err1 != nil || err2 != nil || !validCoordinate(&lat, 90) || !validCoordinate(&lng, 180) {
@@ -279,4 +290,18 @@ func (s *Service) checkLocation(w http.ResponseWriter, r *http.Request) {
 		zoneID = zone
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"in_service_area": found, "zone_id": zoneID, "server_time": serverTime()})
+}
+
+// RedactGates removes a customer's gate labels and notes, and blurs their pins to about 1 km, in
+// the gates and their history. It is for erasing a customer's data. Orders keep pointing at the rows.
+func RedactGates(ctx context.Context, tx pgx.Tx, customerID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE gates SET label = '(removed)', entry_notes = NULL,
+			lat = round(lat::numeric, 2)::double precision, lng = round(lng::numeric, 2)::double precision, updated_at = now()
+		WHERE customer_id = $1`, customerID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE gate_history h SET label = '(removed)', entry_notes = NULL,
+			lat = round(h.lat::numeric, 2)::double precision, lng = round(h.lng::numeric, 2)::double precision, redacted_at = now()
+		FROM gates g WHERE g.id = h.gate_id AND g.customer_id = $1 AND h.redacted_at IS NULL`, customerID)
+	return err
 }

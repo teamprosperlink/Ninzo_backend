@@ -40,7 +40,9 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 ## Gates
 | Downside | Who it affects | What limits it today | Status | Source |
 |---|---|---|---|---|
-| A new gate is unverified, and orders need a verified gate, but nothing verifies one yet | Every customer, from `v0.4.0` | Ops verify gates once the console exists. Until then, a gate is verified by a script | **Open:** how gates are verified is not decided | #66 |
+| A pin on the wrong building inside a served area still counts as verified | Riders and customers | Riders see the entry notes, and support handles a wrong pin | Accepted | [0012](../decisions/0012-gate-verification.md) |
+| Gate history keeps labels and pins for good, except for one redaction when a customer is erased | Customers | `RedactGates` removes labels and notes, and blurs pins to about 1 km. No erasure endpoint calls it yet | **Before launch:** build account erasure | #66 |
+| The location check can be used to map where we serve | Competitors | It needs a sign-in, and has the session rate limit | Accepted for the pilot | #66 |
 | The test zones are rough boxes, not real service areas | Staging | They are marked as test data | Until the owner gives real areas | #66 |
 
 ## Repository and setup

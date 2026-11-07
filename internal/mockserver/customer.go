@@ -2,6 +2,7 @@ package mockserver
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,6 +52,7 @@ var customerScenarios = map[string]string{
 	"otp_resend_limit":         "POST OTP request fails with otp_resend_limit",
 	"out_of_service_area":      "POST gate fails with out_of_service_area, and the location check says not served",
 	"duplicate_gate":           "POST gate fails with duplicate_gate",
+	"gate_limit":               "POST gate fails with gate_limit",
 	"rate_limited":             "POST OTP request returns 429",
 	"server_error":             "POST order returns a retryable 500",
 	"service_unavailable":      "POST order returns a retryable 503",
@@ -72,7 +74,7 @@ func menuItem(id, name string, price int) map[string]any {
 }
 
 func sampleGate() map[string]any {
-	return map[string]any{"id": "gate_mock01", "label": "Main gate", "lat": 12.9716, "lng": 77.5946, "entry_notes": "Near the security desk", "verified": true}
+	return map[string]any{"id": "gate_mock01", "label": "Main gate", "lat": 12.935, "lng": 77.625, "entry_notes": "Near the security desk", "verified": true}
 }
 
 func needsBody(c *call, fields ...string) (map[string]any, bool) {
@@ -153,6 +155,10 @@ func customerRoutes() []route {
 		{method: "POST", path: "/me/devices", handle: registerDevice},
 		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/gates", handle: func(c *call) {
+			if c.scenario == "account_blocked" {
+				accountBlocked(c)
+				return
+			}
 			c.json(200, map[string]any{"gates": []map[string]any{sampleGate()}})
 		}},
 		{method: "POST", path: "/gates", handle: func(c *call) {
@@ -166,18 +172,26 @@ func customerRoutes() []route {
 			case "duplicate_gate":
 				c.fail(409, "duplicate_gate", "This gate is already saved.", false)
 				return
+			case "gate_limit":
+				c.fail(409, "gate_limit", "Too many saved gates.", false)
+				return
+			case "account_blocked":
+				accountBlocked(c)
+				return
 			}
 			body, ok := needsBody(c, "label", "lat", "lng")
 			if !ok {
 				return
 			}
 			g := sampleGate()
-			g["id"], g["label"], g["lat"], g["lng"], g["verified"] = "gate_mock02", body["label"], body["lat"], body["lng"], false
+			g["id"], g["label"], g["lat"], g["lng"], g["verified"] = "gate_mock02", body["label"], body["lat"], body["lng"], true
 			g["entry_notes"] = body["entry_notes"]
 			c.json(201, map[string]any{"gate": g})
 		}},
 		{method: "GET", path: "/locations/check", handle: func(c *call) {
-			if c.r.URL.Query().Get("lat") == "" || c.r.URL.Query().Get("lng") == "" {
+			lat, err1 := strconv.ParseFloat(c.r.URL.Query().Get("lat"), 64)
+			lng, err2 := strconv.ParseFloat(c.r.URL.Query().Get("lng"), 64)
+			if err1 != nil || err2 != nil || lat < -90 || lat > 90 || lng < -180 || lng > 180 {
 				c.fail(400, "invalid_request", "Send lat and lng.", false)
 				return
 			}

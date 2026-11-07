@@ -87,7 +87,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			case !isTest:
 				return fmt.Errorf("a real zone is called %q, so test data will not touch it", z.name)
 			default:
-				fmt.Fprintf(out, "kept %s\n", z.name)
+				// Put a test zone back as it should be, if someone paused it or cleared its area.
+				tag, err := tx.Exec(ctx, `UPDATE zones SET status = 'active', area = extensions.ST_GeomFromText($2, 4326), updated_at = now()
+					WHERE id = $1 AND (status <> 'active' OR area IS NULL OR NOT extensions.ST_Equals(area, extensions.ST_GeomFromText($2, 4326)))`, id, z.area)
+				if err != nil {
+					return errors.New(target.Safe(err))
+				}
+				if tag.RowsAffected() > 0 {
+					fmt.Fprintf(out, "restored %s\n", z.name)
+				} else {
+					fmt.Fprintf(out, "kept %s\n", z.name)
+				}
 			}
 		}
 		return nil

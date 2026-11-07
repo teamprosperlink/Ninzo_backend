@@ -46,6 +46,13 @@ func TestZonesAreAddedOnceAndRealOnesAreLeftAlone(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM zones WHERE is_test AND status = 'active' AND area IS NOT NULL").Scan(&n); err != nil || n != len(testZones) {
 		t.Errorf("%d %v", n, err)
 	}
+	if _, err := pool.Exec(context.Background(), "UPDATE zones SET status = 'paused', area = NULL WHERE name = $1", testZones[0].name); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run(context.Background(), []string{"-local", "zones"}, env(map[string]string{"DATABASE_URL": url}), &out); err != nil || !strings.Contains(out.String(), "restored") {
+		t.Errorf("a broken test zone was not restored: %s %v", out.String(), err)
+	}
 	if _, err := pool.Exec(context.Background(), "UPDATE zones SET is_test = false WHERE name = $1", testZones[0].name); err != nil {
 		t.Fatal(err)
 	}
