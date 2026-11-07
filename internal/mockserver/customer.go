@@ -383,8 +383,12 @@ func registerDevice(c *call) {
 }
 
 func availability(c *call) {
-	if c.r.URL.Query().Get("gate_id") == "" {
-		c.fail(400, "invalid_request", "Missing gate_id.", false)
+	q := c.r.URL.Query()
+	_, latErr := strconv.ParseFloat(q.Get("lat"), 64)
+	_, lngErr := strconv.ParseFloat(q.Get("lng"), 64)
+	pin := q.Get("lat") != "" || q.Get("lng") != ""
+	if (q.Get("gate_id") != "" && pin) || (q.Get("gate_id") == "" && (latErr != nil || lngErr != nil)) {
+		c.fail(400, "invalid_request", "Send gate_id, or lat and lng, not both.", false)
 		return
 	}
 	body := map[string]any{"offer_available": true, "unavailable_reason": nil, "stale_at": stamp(c.now.Add(30 * time.Second))}

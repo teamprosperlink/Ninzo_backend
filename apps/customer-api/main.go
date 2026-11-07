@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/teamprosperlink/Ninzo_backend/internal/availability"
 	"github.com/teamprosperlink/Ninzo_backend/internal/catalog"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
@@ -47,6 +48,8 @@ func main() {
 			places.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			menu := &catalog.Service{Pool: d.DB, Log: d.Log}
 			menu.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			reach := &availability.Service{Pool: d.DB, Log: d.Log}
+			reach.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

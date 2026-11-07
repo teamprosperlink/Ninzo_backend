@@ -43,7 +43,10 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 ## Ordering
 | Downside | Who it affects | What limits it today | Status | Source |
 |---|---|---|---|---|
-| A Google customer learns what is in reach only after verifying a phone | Google customers | A location check without saving anything would fix it | **Open**, for `v0.3.0` | #34 |
+| Reach is straight-line distance from a scooter's staging node, at a placeholder speed, not real roads or the rider's position | Customers | The settings are small, and refuse rather than stretch | **Until v0.5.0 and the road test:** rider GPS and real travel times | #72 |
+| A basket can mix items that are on different scooters, while one order comes from one scooter | Customers | Each item shows the best single scooter's quantity. The order checks the whole basket in `v0.4.0` | **In v0.4.0:** createOrder picks one scooter for the whole basket | #72 |
+| Probing availability on a grid of pins can reveal roughly where staging nodes are, and riders once GPS is used | Riders | It needs a sign-in, and has the session rate limit | **Before rider GPS in v0.5.0:** coarser answers or a per-person limit | #72 |
+| Availability is checked when asked, not held, so the last unit can go to someone else before ordering | Customers | Orders reserve stock in `v0.4.0` | Accepted | #72 |
 
 ## Gates
 | Downside | Who it affects | What limits it today | Status | Source |

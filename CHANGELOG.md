@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Availability (#72)
+- Added: `getAvailability` for a saved gate or a pin, and `availability_rules` for selling hours. Migration 0016, not applied to Supabase.
+- Evidence: docs/testing/reports/72.md
+
 ### Stock and the rider shift (#70)
 - Added: staging nodes, scooters, lots, `scooter_stock`, an append-only `stock_ledger`, shifts and `rider_state`. Migration 0015, not applied to Supabase.
 - Added: `startShift`, `endShift`, `listNodes`, `scanStock` and `getStock`. `getRider` now returns `zone_id`.

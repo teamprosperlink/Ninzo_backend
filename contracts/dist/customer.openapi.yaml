@@ -137,7 +137,7 @@ components:
                     format: date-time
                     type: string
                 unavailable_reason:
-                    description: Set when offer_available is false. Open list, including zone_off, gate_not_verified, gate_at_cap, no_coverage.
+                    description: Set when offer_available is false. Open list, including out_of_service_area, zone_off, gate_not_verified, no_coverage and sold_out.
                     type:
                         - string
                         - "null"
@@ -1056,15 +1056,30 @@ paths:
                 - auth
     /availability:
         get:
-            description: Returns only items truly in reach, with quantity left. This needs a saved gate, and saving a gate needs a verified phone.
+            description: 'Returns only items truly in reach, with the most one scooter can deliver: on a scooter whose rider is on shift, within reach under the zone''s settings, and on sale at this hour. Send gate_id for a saved gate, or lat and lng for a pin, which needs no saved gate and no verified phone (decision 0011). Not both. A gate of another customer gets 404. An ended session gets 401. unavailable_reason is one of out_of_service_area, zone_off, gate_not_verified, no_coverage and sold_out, and the list can grow.'
             operationId: getAvailability
             parameters:
-                - description: The gate to check.
+                - description: A saved gate.
                   in: query
                   name: gate_id
-                  required: true
+                  required: false
                   schema:
                     $ref: '#/components/schemas/Id'
+                - description: With lng, a pin instead of a gate.
+                  in: query
+                  name: lat
+                  required: false
+                  schema:
+                    maximum: 90
+                    minimum: -90
+                    type: number
+                - in: query
+                  name: lng
+                  required: false
+                  schema:
+                    maximum: 180
+                    minimum: -180
+                    type: number
             responses:
                 "200":
                     content:
@@ -1076,11 +1091,15 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
-            summary: See what is in reach of a gate
+            summary: See what is in reach of a gate or a pin
             tags:
                 - menu
     /availability/notify:
