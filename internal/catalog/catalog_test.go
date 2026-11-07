@@ -101,7 +101,7 @@ func exec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 func TestTheMenuShowsOnlyItemsOnSaleInOrder(t *testing.T) {
 	pool, srv, token := setup(t)
 	exec(t, pool, `INSERT INTO menu_items (name, price_paise, status, sort_order, allergens) VALUES
-		('Chai', 4900, 'active', 2, '{milk}'), ('Burger', 14900, 'active', 1, '{gluten,milk}'), ('Secret', 9900, 'hidden', 0, '{}')`)
+		('Chai', 4900, 'active', 1, '{milk}'), ('Burger', 14900, 'active', 2, '{gluten,milk}'), ('Secret', 9900, 'hidden', 0, '{}')`)
 	code, out := get(t, srv.URL+"/v1/menu/items", token)
 	if code != 200 {
 		t.Fatalf("%d %v", code, out)
@@ -112,10 +112,10 @@ func TestTheMenuShowsOnlyItemsOnSaleInOrder(t *testing.T) {
 		}
 	}
 	items := out["items"].([]any)
-	if len(items) != 2 || items[0].(map[string]any)["name"] != "Burger" || items[1].(map[string]any)["name"] != "Chai" {
+	if len(items) != 2 || items[0].(map[string]any)["name"] != "Chai" || items[1].(map[string]any)["name"] != "Burger" {
 		t.Fatalf("%v", items)
 	}
-	first := items[0].(map[string]any)
+	first := items[1].(map[string]any)
 	for _, f := range required(t, "MenuItem") {
 		if _, ok := first[f]; !ok {
 			t.Errorf("an item has no %s", f)
@@ -193,7 +193,7 @@ func TestEveryPriceIsKept(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].price != 4900 || got[1].price != 5900 || got[1].reason != "festival price" {
 		t.Errorf("%+v %v", got, err)
 	}
-	if _, err := pool.Exec(ctx, "UPDATE price_history SET price_paise = 1"); err == nil {
+	if _, err := pool.Exec(ctx, "UPDATE price_history SET price_paise = 200"); err == nil {
 		t.Error("an old price could be rewritten")
 	}
 }
