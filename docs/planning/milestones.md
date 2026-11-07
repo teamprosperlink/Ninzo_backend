@@ -15,7 +15,7 @@ Each version is a GitHub Milestone, each phase is an Issue, and each sub-phase i
 | v0.1.0 | App developers can build against mocks | Shared API rules; customer contract; rider contract; mock servers; contract review | Mocks answer every customer and rider endpoint and scenario, at a stable URL. Contracts reviewed with the app developers | planned |
 | v0.2.0 | Foundations | Service skeleton; database and migrations; idempotency, audit, outbox; customer and rider sign-in; staging deploy | `task verify` green in CI. Migrations apply. Sign-in works on staging | planned |
 | v0.3.0 | Real places and stock | Gates, zones, polygons; settings store; menu; lots and stock ledger; availability; rider profile, shift, node, stock scan | A test customer sees real availability. A test rider starts a shift and scans stock | planned |
-| v0.4.0 | A paid order holds stock | Orders; reservations; Razorpay and webhook; cancel and refund | Concurrency and payment tests pass with Razorpay test keys | planned |
+| v0.4.0 | An order holds stock | Orders; reservations; a test payment, refused in production; cancel and refund rules | Concurrency tests pass. Razorpay comes before v1.0.0 (owner, 2026-11-06) | planned |
 | v0.5.0 | One full order works | Location and GPS; offers, accept, Ready; zone timer; live streams; handover OTP | One order runs from payment to handover, with GPS starting and stopping the timer | planned |
 | v0.6.0 | Failures handled | Remedies; no-scooter options; rider problems; offline sync; notifications; history and help | Every failure test in the customer EDD passes | planned |
 | v0.7.0 | Customer and rider APIs complete | Restock suggestions and requests; relocation; earnings | All customer and rider P1 features meet "Done when". Hub actions come from a simulator | planned |
@@ -39,7 +39,7 @@ Each version is a GitHub Milestone, each phase is an Issue, and each sub-phase i
 
 | Version | Goal | Phases | Exit criteria | Status |
 |---|---|---|---|---|
-| v1.0.0 | Pilot ready | Load and failure tests; security scan; monitoring; live keys and go-live steps | All P1 features shipped per Definition of Done | planned |
+| v1.0.0 | Pilot ready | Razorpay, real SMS and Apple sign-in, once credentials arrive; load and failure tests; security scan; monitoring; live keys and go-live steps | All P1 features shipped per Definition of Done | planned |
 
 Status values: planned · in progress · released.
 

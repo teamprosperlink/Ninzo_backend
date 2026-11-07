@@ -1,10 +1,13 @@
 // Command testdata adds the test zones for Bengaluru, marked as test data, so they can be found and
 // replaced by the real ones. Running it again changes nothing.
 //
-//	testdata -local|-remote zones|menu|fleet
+//	testdata -local|-remote zones|menu|fleet|rider
 //
 // fleet adds a staging node and two scooters in each test zone, and ten lots of ten units of each
 // test item. Running it again gives unused lots a new expiry. Run zones and menu first.
+//
+// rider makes the test rider, +919800000090, approved and verified in the first test zone, so the
+// rider app can be tried on staging with the test code. Run zones first.
 //
 // -remote applies to Supabase, so use it only through `task staging:testdata`, which asks first.
 package main
@@ -25,7 +28,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 )
 
-const usage = "usage: testdata -local|-remote zones|menu|fleet"
+const usage = "usage: testdata -local|-remote zones|menu|fleet|rider"
 
 // testItems are placeholders until the owner gives the real menu.
 var testItems = []struct {
@@ -52,7 +55,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer) error {
-	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet") {
+	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "rider") {
 		return errors.New(usage)
 	}
 	dsn := getenv("DATABASE_URL")
@@ -79,6 +82,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return err
 	}
 	defer pool.Close()
+	if args[1] == "rider" {
+		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addRider(ctx, tx, out, target) })
+	}
 	if args[1] == "fleet" {
 		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addFleet(ctx, tx, out, target) })
 	}
@@ -217,5 +223,47 @@ func addFleet(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 		}
 	}
 	fmt.Fprintf(out, "lots ready: TEST-LOT-101 to TEST-LOT-%d10\n", len(ids))
+	return nil
+}
+
+// testRiderPhone is a made-up number, in the range staging keeps for test data.
+const testRiderPhone = "+919800000090"
+
+// addRider makes the test rider once. A real person with that number is never touched.
+func addRider(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Target) error {
+	var zone string
+	if err := tx.QueryRow(ctx, "SELECT id::text FROM zones WHERE is_test AND area IS NOT NULL ORDER BY name LIMIT 1").Scan(&zone); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("no test zones: run zones first")
+		}
+		return errors.New(target.Safe(err))
+	}
+	var person string
+	err := tx.QueryRow(ctx, "SELECT id::text FROM people WHERE phone = $1", testRiderPhone).Scan(&person)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, "INSERT INTO people (phone) VALUES ($1) RETURNING id::text", testRiderPhone).Scan(&person)
+	}
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	var rider string
+	err = tx.QueryRow(ctx, "SELECT id::text FROM riders WHERE person_id = $1", person).Scan(&rider)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, "INSERT INTO riders (person_id, name, status, zone_id) VALUES ($1, 'Test Rider', 'active', $2) RETURNING id::text", person, zone).Scan(&rider)
+		if err == nil {
+			if _, err = tx.Exec(ctx, "INSERT INTO rider_verifications (rider_id, status, method, reason) VALUES ($1, 'verified', 'manual_upload', 'test data')", rider); err == nil {
+				err = audit.Record(ctx, tx, audit.Event{ActorType: audit.ActorSystem, Action: "rider.approved", EntityType: "rider", EntityID: rider, Reason: "test data"})
+			}
+		}
+		if err != nil {
+			return errors.New(target.Safe(err))
+		}
+		fmt.Fprintf(out, "added the test rider %s\n", testRiderPhone)
+		return nil
+	}
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	fmt.Fprintf(out, "kept the test rider %s\n", testRiderPhone)
 	return nil
 }

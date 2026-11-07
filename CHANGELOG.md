@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Test rider and the version plan (#74)
+- Added: a test rider through `task testdata`, for trying the rider app on staging.
+- Changed: `milestones.md` follows the owner's decision that payment comes later.
+
 ### Availability (#72)
 - Added: `getAvailability` for a saved gate or a pin, and `availability_rules` for selling hours. Migration 0016, not applied to Supabase.
 - Evidence: docs/testing/reports/72.md
