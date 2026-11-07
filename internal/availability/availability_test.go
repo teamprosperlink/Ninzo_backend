@@ -25,11 +25,11 @@ import (
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// The customer stands at (12.935, 77.625). The node is about 330 m away. With the starting
+// The customer stands at (12.935, 77.625). The node is about 220 m away. With the starting
 // settings, reach is the nearer of 1,500 m and 15 km/h for 80 s, about 333 m.
 const (
 	custLat, custLng = 12.935, 77.625
-	nodeLat, nodeLng = 12.938, 77.625
+	nodeLat, nodeLng = 12.937, 77.625
 )
 
 type fixture struct {
@@ -152,7 +152,7 @@ func TestOnlyGoodStockCounts(t *testing.T) {
 
 func TestReachFollowsTheSettings(t *testing.T) {
 	f := newFixture(t)
-	// About 560 m from the node: past reach.
+	// About 440 m from the node: past reach.
 	if res := f.at(12.933, 77.625); res.Offer || res.Reason != ReasonNoCoverage {
 		t.Errorf("too far: %+v", res)
 	}
@@ -186,24 +186,71 @@ func TestAreasAndZones(t *testing.T) {
 	}
 }
 
+// at is At at a fixed time in India, so the test never depends on when it runs.
+func (f *fixture) atTime(weekday time.Weekday, hour, minute int) Result {
+	f.t.Helper()
+	// 2026-11-02 was a Monday.
+	day := 2 + (int(weekday)+6)%7
+	res, err := At(context.Background(), f.pool, custLat, custLng, time.Date(2026, 11, day, hour, minute, 0, 0, india))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return res
+}
+
 func TestSellingHours(t *testing.T) {
 	f := newFixture(t)
-	now := time.Now().In(india)
-	minute := now.Hour()*60 + now.Minute()
-	day := (int(now.Weekday()) + 6) % 7
-	// Chai only outside now. Samosa only now, and only on today.
-	start, end := (minute+120)%1380, (minute+120)%1380+30
-	f.exec("INSERT INTO availability_rules (item_id, start_minute, end_minute) VALUES ($1, $2, $3)", f.chai, start, end)
-	f.exec("INSERT INTO availability_rules (item_id, weekdays, start_minute, end_minute) VALUES ($1, $2, 0, 1440)", f.samosa, 1<<day)
-	res := f.at(custLat, custLng)
-	if qty(res, f.chai) != 0 || qty(res, f.samosa) != 4 {
-		t.Errorf("%+v", res)
+	// Chai from 10:00 to 11:00 every day. Samosa all day, on Sundays only.
+	f.exec("INSERT INTO availability_rules (item_id, start_minute, end_minute) VALUES ($1, 600, 660)", f.chai)
+	f.exec("INSERT INTO availability_rules (item_id, weekdays, start_minute, end_minute) VALUES ($1, 64, 0, 1440)", f.samosa)
+	for _, c := range []struct {
+		day          time.Weekday
+		hour, minute int
+		chai, samosa int
+	}{
+		{time.Monday, 9, 59, 0, 0},
+		{time.Monday, 10, 0, 8, 0},
+		{time.Monday, 10, 59, 8, 0},
+		{time.Monday, 11, 0, 0, 0},
+		{time.Sunday, 10, 30, 8, 4},
+		{time.Sunday, 23, 59, 0, 4},
+		{time.Sunday, 0, 0, 0, 4},
+		{time.Saturday, 23, 59, 0, 0},
+	} {
+		res := f.atTime(c.day, c.hour, c.minute)
+		if qty(res, f.chai) != c.chai || qty(res, f.samosa) != c.samosa {
+			t.Errorf("%s %02d:%02d: chai %d, samosa %d", c.day, c.hour, c.minute, qty(res, f.chai), qty(res, f.samosa))
+		}
 	}
+	// A rule for another zone does not apply here.
 	other := f.id("INSERT INTO zones (name, city) VALUES ('Elsewhere', 'Bengaluru') RETURNING id::text")
 	f.exec("DELETE FROM availability_rules WHERE item_id = $1", f.samosa)
-	f.exec("INSERT INTO availability_rules (item_id, zone_id, weekdays, start_minute, end_minute) VALUES ($1, $2, $3, 0, 1440)", f.samosa, other, 127&^(1<<day))
-	if q := qty(f.at(custLat, custLng), f.samosa); q != 4 {
+	f.exec("INSERT INTO availability_rules (item_id, zone_id, start_minute, end_minute) VALUES ($1, $2, 0, 1)", f.samosa, other)
+	if q := qty(f.atTime(time.Monday, 12, 0), f.samosa); q != 4 {
 		t.Errorf("another zone's rule applied here: %d", q)
+	}
+}
+
+func TestOneOrderComesFromOneScooter(t *testing.T) {
+	f := newFixture(t)
+	second := f.id("INSERT INTO scooters (code, zone_id, node_id) VALUES ('SC-2', $1, $2) RETURNING id::text", f.zone, f.node)
+	person := f.id("INSERT INTO people (phone) VALUES ('+919800000504') RETURNING id::text")
+	rider := f.id("INSERT INTO riders (person_id, status, zone_id) VALUES ($1, 'active', $2) RETURNING id::text", person, f.zone)
+	f.exec("UPDATE scooters SET current_rider_id = $1 WHERE id = $2", rider, second)
+	f.exec("INSERT INTO shifts (rider_id, node_id, scooter_id) VALUES ($1, $2, $3)", rider, f.node, second)
+	lot := f.id("INSERT INTO lots (code, item_id, qty, expires_at) VALUES ('L-CHAI-B', $1, 6, now() + interval '1 day') RETURNING id::text", f.chai)
+	f.exec("INSERT INTO scooter_stock (scooter_id, lot_id, on_hand) VALUES ($1, $2, 6)", second, lot)
+	if q := qty(f.at(custLat, custLng), f.chai); q != 8 {
+		t.Errorf("the best single scooter has 8, so 14 cannot be promised: %d", q)
+	}
+}
+
+func TestARiderFromAnotherZoneDoesNotCount(t *testing.T) {
+	f := newFixture(t)
+	other := f.id("INSERT INTO zones (name, city) VALUES ('Elsewhere', 'Bengaluru') RETURNING id::text")
+	f.exec("UPDATE riders SET zone_id = $1 WHERE id = $2", other, f.rider)
+	if res := f.at(custLat, custLng); res.Offer || res.Reason != ReasonNoCoverage {
+		t.Errorf("%+v", res)
 	}
 }
 

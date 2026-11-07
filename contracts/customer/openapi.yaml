@@ -681,7 +681,7 @@ paths:
       operationId: getAvailability
       summary: See what is in reach of a gate or a pin
       description: >-
-        Returns only items truly in reach, with quantity left: on a scooter whose rider is on shift,
+        Returns only items truly in reach, with the most one scooter can deliver: on a scooter whose rider is on shift,
         within reach under the zone's settings, and on sale at this hour. Send gate_id for a saved
         gate, or lat and lng for a pin, which needs no saved gate and no verified phone (decision
         0011). Not both. A gate of another customer gets 404. An ended session gets 401.
@@ -1398,7 +1398,7 @@ components:
           type:
             - string
             - 'null'
-          description: 'Set when offer_available is false. Open list, including zone_off, gate_not_verified, gate_at_cap, no_coverage.'
+          description: 'Set when offer_available is false. Open list, including out_of_service_area, zone_off, gate_not_verified, no_coverage and sold_out.'
         items:
           type: array
           items:

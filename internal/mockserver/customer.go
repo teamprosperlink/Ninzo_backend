@@ -384,7 +384,10 @@ func registerDevice(c *call) {
 
 func availability(c *call) {
 	q := c.r.URL.Query()
-	if (q.Get("gate_id") == "") == (q.Get("lat") == "" || q.Get("lng") == "") {
+	_, latErr := strconv.ParseFloat(q.Get("lat"), 64)
+	_, lngErr := strconv.ParseFloat(q.Get("lng"), 64)
+	pin := q.Get("lat") != "" || q.Get("lng") != ""
+	if (q.Get("gate_id") != "" && pin) || (q.Get("gate_id") == "" && (latErr != nil || lngErr != nil)) {
 		c.fail(400, "invalid_request", "Send gate_id, or lat and lng, not both.", false)
 		return
 	}

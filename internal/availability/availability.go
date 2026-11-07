@@ -61,7 +61,7 @@ type querier interface {
 const reachable = `
 	SELECT s.id FROM scooters s
 	JOIN shifts sh ON sh.scooter_id = s.id AND sh.ended_at IS NULL
-	JOIN riders r ON r.id = sh.rider_id AND r.status = 'active'
+	JOIN riders r ON r.id = sh.rider_id AND r.status = 'active' AND r.zone_id = s.zone_id
 	JOIN people p ON p.id = r.person_id AND p.status = 'active'
 	JOIN staging_nodes n ON n.id = s.node_id
 	WHERE s.zone_id = $1 AND s.status = 'active'
@@ -113,12 +113,15 @@ func At(ctx context.Context, q querier, lat, lng float64, now time.Time) (Result
 	minute := local.Hour()*60 + local.Minute()
 	rows, err := q.Query(ctx, `
 		WITH reach AS (`+reachable+`),
-		stock AS (
-			SELECT l.item_id, sum(ss.on_hand - ss.reserved)::int AS qty
+		per_scooter AS (
+			SELECT ss.scooter_id, l.item_id, sum(ss.on_hand - ss.reserved)::int AS qty
 			FROM scooter_stock ss JOIN reach ON reach.id = ss.scooter_id JOIN lots l ON l.id = ss.lot_id
 			WHERE l.status = 'ok' AND l.temp_status = 'ok' AND l.expires_at > now()
-			GROUP BY l.item_id
-		)
+			GROUP BY ss.scooter_id, l.item_id
+		),
+		-- One order comes from one scooter, so the most that can be promised is the best single
+		-- scooter's quantity, not the total across scooters.
+		stock AS (SELECT item_id, max(qty) AS qty FROM per_scooter GROUP BY item_id)
 		SELECT m.id::text, m.name, m.description, m.price_paise, m.currency, m.allergens, m.photo_url, st.qty
 		FROM stock st JOIN menu_items m ON m.id = st.item_id
 		WHERE st.qty > 0 AND m.status = 'active'
