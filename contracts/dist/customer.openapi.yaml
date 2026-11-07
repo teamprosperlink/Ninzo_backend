@@ -1543,7 +1543,7 @@ paths:
                 - auth
     /menu/items:
         get:
-            description: The full menu. Use availability to see what is in reach of a gate.
+            description: The items on sale, in menu order, with prices in paise. Use availability to see what is in reach of a gate.
             operationId: listMenuItems
             responses:
                 "200":

@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-07 | #68 | `v0.3.0` menu, local only | See PR | PASS | [reports/68.md](reports/68.md) |
 | 2026-11-07 | #66 | `v0.3.0` zones, gates and the location check, local only | See PR | PASS | [reports/66.md](reports/66.md) |
 | 2026-11-07 | #64 | `v0.3.0` settings store, local only | See PR | PASS | [reports/64.md](reports/64.md) |
 | 2026-11-07 | #60 | `v0.2.0` staging deploy, on the real URLs | See PR | PASS | [reports/60.md](reports/60.md) |
