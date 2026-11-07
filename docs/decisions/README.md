@@ -15,3 +15,4 @@ Accepted decisions are never edited; to reverse one, write a new decision and ma
 | [0008](0008-branch-and-release-setup.md) | Branch and release setup | Accepted | 2026-11-06 |
 | [0009](0009-one-sign-in-method.md) | One sign-in method per customer | Accepted | 2026-11-06 |
 | [0010](0010-rate-limits-in-memory.md) | Rate limits counted in memory, for now | Proposed | 2026-11-06 |
+| [0011](0011-v030-answers.md) | Answers before v0.3.0 | Accepted | 2026-11-07 |
