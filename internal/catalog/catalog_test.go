@@ -206,6 +206,7 @@ func TestBadItemsAreRefused(t *testing.T) {
 		"INSERT INTO menu_items (name, price_paise, photo_url) VALUES ('Plain', 4900, 'http://x.test/a.png')",
 		"INSERT INTO menu_items (name, price_paise, status) VALUES ('Odd', 4900, 'sold')",
 		"INSERT INTO menu_items (name, price_paise) VALUES ('', 4900)",
+		"INSERT INTO menu_items (name, price_paise, allergens) VALUES ('Nulls', 4900, ARRAY['milk', NULL])",
 	} {
 		if _, err := pool.Exec(context.Background(), sql); err == nil {
 			t.Errorf("stored: %s", sql)

@@ -6,7 +6,7 @@ CREATE TABLE menu_items (
     description text        CHECK (length(description) <= 500),
     price_paise integer     NOT NULL CHECK (price_paise BETWEEN 100 AND 1000000),
     currency    text        NOT NULL DEFAULT 'INR' CHECK (currency = 'INR'),
-    allergens   text[]      NOT NULL DEFAULT '{}' CHECK (cardinality(allergens) <= 20),
+    allergens   text[]      NOT NULL DEFAULT '{}' CHECK (cardinality(allergens) <= 20 AND array_position(allergens, NULL) IS NULL),
     photo_url   text        CHECK (photo_url ~ '^https://' AND length(photo_url) <= 1000),
     status      text        NOT NULL DEFAULT 'hidden' CHECK (status IN ('active', 'hidden')),
     sort_order  integer     NOT NULL DEFAULT 100,

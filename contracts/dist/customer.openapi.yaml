@@ -1554,6 +1554,8 @@ paths:
                     description: The menu.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: List the menu
@@ -1576,6 +1578,8 @@ paths:
                     $ref: '#/components/responses/Unauthorized'
                 "404":
                     $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get one menu item
