@@ -369,7 +369,8 @@ paths:
       operationId: startShift
       summary: Start a shift
       description: 'A suspended rider gets 403. Errors, all 409: rider_not_approved, rider_not_verified,
-        shift_already_open, shift_limit_reached.'
+        shift_already_open, shift_limit_reached, no_scooter_at_node. A free scooter waiting at the
+        node becomes the rider''s for the shift. A node outside the rider''s zone gets 404.'
       parameters:
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
@@ -402,6 +403,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /riders/me/shifts/end:
@@ -424,10 +427,14 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /nodes:
@@ -455,8 +462,12 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /riders/me/relocations/{relocation_id}/accept:
@@ -500,7 +511,8 @@ paths:
       - stock
       operationId: scanStock
       summary: Scan a lot onto the scooter
-      description: 'Errors, all 409: bad_scan, lot_expired, lot_quarantined, lot_already_on_scooter, lot_not_expected.
+      description: 'Loads the whole lot onto the rider''s scooter. Errors, all 409: no_open_shift, bad_scan, lot_expired,
+        lot_quarantined, lot_already_on_scooter, lot_not_expected.
         A temperature problem returns temp_status so the app can show the quarantine prompt.'
       parameters:
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -531,10 +543,14 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /riders/me/stock:
@@ -553,6 +569,10 @@ paths:
                 $ref: '#/components/schemas/StockList'
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /riders/me/offers:

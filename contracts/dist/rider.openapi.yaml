@@ -1444,8 +1444,12 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: List staging nodes in a zone
@@ -2275,10 +2279,14 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: End the shift
@@ -2286,7 +2294,7 @@ paths:
                 - shift
     /riders/me/shifts/start:
         post:
-            description: 'A suspended rider gets 403. Errors, all 409: rider_not_approved, rider_not_verified, shift_already_open, shift_limit_reached.'
+            description: 'A suspended rider gets 403. Errors, all 409: rider_not_approved, rider_not_verified, shift_already_open, shift_limit_reached, no_scooter_at_node. A free scooter waiting at the node becomes the rider''s for the shift. A node outside the rider''s zone gets 404.'
             operationId: startShift
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2320,6 +2328,8 @@ paths:
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Start a shift
@@ -2356,6 +2366,10 @@ paths:
                     description: The stock.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get the scooter's stock
@@ -2363,7 +2377,7 @@ paths:
                 - stock
     /riders/me/stock/scan:
         post:
-            description: 'Errors, all 409: bad_scan, lot_expired, lot_quarantined, lot_already_on_scooter, lot_not_expected. A temperature problem returns temp_status so the app can show the quarantine prompt.'
+            description: 'Loads the whole lot onto the rider''s scooter. Errors, all 409: no_open_shift, bad_scan, lot_expired, lot_quarantined, lot_already_on_scooter, lot_not_expected. A temperature problem returns temp_status so the app can show the quarantine prompt.'
             operationId: scanStock
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2394,10 +2408,14 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Scan a lot onto the scooter

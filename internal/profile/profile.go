@@ -269,9 +269,9 @@ func (s *Service) getRider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id, status, personStatus string
-	var name *string
-	err := s.Pool.QueryRow(r.Context(), `SELECT r.id::text, r.name, r.status, p.status
-		FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`, actor.ID).Scan(&id, &name, &status, &personStatus)
+	var name, zone *string
+	err := s.Pool.QueryRow(r.Context(), `SELECT r.id::text, r.name, r.status, p.status, r.zone_id::text
+		FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`, actor.ID).Scan(&id, &name, &status, &personStatus, &zone)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		err = errGone
@@ -282,10 +282,9 @@ func (s *Service) getRider(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// A suspended rider can still read this, so the app can say why they cannot work. zone_id arrives
-	// with zones in v0.3.0.
+	// A suspended rider can still read this, so the app can say why they cannot work.
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"rider":       map[string]any{"id": id, "name": name, "status": status, "zone_id": nil},
+		"rider":       map[string]any{"id": id, "name": name, "status": status, "zone_id": zone},
 		"server_time": serverTime(),
 	})
 }

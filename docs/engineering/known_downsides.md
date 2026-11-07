@@ -32,6 +32,13 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 | Someone who has another person's push token can move it to their own account, which cuts that person's notifications | The token's owner | Push tokens are hard to get. Registering it again takes it back | Accepted | #58 |
 | A stored `updateMe` reply holds name, email and phone, and nothing purges stored replies yet | Customers | It is only returned for the same key and body, even after a block or an ended session | **Before launch:** purge in #56 | #56 |
 
+## Riders and stock
+| Downside | Who it affects | What limits it today | Status | Source |
+|---|---|---|---|---|
+| Riders are approved by a script, and documents are marked checked by hand, until the console and DigiLocker | Riders | The script is audited, and refuses suspended riders | Until `v0.9.0` | #70 |
+| Ending a shift does not check for an order in progress, because orders do not exist yet | Riders | Nothing can be in progress before `v0.4.0` | **Before orders:** add the check | #70 |
+| A lot is loaded whole. Lots are test data until the hub APIs | Riders | Lots are made by `task testdata` | Until `v0.8.0` | #70 |
+
 ## Ordering
 | Downside | Who it affects | What limits it today | Status | Source |
 |---|---|---|---|---|
