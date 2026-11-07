@@ -3,8 +3,8 @@
 //
 //	testdata -local|-remote zones|menu|fleet
 //
-// fleet adds a staging node and two scooters in each test zone, and ten units of each test item as
-// lots. Run zones and menu first.
+// fleet adds a staging node and two scooters in each test zone, and ten lots of ten units of each
+// test item. Running it again gives unused lots a new expiry. Run zones and menu first.
 //
 // -remote applies to Supabase, so use it only through `task staging:testdata`, which asks first.
 package main
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -178,7 +179,7 @@ func addFleet(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 	if len(zones) == 0 {
 		return errors.New("no test zones: run zones first")
 	}
-	for i, z := range zones {
+	for _, z := range zones {
 		var node string
 		err := tx.QueryRow(ctx, `INSERT INTO staging_nodes (zone_id, name, lat, lng, capacity, is_test) VALUES ($1, 'Test node', $2, $3, 4, true)
 			ON CONFLICT (zone_id, name) DO UPDATE SET capacity = staging_nodes.capacity RETURNING id::text`, z.id, z.lat, z.lng).Scan(&node)
@@ -186,7 +187,7 @@ func addFleet(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 			return errors.New(target.Safe(err))
 		}
 		for n := 1; n <= 2; n++ {
-			code := fmt.Sprintf("TEST-SC-%d%d", i+1, n)
+			code := fmt.Sprintf("TEST-SC-%s-%d", strings.ToUpper(strings.Fields(z.name)[0]), n)
 			if _, err := tx.Exec(ctx, `INSERT INTO scooters (code, zone_id, node_id, is_test) VALUES ($1, $2, $3, true)
 				ON CONFLICT (code) DO NOTHING`, code, z.id, node); err != nil {
 				return errors.New(target.Safe(err))
@@ -206,14 +207,15 @@ func addFleet(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 		return errors.New("no test menu: run menu first")
 	}
 	for i, id := range ids {
-		for n := 1; n <= 4; n++ {
+		for n := 1; n <= 10; n++ {
 			code := fmt.Sprintf("TEST-LOT-%d%02d", i+1, n)
 			if _, err := tx.Exec(ctx, `INSERT INTO lots (code, item_id, qty, expires_at, is_test) VALUES ($1, $2, 10, now() + interval '30 days', true)
-				ON CONFLICT (code) DO NOTHING`, code, id); err != nil {
+				ON CONFLICT (code) DO UPDATE SET expires_at = now() + interval '30 days'
+				WHERE lots.is_test AND NOT EXISTS (SELECT 1 FROM scooter_stock WHERE lot_id = lots.id)`, code, id); err != nil {
 				return errors.New(target.Safe(err))
 			}
 		}
 	}
-	fmt.Fprintf(out, "lots ready: TEST-LOT-101 to TEST-LOT-%d04\n", len(ids))
+	fmt.Fprintf(out, "lots ready: TEST-LOT-101 to TEST-LOT-%d10\n", len(ids))
 	return nil
 }

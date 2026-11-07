@@ -37,6 +37,7 @@ Every downside we knowingly accepted, in one place, with what limits it and what
 |---|---|---|---|---|
 | Riders are approved by a script, and documents are marked checked by hand, until the console and DigiLocker | Riders | The script is audited, and refuses suspended riders | Until `v0.9.0` | #70 |
 | Ending a shift does not check for an order in progress, because orders do not exist yet | Riders | Nothing can be in progress before `v0.4.0` | **Before orders:** add the check | #70 |
+| A suspended rider can end their shift only while their access token lasts, up to 15 minutes, so their scooter can stay assigned | Riders | No suspension flow exists yet | **Before suspension:** suspending ends the shift and frees the scooter | #70 |
 | A lot is loaded whole. Lots are test data until the hub APIs | Riders | Lots are made by `task testdata` | Until `v0.8.0` | #70 |
 
 ## Ordering

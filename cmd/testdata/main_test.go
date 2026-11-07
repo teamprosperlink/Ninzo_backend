@@ -95,7 +95,7 @@ func TestTheTestFleetIsAddedOnce(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM staging_nodes), (SELECT count(*) FROM scooters), (SELECT count(*) FROM lots)`).Scan(&nodes, &scooters, &lots); err != nil {
 		t.Fatal(err)
 	}
-	if nodes != len(testZones) || scooters != 2*len(testZones) || lots != 4*len(testItems) {
+	if nodes != len(testZones) || scooters != 2*len(testZones) || lots != 10*len(testItems) {
 		t.Errorf("%d nodes, %d scooters, %d lots", nodes, scooters, lots)
 	}
 }

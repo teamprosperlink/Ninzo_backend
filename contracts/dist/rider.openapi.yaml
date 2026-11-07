@@ -2355,7 +2355,7 @@ paths:
                 - profile
     /riders/me/stock:
         get:
-            description: The lots the backend has on this scooter.
+            description: The lots on the scooter of the rider's open shift. qty is what is free, not held for an order. With no open shift, the list is empty.
             operationId: getStock
             responses:
                 "200":

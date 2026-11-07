@@ -559,7 +559,9 @@ paths:
       - stock
       operationId: getStock
       summary: Get the scooter's stock
-      description: The lots the backend has on this scooter.
+      description: >-
+        The lots on the scooter of the rider's open shift. qty is what is free, not held for an
+        order. With no open shift, the list is empty.
       responses:
         '200':
           description: The stock.

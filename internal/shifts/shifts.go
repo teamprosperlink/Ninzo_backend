@@ -50,7 +50,7 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.Use(signedIn...)
 		g.With(idem).Post("/riders/me/shifts/start", s.startShift)
 		g.With(idem).Post("/riders/me/shifts/end", s.endShift)
-		g.Get("/riders/me/nodes", s.listNodes)
+		g.Get("/nodes", s.listNodes)
 		g.With(idem).Post("/riders/me/stock/scan", s.scanStock)
 		g.Get("/riders/me/stock", s.getStock)
 	})
@@ -84,6 +84,18 @@ type querier interface {
 type rider struct {
 	status string
 	zoneID *string
+}
+
+// liveRider is readRider for a read with no lock: an ended session must not keep reading.
+func liveRider(ctx context.Context, q querier, a identity.Actor) (rider, error) {
+	live, err := identity.SessionLive(ctx, q, a)
+	if err != nil {
+		return rider{}, err
+	}
+	if !live {
+		return rider{}, identity.ErrSessionInvalid
+	}
+	return readRider(ctx, q, a.ID)
 }
 
 // readRider refuses a blocked person or a suspended rider, as account_blocked.
@@ -152,7 +164,7 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 		}
 		var verified bool
 		if err := tx.QueryRow(r.Context(), `SELECT coalesce((SELECT status = 'verified' AND (expires_at IS NULL OR expires_at > now())
-			FROM rider_verifications WHERE rider_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1), false)`, actor.ID).Scan(&verified); err != nil {
+			FROM rider_verifications WHERE rider_id = $1 ORDER BY created_at DESC, (status = 'verified'), id LIMIT 1), false)`, actor.ID).Scan(&verified); err != nil {
 			return err
 		}
 		if !verified {
@@ -170,6 +182,12 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				err = refuse("shift_already_open", "A shift is already open.")
 			}
+			return err
+		}
+		// A scooter is left holding this rider only if something went wrong. Free it, or this rider
+		// could never start again.
+		if _, err := tx.Exec(r.Context(), `UPDATE scooters SET current_rider_id = NULL, updated_at = now()
+			WHERE current_rider_id = $1 AND NOT EXISTS (SELECT 1 FROM shifts WHERE scooter_id = scooters.id AND ended_at IS NULL)`, actor.ID); err != nil {
 			return err
 		}
 		// Any free scooter waiting at this node. Locked rows are skipped, so two riders at once
@@ -271,16 +289,14 @@ func (s *Service) listNodes(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send zone_id.", false)
 		return
 	}
-	if _, err := readRider(r.Context(), s.Pool, actor.ID); err != nil {
+	rd, err := liveRider(r.Context(), s.Pool, actor)
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	var exists bool
-	if err := s.Pool.QueryRow(r.Context(), "SELECT EXISTS (SELECT 1 FROM zones WHERE id = $1)", zone).Scan(&exists); err != nil || !exists {
-		if err == nil {
-			err = errNotFound
-		}
-		s.fail(w, r, err)
+	// Only the rider's own zone. Other zones' nodes, and how full they are, are not theirs to see.
+	if rd.zoneID == nil || *rd.zoneID != zone {
+		s.fail(w, r, errNotFound)
 		return
 	}
 	// Fullness counts scooters parked there with no rider on them.
@@ -322,15 +338,19 @@ type unit struct {
 func (s *Service) scanStock(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
 	var body struct {
-		LotCode string `json:"lot_code"`
+		LotCode   string `json:"lot_code"`
+		ScannedAt string `json:"scanned_at"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.LotCode) == "" || len(body.LotCode) > 64 {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send lot_code.", false)
+	err := json.NewDecoder(r.Body).Decode(&body)
+	// scanned_at is the device's time. It must be sent, but the server's time is the official one.
+	_, timeErr := time.Parse(time.RFC3339, body.ScannedAt)
+	if err != nil || strings.TrimSpace(body.LotCode) == "" || len(body.LotCode) > 64 || timeErr != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send lot_code and scanned_at.", false)
 		return
 	}
 	code := strings.TrimSpace(body.LotCode)
 	var reply map[string]any
-	err := database.InTx(r.Context(), s.Pool, func(tx pgx.Tx) error {
+	err = database.InTx(r.Context(), s.Pool, func(tx pgx.Tx) error {
 		if err := identity.CheckSession(r.Context(), tx, actor); err != nil {
 			return err
 		}
@@ -403,7 +423,7 @@ type stockLot struct {
 // getStock lists what is on the rider's scooter now. With no shift there is no scooter, so nothing.
 func (s *Service) getStock(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
-	if _, err := readRider(r.Context(), s.Pool, actor.ID); err != nil {
+	if _, err := liveRider(r.Context(), s.Pool, actor); err != nil {
 		s.fail(w, r, err)
 		return
 	}

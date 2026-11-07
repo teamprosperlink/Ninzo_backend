@@ -279,7 +279,7 @@ func TestListingNodes(t *testing.T) {
 	f.scooter("SC-1")
 	f.scooter("SC-2")
 	_, token := f.rider()
-	code, out := f.send("GET", "/riders/me/nodes?zone_id="+f.zone, token, "")
+	code, out := f.send("GET", "/nodes?zone_id="+f.zone, token, "")
 	if code != 200 {
 		t.Fatalf("%d %v", code, out)
 	}
@@ -290,14 +290,17 @@ func TestListingNodes(t *testing.T) {
 	}
 	check(t, nodes[0].(map[string]any), "Node")
 	f.start(token)
-	_, out = f.send("GET", "/riders/me/nodes?zone_id="+f.zone, token, "")
+	_, out = f.send("GET", "/nodes?zone_id="+f.zone, token, "")
 	if out["assigned_node_id"] != f.node || out["nodes"].([]any)[0].(map[string]any)["fullness_pct"] != float64(25) {
 		t.Errorf("after starting: %v", out)
 	}
-	if code, _ := f.send("GET", "/riders/me/nodes?zone_id=00000000-0000-0000-0000-000000000000", token, ""); code != 404 {
-		t.Errorf("unknown zone: %d", code)
+	other := f.id("INSERT INTO zones (name, city, status) VALUES ('Other', 'Bengaluru', 'active') RETURNING id::text")
+	for _, z := range []string{"00000000-0000-0000-0000-000000000000", other} {
+		if code, _ := f.send("GET", "/nodes?zone_id="+z, token, ""); code != 404 {
+			t.Errorf("a zone that is not the rider's: %d", code)
+		}
 	}
-	if code, _ := f.send("GET", "/riders/me/nodes", token, ""); code != 400 {
+	if code, _ := f.send("GET", "/nodes", token, ""); code != 400 {
 		t.Errorf("no zone: %d", code)
 	}
 }
@@ -307,7 +310,7 @@ func TestScanningStock(t *testing.T) {
 	scooter := f.scooter("SC-1")
 	lot := f.lot("LOT-0001", 10, 48*time.Hour)
 	_, token := f.rider()
-	if code, out := f.send("POST", "/riders/me/stock/scan", token, `{"lot_code":"LOT-0001"}`); code != 409 || out["code"] != "no_open_shift" {
+	if code, out := f.send("POST", "/riders/me/stock/scan", token, `{"lot_code":"LOT-0001","scanned_at":"2026-11-07T10:00:00Z"}`); code != 409 || out["code"] != "no_open_shift" {
 		t.Errorf("no shift: %d %v", code, out)
 	}
 	f.start(token)
@@ -327,7 +330,7 @@ func TestScanningStock(t *testing.T) {
 	if n := f.count("SELECT coalesce(sum(delta_on_hand), 0) FROM stock_ledger WHERE lot_id = $1 AND reason = 'scan'", lot); n != 10 {
 		t.Errorf("the ledger says %d", n)
 	}
-	if code, out := f.send("POST", "/riders/me/stock/scan", token, `{"lot_code":"LOT-0001"}`); code != 409 || out["code"] != "lot_already_on_scooter" {
+	if code, out := f.send("POST", "/riders/me/stock/scan", token, `{"lot_code":"LOT-0001","scanned_at":"2026-11-07T10:00:00Z"}`); code != 409 || out["code"] != "lot_already_on_scooter" {
 		t.Errorf("scanned twice: %d %v", code, out)
 	}
 	code, out = f.send("GET", "/riders/me/stock", token, "")
@@ -361,21 +364,21 @@ func TestBadScans(t *testing.T) {
 	_, token := f.rider()
 	f.start(token)
 	for body, want := range map[string]string{
-		`{"lot_code":"NOPE-1234"}`: "bad_scan",
-		`{"lot_code":"LOT-OLD"}`:   "lot_expired",
-		`{"lot_code":"LOT-QUAR"}`:  "lot_quarantined",
+		`{"lot_code":"NOPE-1234","scanned_at":"2026-11-07T10:00:00Z"}`: "bad_scan",
+		`{"lot_code":"LOT-OLD","scanned_at":"2026-11-07T10:00:00Z"}`:   "lot_expired",
+		`{"lot_code":"LOT-QUAR","scanned_at":"2026-11-07T10:00:00Z"}`:  "lot_quarantined",
 	} {
 		if code, out := f.send("POST", "/riders/me/stock/scan", token, body); code != 409 || out["code"] != want {
 			t.Errorf("%s: %d %v", body, code, out)
 		}
 	}
-	for _, body := range []string{`{}`, `{"lot_code":"   "}`, `{"lot_code":"` + strings.Repeat("a", 65) + `"}`} {
+	for _, body := range []string{`{}`, `{"lot_code":"   "}`, `{"lot_code":"LOT-HOT"}`, `{"lot_code":"LOT-HOT","scanned_at":"yesterday"}`, `{"lot_code":"` + strings.Repeat("a", 65) + `"}`} {
 		if code, _ := f.send("POST", "/riders/me/stock/scan", token, body); code != 400 {
 			t.Errorf("%s: %d", body[:min(len(body), 30)], code)
 		}
 	}
 	// A temperature alert loads, and tells the app, so it can show the quarantine prompt.
-	if code, out := f.send("POST", "/riders/me/stock/scan", token, `{"lot_code":"LOT-HOT"}`); code != 200 || out["unit"].(map[string]any)["temp_status"] != "alert" {
+	if code, out := f.send("POST", "/riders/me/stock/scan", token, `{"lot_code":"LOT-HOT","scanned_at":"2026-11-07T10:00:00Z"}`); code != 200 || out["unit"].(map[string]any)["temp_status"] != "alert" {
 		t.Errorf("%d %v", code, out)
 	}
 }
@@ -395,7 +398,7 @@ func TestOneLotCannotGoOnTwoScooters(t *testing.T) {
 		wg.Add(1)
 		go func(tok string) {
 			defer wg.Done()
-			code, _ := f.send("POST", "/riders/me/stock/scan", tok, `{"lot_code":"LOT-0001"}`)
+			code, _ := f.send("POST", "/riders/me/stock/scan", tok, `{"lot_code":"LOT-0001","scanned_at":"2026-11-07T10:00:00Z"}`)
 			codes <- code
 		}(tok)
 	}
@@ -440,7 +443,7 @@ func TestSignedOutAndBlockedRiders(t *testing.T) {
 	}
 	_, token := f.rider()
 	f.exec("UPDATE people SET status = 'blocked'")
-	for _, c := range [][3]string{{"POST", "/riders/me/shifts/start", `{"node_id":"` + f.node + `"}`}, {"GET", "/riders/me/stock", ""}, {"GET", "/riders/me/nodes?zone_id=" + f.zone, ""}} {
+	for _, c := range [][3]string{{"POST", "/riders/me/shifts/start", `{"node_id":"` + f.node + `"}`}, {"GET", "/riders/me/stock", ""}, {"GET", "/nodes?zone_id=" + f.zone, ""}} {
 		if code, out := f.send(c[0], c[1], token, c[2]); code != 403 || out["code"] != "account_blocked" {
 			t.Errorf("%s: %d %v", c[1], code, out)
 		}
@@ -449,5 +452,32 @@ func TestSignedOutAndBlockedRiders(t *testing.T) {
 	f.exec("UPDATE refresh_tokens SET revoked_at = now()")
 	if code, _ := f.start(token); code != 401 {
 		t.Errorf("an ended session: %d", code)
+	}
+	for _, p := range []string{"/riders/me/stock", "/nodes?zone_id=" + f.zone} {
+		if code, _ := f.send("GET", p, token, ""); code != 401 {
+			t.Errorf("an ended session reading %s: %d", p, code)
+		}
+	}
+}
+
+func TestAScooterLeftHoldingARiderIsFreed(t *testing.T) {
+	f := newFixture(t)
+	stuck := f.scooter("SC-STUCK")
+	f.scooter("SC-2")
+	id, token := f.rider()
+	f.exec("UPDATE scooters SET current_rider_id = $1 WHERE id = $2", id, stuck)
+	if code, out := f.start(token); code != 200 {
+		t.Errorf("a stuck scooter stopped the rider: %d %v", code, out)
+	}
+}
+
+func TestAVerificationTieIsNotVerified(t *testing.T) {
+	f := newFixture(t)
+	f.scooter("SC-1")
+	id, token := f.rider()
+	f.exec(`INSERT INTO rider_verifications (rider_id, status, method, created_at) VALUES ($1, 'verified', 'manual_upload', now() + interval '1 hour'),
+		($1, 'failed', 'manual_upload', now() + interval '1 hour')`, id)
+	if code, out := f.start(token); code != 409 || out["code"] != "rider_not_verified" {
+		t.Errorf("%d %v", code, out)
 	}
 }
