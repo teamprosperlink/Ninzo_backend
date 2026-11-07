@@ -15,6 +15,13 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/dbtarget"
 )
 
+const (
+	connectTimeout = 5 * time.Second
+	// PingTimeout must outlast a whole new connection. A new connection from another region can take
+	// 2 seconds or more, so a 2-second limit often failed, and hid the database's real error.
+	PingTimeout = connectTimeout + 3*time.Second
+)
+
 // Open creates a small pool and waits for the database to answer, until ctx ends. A database
 // that is only briefly away should not stop a service from starting.
 func Open(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error) {
@@ -27,10 +34,10 @@ func Open(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error
 		return nil, errors.New("the database URL is not valid")
 	}
 	cfg.MaxConns = maxConns
-	cfg.MinConns = 0
+	cfg.MinConns = 1 // Otherwise the first request after a quiet spell pays for a whole new connection.
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
-	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
+	cfg.ConnConfig.ConnectTimeout = connectTimeout
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -93,7 +100,7 @@ func rollback(tx pgx.Tx) error {
 
 // Ping checks the database answers, within a short time.
 func Ping(ctx context.Context, pool *pgxpool.Pool) error {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, PingTimeout)
 	defer cancel()
 	return pool.Ping(ctx)
 }

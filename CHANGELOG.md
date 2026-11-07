@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### A far-away database (#60)
+- Changed: the database check allows 8 seconds, not 2, because a new connection from another region often took longer, which made starting slow and hid the database's real error. Each API keeps one connection open.
+
 ### Profile and devices (#58)
 - Added: `getMe`, `updateMe`, `registerDevice`, `removeDevice`, `getRider`, `registerRiderDevice` and `removeRiderDevice`.
 - Added: an optional customer email, for contact only. Migration 0011, not applied to Supabase.
