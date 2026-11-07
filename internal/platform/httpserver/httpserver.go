@@ -24,7 +24,7 @@ const (
 	maxBodyBytes = 1 << 20
 	// RequestTimeout limits a normal request. Idempotency locks must outlast it.
 	RequestTimeout  = 20 * time.Second
-	readyTimeout    = 2 * time.Second
+	readyTimeout    = 10 * time.Second // Longer than database.PingTimeout, or a far database reads as down.
 	shutdownTimeout = RequestTimeout + 5*time.Second // Longer, so no legal request is cut off.
 )
 

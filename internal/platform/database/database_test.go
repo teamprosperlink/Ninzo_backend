@@ -2,6 +2,9 @@ package database
 
 import (
 	"context"
+	"io"
+	"net"
+	neturl "net/url"
 	"os"
 	"strings"
 	"testing"
@@ -150,5 +153,56 @@ func TestVerifyRole(t *testing.T) {
 		case c.problem != "" && (err == nil || !strings.Contains(err.Error(), c.problem)):
 			t.Errorf("%s as %s: want %q, got %v", c.role, c.want, c.problem, err)
 		}
+	}
+}
+
+// slowProxy holds each new connection for a while before passing it on, like a far-away database.
+func slowProxy(t *testing.T, target string, delay time.Duration) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			client, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer client.Close()
+				time.Sleep(delay)
+				server, err := net.Dial("tcp", target)
+				if err != nil {
+					return
+				}
+				defer server.Close()
+				go func() { _, _ = io.Copy(server, client) }()
+				_, _ = io.Copy(client, server)
+			}()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func TestAFarAwayDatabaseStillConnects(t *testing.T) {
+	u, err := neturl.Parse(localURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Host = slowProxy(t, u.Host, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	pool, err := Open(ctx, u.String(), 2)
+	if err != nil {
+		t.Fatalf("a connection that takes 3 seconds must not stop the API starting: %v", err)
+	}
+	pool.Close()
+}
+
+func TestAPingOutlastsANewConnection(t *testing.T) {
+	if PingTimeout <= connectTimeout {
+		t.Errorf("ping %s, connect %s: a ping could never finish making a connection", PingTimeout, connectTimeout)
 	}
 }
