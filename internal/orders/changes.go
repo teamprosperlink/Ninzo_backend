@@ -78,6 +78,9 @@ func end(ctx context.Context, tx pgx.Tx, orderID, from, to, endedReason, actorTy
 		WHERE id = $1`, orderID, to, endedReason); err != nil {
 		return err
 	}
+	if err := endOffers(ctx, tx, orderID, to); err != nil {
+		return err
+	}
 	if err := releaseHolds(ctx, tx, orderID, actorType, actorID); err != nil {
 		return err
 	}
@@ -122,12 +125,12 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) {
 		}
 		// The clock is read once the lock is held, so the boundary is decided under it.
 		now := s.clock()
-		var cancelUntil, waitDeadline *time.Time
-		if err := tx.QueryRow(r.Context(), "SELECT cancel_until, wait_deadline FROM orders WHERE id = $1", id).Scan(&cancelUntil, &waitDeadline); err != nil {
+		var cancelUntil, waitDeadline, minWait *time.Time
+		if err := tx.QueryRow(r.Context(), "SELECT cancel_until, wait_deadline, min_wait_until FROM orders WHERE id = $1", id).Scan(&cancelUntil, &waitDeadline, &minWait); err != nil {
 			return err
 		}
 		refundReason, again := "", false
-		switch Stage(state) {
+		switch stageAt(state, minWait, now) {
 		case "payment", "payment_failed":
 		case "no_scooter":
 			refundReason = "no_rider_found"
@@ -140,6 +143,13 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) {
 			default:
 				return &refusal{"cancel_not_allowed", "This order can no longer be cancelled."}
 			}
+		case "rider_accepted":
+			if waitDeadline == nil || now.Before(*waitDeadline) {
+				return &refusal{"cancel_not_allowed", "This order can no longer be cancelled."}
+			}
+			refundReason = "wait_deadline_passed"
+		case "timer_running", "arrived", "handed_over":
+			return &refusal{"cancel_not_allowed", "This order can no longer be cancelled."}
 		default:
 			// A cancel of an order already cancelled succeeds, so a retry after a lost reply is safe.
 			if state != "CANCELLED" {
@@ -313,14 +323,8 @@ func (s *Service) changeGate(w http.ResponseWriter, r *http.Request) {
 }
 
 func moveOrder(ctx context.Context, tx pgx.Tx, orderID, customerID string, lat, lng float64, historyID, gateID string, now time.Time) error {
-	rows, err := tx.Query(ctx, "SELECT item_id::text, qty FROM order_items WHERE order_id = $1", orderID)
+	basket, err := basketOf(ctx, tx, orderID)
 	if err != nil {
-		return err
-	}
-	basket := map[string]int{}
-	var item string
-	var qty int
-	if _, err := pgx.ForEachRow(rows, []any{&item, &qty}, func() error { basket[item] += qty; return nil }); err != nil {
 		return err
 	}
 	if err := releaseHolds(ctx, tx, orderID, identity.TypeCustomer, customerID); err != nil {
@@ -342,7 +346,7 @@ func moveOrder(ctx context.Context, tx pgx.Tx, orderID, customerID string, lat, 
 		return err
 	}
 	for item, qty := range basket {
-		if err := holdStock(ctx, tx, orderID, pick.ScooterID, item, qty, customerID); err != nil {
+		if err := holdStock(ctx, tx, orderID, pick.ScooterID, item, qty, identity.TypeCustomer, customerID); err != nil {
 			return err
 		}
 	}

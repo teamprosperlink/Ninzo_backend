@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-09 | #84 | `v0.5.0` offers, local only | See PR | PASS | [reports/84.md](reports/84.md) |
 | 2026-11-09 | #82 | `v0.4.0` on staging, test data only | f352483 | PASS: create 201, test payment paid, cancel inside 5 s refunded (customer_cancelled, processed), failed then retry then cancel before paying (no refund), too many gives sold_out, list, stock back to 10 | This row |
 | 2026-11-09 | #80 | `v0.4.0` orders part B, local only | See PR | PASS | [reports/80.md](reports/80.md) |
 | 2026-11-09 | #78 | `v0.4.0` orders part A, local only | See PR | PASS | [reports/78.md](reports/78.md) |

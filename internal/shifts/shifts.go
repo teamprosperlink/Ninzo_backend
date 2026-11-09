@@ -247,6 +247,9 @@ func (s *Service) endShift(w http.ResponseWriter, r *http.Request) {
 		if !open {
 			return refuse("no_open_shift", "No shift is open.")
 		}
+		if err := handBack(r.Context(), tx, actor.ID); err != nil {
+			return err
+		}
 		var ended time.Time
 		if err := tx.QueryRow(r.Context(), "UPDATE shifts SET ended_at = now() WHERE id = $1 RETURNING ended_at", sh.ID).Scan(&ended); err != nil {
 			return err
@@ -449,4 +452,44 @@ func (s *Service) getStock(w http.ResponseWriter, r *http.Request) {
 		lots = []stockLot{}
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"lots": lots, "server_time": serverTime()})
+}
+
+// handBack refuses to end a shift while the rider has an accepted order, and gives back an open
+// offer, so the order goes to another rider. The order's lock is taken before the offer's, as
+// every change to an order does, and the offer is read again under it.
+func handBack(ctx context.Context, tx pgx.Tx, rider string) error {
+	var offer, order, state string
+	err := tx.QueryRow(ctx, "SELECT id::text, order_id::text FROM offers WHERE rider_id = $1 AND released_at IS NULL", rider).Scan(&offer, &order)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM orders WHERE id = $1 FOR UPDATE", order); err != nil {
+		return err
+	}
+	var released *time.Time
+	if err := tx.QueryRow(ctx, "SELECT state, released_at FROM offers WHERE id = $1 FOR UPDATE", offer).Scan(&state, &released); err != nil {
+		return err
+	}
+	if released != nil {
+		return nil
+	}
+	if state == "accepted" {
+		return refuse("order_in_progress", "Finish the current order first.")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE offers SET state = 'expired', ended_reason = 'reassigned', final_state = 'OFFERED', released_at = now(), updated_at = now()
+		WHERE id = $1`, offer); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, "UPDATE orders SET state = 'PAYMENT_SECURED', updated_at = now() WHERE id = $1 AND state = 'OFFERED'", order)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		_, err = tx.Exec(ctx, `INSERT INTO order_events (order_id, from_state, to_state, actor_type, actor_id, reason)
+			VALUES ($1, 'OFFERED', 'PAYMENT_SECURED', 'rider', $2, 'shift ended')`, order, rider)
+	}
+	return err
 }

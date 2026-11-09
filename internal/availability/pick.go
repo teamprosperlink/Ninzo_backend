@@ -22,6 +22,12 @@ type Pick struct {
 // rows, so the caller can hold units without anyone else taking them. One order comes from one
 // scooter. basket maps item IDs to quantities.
 func PickScooter(ctx context.Context, tx pgx.Tx, lat, lng float64, now time.Time, basket map[string]int) (Pick, error) {
+	return PickScooterExcept(ctx, tx, lat, lng, now, basket, nil)
+}
+
+// PickScooterExcept is PickScooter leaving out some scooters, such as those whose rider is busy or
+// has already passed on the order.
+func PickScooterExcept(ctx context.Context, tx pgx.Tx, lat, lng float64, now time.Time, basket map[string]int, except []string) (Pick, error) {
 	zone, found, err := geo.ZoneAt(ctx, tx, lat, lng)
 	if err != nil {
 		return Pick{}, err
@@ -69,9 +75,19 @@ func PickScooter(ctx context.Context, tx pgx.Tx, lat, lng float64, now time.Time
 	if err != nil {
 		return Pick{}, err
 	}
-	scooters, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	all, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return Pick{}, err
+	}
+	left := map[string]bool{}
+	for _, id := range except {
+		left[id] = true
+	}
+	scooters := all[:0]
+	for _, id := range all {
+		if !left[id] {
+			scooters = append(scooters, id)
+		}
 	}
 	if len(scooters) == 0 {
 		pick.Reason = ReasonNoCoverage
