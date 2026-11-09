@@ -485,6 +485,24 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 	case "rider_accepted":
 		cancellable = waitDeadline != nil && !now.Before(*waitDeadline)
 	}
+	// The timer is only ever set by the server. The code shows at arrived, or when the signal was
+	// lost after the timer or the wait deadline.
+	timer := map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false}
+	var otp any
+	var started, stopped, released *time.Time
+	var length *int
+	var missed bool
+	var code *string
+	if err := q.QueryRow(ctx, "SELECT timer_started_at, timer_stopped_at, timer_length_s, timer_missed, handover_otp, otp_released_at FROM orders WHERE id = $1", orderID).
+		Scan(&started, &stopped, &length, &missed, &code, &released); err != nil {
+		return nil, err
+	}
+	if started != nil {
+		timer = map[string]any{"timer_started_at": stamp(started), "timer_duration_s": length, "timer_stopped_at": stamp(stopped), "timer_missed": missed}
+	}
+	if code != nil && (stage == "arrived" || (released != nil && (stage == "rider_accepted" || stage == "timer_running"))) {
+		otp = *code
+	}
 	// The rider is shown from rider_accepted on, and on an ended order only if they were shown.
 	var rider any
 	shown := hasRider && minWait != nil
@@ -515,8 +533,8 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		"cancel_until": stamp(cancelUntil), "wait_deadline": stamp(waitDeadline),
 		// No rider is ever shown before v0.5.0, so these stay at their "not yet" values.
 		"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": rider,
-		"timer":  map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false},
-		"remedy": nil, "handover_otp": nil, "created_at": created.UTC().Format(time.RFC3339Nano),
+		"timer":  timer,
+		"remedy": nil, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano),
 	}, nil
 }
 

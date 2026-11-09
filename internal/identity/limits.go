@@ -30,6 +30,8 @@ var (
 	rulePhoneAndAddress = ratelimit.Rule{Name: "otp_phone_ip_hour", Limit: 5, Window: time.Hour}
 	// One session, on sign-in and account routes. Rider location pings must not share this rule.
 	ruleSession = ratelimit.Rule{Name: "session_min", Limit: 30, Window: time.Minute}
+	// One session's location pings. The app pings every 2 to 3 seconds at most.
+	rulePings = ratelimit.Rule{Name: "pings_min", Limit: 90, Window: time.Minute}
 )
 
 // Limits applies the rules. A nil *Limits limits nothing, for tests of other behaviour.
@@ -99,6 +101,18 @@ func (l *Limits) byAddress(rules ...ratelimit.Rule) func(http.Handler) http.Hand
 						return
 					}
 				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ByPings limits one session's location pings. Use it after RequireActor.
+func (l *Limits) ByPings() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if actor, ok := ActorFrom(r.Context()); ok && !l.allow(w, r, actor.ChainID, rulePings, "rate_limited") {
+				return
 			}
 			next.ServeHTTP(w, r)
 		})

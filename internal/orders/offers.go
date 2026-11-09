@@ -316,6 +316,19 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 			WHERE o.state = 'RIDER_ACCEPTED' AND o.rider_accepted_at + make_interval(secs => coalesce(z.packing_limit_s, g.packing_limit_s)) <= $2
 			AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.rider_accepted_at, o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error { return markPacked(ctx, tx, id, "system", nil) }},
+		{"releasing the code after the signal was lost", `SELECT o.id::text FROM orders o JOIN zone_settings g ON g.id = o.global_settings
+			LEFT JOIN zone_settings z ON z.id = o.zone_settings
+			WHERE o.otp_released_at IS NULL AND o.handover_otp IS NOT NULL
+				AND coalesce(o.last_ping_at, o.rider_accepted_at) + make_interval(secs => coalesce(z.signal_release_s, g.signal_release_s)) <= $2
+				AND ((o.state = 'TIMER_RUNNING' AND o.timer_started_at + make_interval(secs => o.timer_length_s) <= $2)
+					OR (o.state IN ('RIDER_ACCEPTED', 'PACKED') AND o.min_wait_until <= $2 AND o.wait_deadline <= $2))
+				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
+			func(ctx context.Context, tx pgx.Tx, id string) error {
+				if _, err := tx.Exec(ctx, "UPDATE orders SET otp_released_at = $2, seq = seq + 1, updated_at = now() WHERE id = $1", id, now); err != nil {
+					return err
+				}
+				return bumpRiderOf(ctx, tx, id)
+			}},
 		{"ending an order with no scooter", `SELECT id::text FROM orders WHERE state = 'NO_SCOOTER' AND wait_deadline <= $2
 			AND NOT (id::text = ANY($1::text[])) ORDER BY wait_deadline, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error {
@@ -335,6 +348,15 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 			SELECT id FROM orders WHERE state IN ('RIDER_ACCEPTED', 'PACKED', 'ARRIVED') AND NOT min_wait_until_seen AND min_wait_until <= $1
 			FOR UPDATE SKIP LOCKED)
 		UPDATE orders o SET seq = o.seq + 1, min_wait_until_seen = true, updated_at = now() FROM due WHERE o.id = due.id`, now)
+	if err != nil {
+		return total, err
+	}
+	total += int(tag.RowsAffected())
+	// The timer's length passed before the perimeter: missed, once. The order carries on.
+	tag, err = s.Pool.Exec(ctx, `WITH due AS (
+			SELECT id FROM orders WHERE state = 'TIMER_RUNNING' AND NOT timer_missed AND timer_started_at + make_interval(secs => timer_length_s) <= $1
+			FOR UPDATE SKIP LOCKED)
+		UPDATE orders o SET seq = o.seq + 1, timer_missed = true, updated_at = now() FROM due WHERE o.id = due.id`, now)
 	if err != nil {
 		return total, err
 	}

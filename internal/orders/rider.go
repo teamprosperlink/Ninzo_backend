@@ -21,7 +21,7 @@ import (
 )
 
 // MountRider adds the rider's offers and orders: getRiderState, listOffers, acceptOffer,
-// declineOffer, markReady and getRiderOrder.
+// declineOffer, markReady, getRiderOrder and handOver.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
@@ -32,6 +32,7 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.With(idem).Post("/offers/{offer_id}/decline", s.declineOffer)
 		g.With(idem).Post("/offers/{offer_id}/ready", s.markReady)
 		g.Get("/orders/{order_id}", s.riderOrder)
+		g.With(idem).Post("/orders/{order_id}/handover", s.handOver)
 	})
 }
 
@@ -84,16 +85,19 @@ type offerRow struct {
 	endedReason, finalState                      *string
 	expiresAt                                    time.Time
 	acceptedAt, releasedAt, handedOverAt         *time.Time
+	otpAvailable                                 bool
 	timerLength                                  *int
 }
 
 func readOffer(ctx context.Context, q querier, offerID string) (offerRow, error) {
 	var f offerRow
 	err := q.QueryRow(ctx, `SELECT f.id::text, f.order_id::text, f.rider_id::text, f.fencing_token, f.state, o.state, f.ended_reason, f.final_state,
-			f.expires_at, f.rider_accepted_at, f.released_at, NULL::timestamptz, o.timer_length_s
+			f.expires_at, f.rider_accepted_at, f.released_at, o.handed_over_at, o.timer_length_s,
+			f.released_at IS NULL AND o.handover_otp IS NOT NULL
+				AND ((o.state = 'ARRIVED' AND coalesce(o.min_wait_until <= o.arrived_at OR o.min_wait_until_seen, false)) OR o.otp_released_at IS NOT NULL)
 		FROM offers f JOIN orders o ON o.id = f.order_id WHERE f.id = $1`, offerID).
 		Scan(&f.id, &f.orderID, &f.rider, &f.token, &f.state, &f.orderState, &f.endedReason, &f.finalState,
-			&f.expiresAt, &f.acceptedAt, &f.releasedAt, &f.handedOverAt, &f.timerLength)
+			&f.expiresAt, &f.acceptedAt, &f.releasedAt, &f.handedOverAt, &f.timerLength, &f.otpAvailable)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, errNotFound
 	}
@@ -182,7 +186,7 @@ func riderOrderView(ctx context.Context, q querier, f offerRow) (map[string]any,
 	}
 	return map[string]any{"id": f.orderID, "offer_id": f.id, "fencing_token": f.token, "state": state, "seq": seq, "ended_reason": ended,
 		"items": items, "gate": gate, "timer_label": timerLabel(length), "rider_accepted_at": stamp(f.acceptedAt),
-		"otp_available": false, "handed_over_at": stamp(f.handedOverAt)}, nil
+		"otp_available": f.otpAvailable, "handed_over_at": stamp(f.handedOverAt)}, nil
 }
 
 func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
@@ -417,13 +421,17 @@ func accept(ctx context.Context, tx pgx.Tx, f offerRow, now time.Time) error {
 		}
 		fixed[name] = v
 	}
+	otp, err := newOTP()
+	if err != nil {
+		return err
+	}
 	// The customer sees rider_accepted only once the minimum wait has passed. If it already has,
 	// that is a change they can see, so seq rises now.
 	if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'RIDER_ACCEPTED', rider_id = $2, rider_accepted_at = $3,
 			timer_length_s = $4, zone_radius_m = $5, arrival_perimeter_m = $6,
 			seq = seq + CASE WHEN coalesce(min_wait_until <= $3, false) THEN 1 ELSE 0 END,
-			min_wait_until_seen = coalesce(min_wait_until <= $3, false), updated_at = now()
-		WHERE id = $1`, f.orderID, f.rider, now, fixed["timer_length_s"], fixed["zone_radius_m"], fixed["arrival_perimeter_m"]); err != nil {
+			min_wait_until_seen = coalesce(min_wait_until <= $3, false), handover_otp = $7, updated_at = now()
+		WHERE id = $1`, f.orderID, f.rider, now, fixed["timer_length_s"], fixed["zone_radius_m"], fixed["arrival_perimeter_m"], otp); err != nil {
 		return err
 	}
 	if err := event(ctx, tx, f.orderID, "OFFERED", "RIDER_ACCEPTED", identity.TypeRider, f.rider, "accepted"); err != nil {
@@ -463,7 +471,16 @@ func (s *Service) markReady(w http.ResponseWriter, r *http.Request) {
 		if f.releasedAt != nil {
 			return nil, &refusal{"order_cancelled", "This order has ended."}
 		}
-		// rider_moving needs GPS, which arrives with location pings (v0.5.0 part 2).
+		// The rider packs while stopped: a fresh ping showing movement refuses Ready.
+		if f.orderState == "RIDER_ACCEPTED" {
+			moving, err := riderMoving(ctx, tx, f.rider, now)
+			if err != nil {
+				return nil, err
+			}
+			if moving {
+				return nil, &refusal{"rider_moving", "Stop before marking the order packed."}
+			}
+		}
 		if err := markPacked(ctx, tx, f.orderID, identity.TypeRider, f.rider); err != nil {
 			return nil, err
 		}

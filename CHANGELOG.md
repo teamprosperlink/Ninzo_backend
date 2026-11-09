@@ -5,6 +5,13 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The zone timer and handover (#86)
+- Added: `locationPing`, kept as evidence. Two pings in a row inside the zone start the timer once the order is packed and the minimum wait has passed; two inside the arrival perimeter stop it. A packed rider already inside the perimeter gets no timer.
+- Added: `handOver` with the customer's code and quantities. Stock is taken off the scooter for good.
+- Added: Ready is refused with `rider_moving` when a fresh ping shows movement. The timer is marked missed when its length passes. The code is released to the customer when the signal is lost after the timer or the wait deadline.
+- Migration 0020, not applied to Supabase.
+- Evidence: docs/testing/reports/86.md
+
 ### Offers (#84)
 - Added: offers to one rider at a time once the cancel window closes: `getRiderState`, `listOffers`, `acceptOffer`, `declineOffer`, `markReady` and `getRiderOrder`.
 - Added: the rider pass that expires offers, moves an order to the next free scooter, packs at the packing limit, and refunds an order left at no scooter.

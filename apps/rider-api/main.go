@@ -42,6 +42,7 @@ func main() {
 			work.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 			delivery := &orders.Service{Pool: d.DB, Log: d.Log}
 			delivery.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
+			delivery.MountTracking(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.ByPings())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rider-api:", err)

@@ -801,8 +801,10 @@ paths:
       description: 'Sends the OTP the customer shows, and the quantities. Recorded once. Queue the event
         first, and use its event_id as the Idempotency-Key, so the direct and queued paths count as one.
         A repeat by the same rider after success returns success. Allowed from PACKED, TIMER_RUNNING or
-        ARRIVED. Rejected with rider_not_near if the handover is current and fresh GPS shows the rider
-        away from the gate. Errors, all 409: wrong_otp, otp_attempts_exceeded, handover_not_allowed, rider_not_near.'
+        ARRIVED, and from RIDER_ACCEPTED once the code was released after a lost signal. Rejected with
+        rider_not_near if the handover is current and fresh GPS shows the rider away from the gate.
+        Errors, all 409: wrong_otp, otp_attempts_exceeded, handover_not_allowed, rider_not_near,
+        order_cancelled, order_reassigned.'
       parameters:
       - $ref: '#/components/parameters/OrderId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -840,12 +842,16 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
         '503':
@@ -930,6 +936,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '429':
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
