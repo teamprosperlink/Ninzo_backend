@@ -112,6 +112,7 @@ func (s *Service) MountCustomer(r chi.Router, testPayments bool, signedIn ...fun
 		g.With(idem).Patch("/orders/{order_id}/gate", s.changeGate)
 		g.With(idem).Post("/orders/{order_id}/payment/retry", s.retry)
 		g.Get("/orders/{order_id}/refund", s.getRefund)
+		g.With(idem).Post("/orders/{order_id}/accept-eta", s.acceptETA)
 		if testPayments {
 			g.Post("/test/payments/{order_id}", s.testPayment)
 		}
@@ -457,7 +458,11 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		return nil, err
 	}
 	var refunded bool
-	if err := q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM refunds WHERE order_id = $1 AND status = 'processed')", orderID).Scan(&refunded); err != nil {
+	if err := q.QueryRow(ctx, `SELECT CASE WHEN EXISTS (SELECT 1 FROM payments WHERE order_id = $1 AND status = 'paid')
+		THEN (SELECT coalesce(sum(r.amount_paise), 0) FROM refunds r JOIN payments p ON p.id = r.payment_id AND p.status = 'paid'
+				WHERE r.order_id = $1 AND r.status = 'processed')
+			>= (SELECT amount_paise FROM payments WHERE order_id = $1 AND status = 'paid')
+		ELSE EXISTS (SELECT 1 FROM refunds WHERE order_id = $1 AND status = 'processed') END`, orderID).Scan(&refunded); err != nil {
 		return nil, err
 	}
 	stage := stageAt(state, minWait, now)
@@ -503,6 +508,16 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 	if code != nil && (stage == "arrived" || (released != nil && (stage == "rider_accepted" || stage == "timer_running"))) {
 		otp = *code
 	}
+	remedy, err := remedyView(ctx, q, orderID)
+	if err != nil {
+		return nil, err
+	}
+	var etaOffer any
+	if stage == "no_scooter" {
+		if etaOffer, err = etaOfferView(ctx, q, orderID, now); err != nil {
+			return nil, err
+		}
+	}
 	// The rider is shown from rider_accepted on, and on an ended order only if they were shown.
 	var rider any
 	shown := hasRider && minWait != nil
@@ -532,9 +547,9 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		"payment_status": status, "payment_request": request, "cancellable": cancellable,
 		"cancel_until": stamp(cancelUntil), "wait_deadline": stamp(waitDeadline),
 		// No rider is ever shown before v0.5.0, so these stay at their "not yet" values.
-		"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": rider,
+		"eta_source": "placeholder", "eta_s": nil, "eta_offer": etaOffer, "rider": rider,
 		"timer":  timer,
-		"remedy": nil, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano),
+		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano),
 	}, nil
 }
 

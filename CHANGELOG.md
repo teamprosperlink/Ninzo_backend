@@ -5,6 +5,15 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Remedies and the longer ETA (#94)
+- Added: a credit for a missed timer, owed once the rider's pings show the miss, or 10 minutes after the timer if the signal stays lost. A late ping showing the rider at the gate in time opens a review, which holds the credit for up to 10 minutes.
+- Added: a partial handover refunds the missing food (`missing_food`) and shows it as a remedy.
+- Added: `acceptLongerEta`, and `eta_offer` on the order at `no_scooter`.
+- Changed: `payment_status` is `refunded` only once the whole payment went back.
+- Changed: the rider stream sends `order_state` when the order changes, such as Ready, arrival and handover.
+- Migration 0021, not applied to Supabase.
+- Evidence: docs/testing/reports/94.md
+
 ### Fixed (#90)
 - Live streams no longer drop after about 20 seconds: a WebSocket upgrade skips the request limit, and the stream clears the server's read and write deadlines.
 
