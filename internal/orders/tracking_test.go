@@ -417,3 +417,79 @@ func TestTheCodeStaysHiddenWhileTheRiderPings(t *testing.T) {
 		t.Error("the code was released while the rider's GPS was working")
 	}
 }
+
+func TestAPingFromTheFutureIsEvidenceOnly(t *testing.T) {
+	tr := started(t, true)
+	tr.at(inZone, 20*time.Second)
+	tr.pingAt(inZone, 0, 5, tr.clock.Add(2*time.Minute))
+	if tr.state() != "PACKED" {
+		t.Error("a ping dated in the future counted")
+	}
+	// True pings after it still count.
+	tr.at(inZone, 3*time.Second)
+	if tr.state() != "TIMER_RUNNING" {
+		t.Errorf("a ping from the future blocked true pings: %s", tr.state())
+	}
+}
+
+func TestPoorPingsStillKeepTheCodeHidden(t *testing.T) {
+	tr := started(t, true)
+	tr.at(inZone, 20*time.Second)
+	tr.at(inZone, 3*time.Second)
+	for i := 0; i < 12; i++ {
+		tr.clock = tr.clock.Add(10 * time.Second)
+		tr.pingAt(inZone, 0, 500, tr.clock)
+	}
+	tr.dispatch(tr.clock)
+	if tr.customer()["handover_otp"] != nil {
+		t.Error("the code was released while the rider's phone was still pinging")
+	}
+}
+
+func TestAPoorFixDoesNotRefuseAHandover(t *testing.T) {
+	tr := started(t, true)
+	tr.at(atGate, 20*time.Second)
+	tr.at(atGateToo, 3*time.Second)
+	tr.clock = tr.clock.Add(time.Second)
+	tr.pingAt(far, 0, 500, tr.clock)
+	if code, out := tr.handOver(tr.otp(), 2, tr.clock); code != 200 {
+		t.Errorf("an inaccurate fix refused an honest rider: %d %v", code, out)
+	}
+}
+
+func TestAHandoverAfterACancel(t *testing.T) {
+	tr := started(t, true)
+	otp := tr.otp()
+	tr.clock = tr.clock.Add(301 * time.Second)
+	if code, out := tr.send("POST", "/orders/"+tr.order+"/cancel", tr.fixture.token, `{}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	if code, out := tr.handOver(otp, 2, tr.clock); code != 409 || out["code"] != "order_cancelled" {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestAHandoverOnceTheCodeWasReleasedBeforePacking(t *testing.T) {
+	tr := started(t, false)
+	tr.clock = tr.clock.Add(301 * time.Second)
+	tr.dispatch(tr.clock)
+	if tr.customer()["handover_otp"] == nil {
+		t.Fatal("the code was not released after the wait deadline with no ping")
+	}
+	if code, out := tr.handOver(tr.otp(), 2, tr.clock); code != 200 {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestArrivingExactlyAtTheEndIsMissed(t *testing.T) {
+	tr := started(t, true)
+	tr.at(inZone, 20*time.Second)
+	tr.at(inZone, 3*time.Second)
+	begun := tr.clock
+	tr.at(atGate, 87*time.Second)
+	tr.clock = begun.Add(90 * time.Second)
+	tr.pingAt(atGateToo, 0, 5, tr.clock)
+	if tr.count("SELECT count(*) FROM orders WHERE id = $1 AND timer_missed", tr.order) != 1 {
+		t.Error("arriving at the timer's end must count as missed, as the pass does")
+	}
+}

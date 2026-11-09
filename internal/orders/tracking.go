@@ -162,13 +162,22 @@ func track(ctx context.Context, tx pgx.Tx, orderID string, p ping, now time.Time
 	if err != nil {
 		return false, "", "", err
 	}
-	switch {
-	case state != "RIDER_ACCEPTED" && state != "PACKED" && state != "TIMER_RUNNING" && state != "ARRIVED":
+	if state != "RIDER_ACCEPTED" && state != "PACKED" && state != "TIMER_RUNNING" && state != "ARRIVED" {
 		return false, "order not on its way", state, nil
+	}
+	// Any ping shows the signal is alive, even one too poor to place the rider, so the code is
+	// never released while the rider's phone is still reaching us.
+	if _, err := tx.Exec(ctx, "UPDATE orders SET last_ping_at = $2 WHERE id = $1", orderID, now); err != nil {
+		return false, "", "", err
+	}
+	switch {
 	case zone == nil || perimeter == nil:
 		return false, "order has no zone", state, nil
 	case now.Sub(p.device) > lateLimit:
 		return false, "late", state, nil
+	case p.device.Sub(now) > lateLimit:
+		// A phone clock running fast would otherwise make every true ping look older.
+		return false, "from the future", state, nil
 	case lastDevice != nil && !p.device.After(*lastDevice):
 		return false, "older than one applied", state, nil
 	case p.accuracy > maxAccuracyM:
@@ -196,8 +205,8 @@ func track(ctx context.Context, tx pgx.Tx, orderID string, p ping, now time.Time
 	} else {
 		perimeterHits = 0
 	}
-	if _, err := tx.Exec(ctx, `UPDATE orders SET zone_hits = $2, perimeter_hits = $3, last_ping_at = $4, last_device_time = $5, updated_at = now()
-		WHERE id = $1`, orderID, zoneHits, perimeterHits, now, p.device); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE orders SET zone_hits = $2, perimeter_hits = $3, last_device_time = $4, updated_at = now()
+		WHERE id = $1`, orderID, zoneHits, perimeterHits, p.device); err != nil {
 		return false, "", "", err
 	}
 	waited := minWait != nil && !now.Before(*minWait)
@@ -240,7 +249,7 @@ func bumpRiderOf(ctx context.Context, tx pgx.Tx, orderID string) error {
 func arrive(ctx context.Context, tx pgx.Tx, orderID, from, source string, now time.Time) error {
 	if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'ARRIVED', arrived_at = $2, arrival_source = $3,
 			timer_stopped_at = CASE WHEN timer_started_at IS NOT NULL AND timer_stopped_at IS NULL THEN $2 ELSE timer_stopped_at END,
-			timer_missed = timer_missed OR (timer_started_at IS NOT NULL AND $2 > timer_started_at + make_interval(secs => timer_length_s)),
+			timer_missed = timer_missed OR (timer_started_at IS NOT NULL AND $2 >= timer_started_at + make_interval(secs => timer_length_s)),
 			seq = seq + CASE WHEN coalesce(min_wait_until <= $2, false) THEN 1 ELSE 0 END, updated_at = now()
 		WHERE id = $1`, orderID, now, source); err != nil {
 		return err
@@ -378,7 +387,18 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		if f.orderState == "HANDED_OVER" || f.orderState == "COMPLETED" {
 			return finish() // A repeat by the same rider after success.
 		}
-		if f.releasedAt != nil || (f.orderState != "PACKED" && f.orderState != "TIMER_RUNNING" && f.orderState != "ARRIVED") {
+		if f.releasedAt != nil {
+			if f.endedReason != nil && *f.endedReason == "cancelled" {
+				return &refusal{"order_cancelled", "The customer cancelled this order."}
+			}
+			return &refusal{"order_reassigned", "This order is no longer yours."}
+		}
+		// Before packing only once the code was released after a lost signal: the customer has it.
+		var released bool
+		if err := tx.QueryRow(ctx, "SELECT otp_released_at IS NOT NULL FROM orders WHERE id = $1", id).Scan(&released); err != nil {
+			return err
+		}
+		if f.orderState != "PACKED" && f.orderState != "TIMER_RUNNING" && f.orderState != "ARRIVED" && !(f.orderState == "RIDER_ACCEPTED" && released) {
 			return &refusal{"handover_not_allowed", "This order cannot be handed over now."}
 		}
 		if attempts >= maxOTPAttempts {
@@ -406,7 +426,7 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		// refused. An older queued one is accepted and flagged, as the rider may have ridden on.
 		var lat, lng float64
 		fresh := true
-		err = tx.QueryRow(ctx, `SELECT lat, lng FROM location_pings WHERE rider_id = $1 AND received_at >= $2 ORDER BY id DESC LIMIT 1`,
+		err = tx.QueryRow(ctx, `SELECT lat, lng FROM location_pings WHERE rider_id = $1 AND applied AND received_at >= $2 ORDER BY id DESC LIMIT 1`,
 			actor.ID, now.Add(-freshPing)).Scan(&lat, &lng)
 		if errors.Is(err, pgx.ErrNoRows) {
 			fresh = false
