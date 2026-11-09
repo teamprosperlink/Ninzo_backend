@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-09 | #92 | `v0.5.0` on staging, test data only | 589c648 | PASS: order, test payment, offer, accept (1.5 mins), Ready, pings 1 km, 280 m, 270 m (timer started, 90 s), 55 m, 50 m (arrived, not missed, code shown), wrong code 409, handover 200; customer stream through every stage and closed at handover; rider stream offer, accept, handover | This row |
 | 2026-11-09 | #90 | Streams outlive the server's limits, local | See PR | PASS | [reports/90.md](reports/90.md) |
 | 2026-11-09 | #88 | `v0.5.0` live streams, local only | See PR | PASS | [reports/88.md](reports/88.md) |
 | 2026-11-09 | #86 | `v0.5.0` the zone timer and handover, local only | See PR | PASS | [reports/86.md](reports/86.md) |
