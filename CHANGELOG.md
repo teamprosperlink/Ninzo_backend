@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Plan for v0.4.0 (#34)
+- Added: decision 0013, and `real_and_stand_ins.md`, which lists what is real, a stand-in or mock only.
+- Closes #34: every question before v0.3.0 is answered, in decisions 0011 to 0013.
+
 ### v0.3.0 on staging (#74)
 - Migrations 0012 to 0016 are on Supabase, with test data. Both APIs are deployed, and the flow passed on the real URLs.
 - Evidence: docs/testing/reports/74.md

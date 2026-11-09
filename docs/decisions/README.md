@@ -17,3 +17,4 @@ Accepted decisions are never edited; to reverse one, write a new decision and ma
 | [0010](0010-rate-limits-in-memory.md) | Rate limits counted in memory, for now | Proposed | 2026-11-06 |
 | [0011](0011-v030-answers.md) | Answers before v0.3.0 | Accepted | 2026-11-07 |
 | [0012](0012-gate-verification.md) | Gates are verified by the area they are in | Accepted | 2026-11-07 |
+| [0013](0013-v040-answers.md) | Answers before v0.4.0 | Accepted | 2026-11-09 |
