@@ -1,0 +1,44 @@
+# What is real, and what stands in for it
+
+The owner's plan (2026-11-09): build every API and the whole pipeline first, with simple stand-ins where something is only an estimate or needs an outside account. Then make each part real. **Money, stock, order states and sign-in rules are real from the start**, because they are hard to fix later.
+
+Update this page in the same PR as any change to a row. The shared Doc points app developers here.
+
+**Status:** Real means production behaviour. Stand-in means it works end to end, with a simple version behind one swappable part. Mock only means only the mock server has it. Not built means nothing answers yet.
+
+## On the real backend (staging)
+| Part | Status | What it is today | What makes it real | When |
+|---|---|---|---|---|
+| Phone sign-in, sessions, refresh, sign-out | Real | As in production | | Done |
+| SMS for codes | Stand-in | Test code `123456`, no SMS sent. Production refuses to start in test mode | MSG91, after DLT approval | When credentials arrive |
+| Google sign-in | Real | Checked against Google's keys. Tested with a real login on the web, not yet from the Android app | The Android app test on staging | Developer testing now |
+| Apple sign-in | Not built | | Apple Developer account and a Mac | Before v1.0.0 |
+| One sign-in method, switching, settings change | Real | | | Done |
+| Rate limits | Real, in memory | Counted inside each API | Redis, before two replicas of an API | When scaling |
+| Profile and devices | Real | Push tokens are stored | Push sending, which needs the worker and FCM | v0.6.0 |
+| Settings store | Real | Changed by `task settings` | The admin console | v0.9.0 |
+| Zones and service areas | Real, test data | Two rough test boxes in Koramangala and Indiranagar | The owner's real areas | When the owner gives them |
+| Gates, location check | Real | Verified by the area they are in (decision 0012) | | Done |
+| Menu | Real, test data | Three test items | The owner's real menu, then the console | When the owner gives it |
+| Stock, lots, ledger | Real, test data | Lots are made by `task testdata` | Hub APIs make lots | v0.8.0 |
+| Rider approval | Stand-in | `task riders`, audited, documents marked checked by hand | Rider application, DigiLocker and the console | v0.3.0 application later, console v0.9.0 |
+| Rider shift, nodes, stock scan | Real | A free scooter at the node is the rider's for the shift | | Done |
+| **Reach in availability** | Stand-in | Straight-line distance from the scooter's staging node, at a placeholder speed | Rider GPS, then real road times from a routing engine | GPS v0.5.0, roads after the road test |
+| H3 map grid | Not built | Not needed at pilot size, where PostGIS is exact | H3 cells, if demand data needs them | After real traffic |
+| Matching riders to orders | Not built | | Nearest rider on shift with the whole basket, then ranking | v0.5.0 |
+| Orders, holds, cancel window, refund rules | Being built | | | v0.4.0 |
+| **Payment** | Being built as a stand-in | Test payment, marked paid or failed by a staging-only endpoint, refused in production | Razorpay and its webhook | Before v1.0.0 |
+| Refund money | Being built as a stand-in | The refund is recorded, and no money moves | Razorpay refunds | Before v1.0.0 |
+| Background jobs | Being built | Run inside the customer API, one replica | A separate worker | With two replicas, or after the pilot |
+| Live streams, timer, handover, offers | Not built | Mock only | | v0.5.0 |
+| Failures, remedies, notifications, support tickets | Not built | Mock only | | v0.6.0 |
+| Restock, relocation, earnings | Not built | Mock only | | v0.7.0 |
+| Partner and hub APIs | Not built | | | v0.8.0 |
+| Admin, ops and support APIs | Not built | | | v0.9.0 to v0.10.0 |
+
+## On the mock server
+Every customer and rider endpoint in the contracts answers on the mock, with scenarios. Mock replies are samples: they do not check tokens, stock or rules.
+
+## Related
+- Accepted downsides: `known_downsides.md`
+- Version plan: `docs/planning/milestones.md`

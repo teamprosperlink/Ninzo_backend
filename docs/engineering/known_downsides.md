@@ -1,6 +1,6 @@
 # Known downsides: ninzo-backend
 
-Every downside we knowingly accepted, in one place, with what limits it and what would fix it. When a decision creates a downside, add it here and link the decision.
+What is real and what is a stand-in is in `real_and_stand_ins.md`. Every downside we knowingly accepted is here, in one place, with what limits it and what would fix it. When a decision creates a downside, add it here and link the decision.
 
 **Status:** Accepted means we live with it. Before launch means it must be fixed before real customers. Open means someone still has to decide.
 
