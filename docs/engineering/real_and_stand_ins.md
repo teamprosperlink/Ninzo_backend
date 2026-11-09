@@ -26,8 +26,8 @@ Update this page in the same PR as any change to a row. The shared Doc points ap
 | **Reach in availability** | Stand-in | Straight-line distance from the scooter's staging node, at a placeholder speed | Rider GPS, then real road times from a routing engine | GPS v0.5.0, roads after the road test |
 | H3 map grid | Not built | Not needed at pilot size, where PostGIS is exact | H3 cells, if demand data needs them | After real traffic |
 | Matching riders to orders | Not built | | Nearest rider on shift with the whole basket, then ranking | v0.5.0 |
-| Orders and holds on one scooter | Real | Built (#78). Cancel, retry and gate change come next | | v0.4.0 |
-| Cancel window, retry, gate change and refund rules | Real | Built (#80). Refunds of the test payment are marked processed at once, as no money moved | Razorpay refunds stay pending until Razorpay says processed | v0.4.0 |
+| Orders and holds on one scooter | Real | Built (#78), on staging (#82) | | v0.4.0 |
+| Cancel window, retry, gate change and refund rules | Real | Built (#80), on staging (#82). Refunds of the test payment are marked processed at once, as no money moved | Razorpay refunds stay pending until Razorpay says processed | v0.4.0 |
 | Background passes: holds end after 10 minutes, seq moves when cancellable changes | Real, in a simple form | A loop every 5 seconds inside the customer API, safe with several copies | A separate worker with scheduled tasks, when load needs it | v0.4.0 |
 | **Payment** | Stand-in | Test payment, marked paid or failed by `POST /test/payments/{order_id}` on staging. Production refuses to start with it | Razorpay and its webhook | Before v1.0.0 |
 | Refund money | Being built as a stand-in | The refund is recorded, and no money moves | Razorpay refunds | Before v1.0.0 |
