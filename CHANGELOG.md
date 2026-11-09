@@ -5,6 +5,13 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider problems and reassignment (#96)
+- Added: `reportProblem`. A breakdown or accident takes the scooter out of service; an order the customer has not seen accepted goes to another rider silently, and one they have seen fails with a full refund (`order_failed`). Other problems are recorded for support.
+- Added: when a rider's on-time pings stop for `reassign_after_s` (2 minutes) before the timer, the order is reassigned, unless the customer already has the code; once the timer runs, support is alerted instead.
+- Changed: a scooter in maintenance gets no offers.
+- Migration 0022, not applied to Supabase.
+- Evidence: docs/testing/reports/96.md
+
 ### Remedies and the longer ETA (#94)
 - Added: a credit for a missed timer, owed once the rider's pings show the miss, or 10 minutes after the timer if the signal stays lost. A late ping showing the rider at the gate in time opens a review, which holds the credit for up to 10 minutes.
 - Added: a partial handover refunds the missing food (`missing_food`) and shows it as a remedy.

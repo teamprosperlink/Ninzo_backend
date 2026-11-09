@@ -63,6 +63,7 @@ func basketOf(ctx context.Context, tx pgx.Tx, orderID string) (map[string]int, e
 func freeRider(ctx context.Context, tx pgx.Tx, scooter string) (string, bool, error) {
 	var rider string
 	err := tx.QueryRow(ctx, `SELECT sh.rider_id::text FROM shifts sh
+		JOIN scooters s ON s.id = sh.scooter_id AND s.status = 'active'
 		JOIN riders r ON r.id = sh.rider_id AND r.status = 'active'
 		JOIN people p ON p.id = r.person_id AND p.status = 'active'
 		WHERE sh.scooter_id = $1 AND sh.ended_at IS NULL
@@ -345,6 +346,27 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 					OR $2::timestamptz >= o.timer_started_at + make_interval(secs => o.timer_length_s) + interval '10 minutes')
 				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.timer_started_at, o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error { return creditForMissedTimer(ctx, tx, id) }},
+		// The rider's on-time pings stop for reassign_after_s before the timer: the order goes to
+		// another rider (decision 0011), unless the customer already has the code. Once the timer
+		// runs the rider is near and the code is released after 30 s, so support is alerted instead.
+		{"reassigning after no ping", `SELECT o.id::text FROM orders o JOIN zone_settings g ON g.id = o.global_settings
+			LEFT JOIN zone_settings z ON z.id = o.zone_settings
+			WHERE o.state IN ('RIDER_ACCEPTED', 'PACKED') AND o.otp_released_at IS NULL
+				AND o.last_live_ping_at + make_interval(secs => coalesce(z.reassign_after_s, g.reassign_after_s)) <= $2
+				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
+			func(ctx context.Context, tx pgx.Tx, id string) error {
+				if err := signalLost(ctx, tx, id); err != nil {
+					return err
+				}
+				return rematch(ctx, tx, id, "no ping", now)
+			}},
+		{"alerting support after no ping", `SELECT o.id::text FROM orders o JOIN zone_settings g ON g.id = o.global_settings
+			LEFT JOIN zone_settings z ON z.id = o.zone_settings
+			WHERE o.state IN ('TIMER_RUNNING', 'ARRIVED')
+				AND o.last_live_ping_at + make_interval(secs => coalesce(z.reassign_after_s, g.reassign_after_s)) <= $2
+				AND NOT EXISTS (SELECT 1 FROM problem_reports p WHERE p.order_id = o.id AND p.source = 'system' AND p.type = 'signal_lost')
+				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
+			func(ctx context.Context, tx pgx.Tx, id string) error { return signalLost(ctx, tx, id) }},
 		{"ending an order with no scooter", `SELECT id::text FROM orders WHERE state = 'NO_SCOOTER' AND wait_deadline <= $2
 			AND NOT (id::text = ANY($1::text[])) ORDER BY wait_deadline, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error {

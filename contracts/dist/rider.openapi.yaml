@@ -2188,7 +2188,7 @@ paths:
                 - offers
     /riders/me/problems:
         post:
-            description: There is no penalty. Support sees it within seconds. An unsafe route never counts against the rider.
+            description: 'There is no penalty. Support sees it within seconds. An unsafe route never counts against the rider. A breakdown or accident takes the scooter out of service: an order the customer has not yet seen accepted goes to another rider silently, and one they have seen fails with a full refund. Errors: order_not_yours (409) when order_id is not one of the rider''s orders.'
             operationId: reportProblem
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2225,10 +2225,14 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Report a problem
