@@ -377,7 +377,9 @@ func (s *Service) acceptOffer(w http.ResponseWriter, r *http.Request) {
 				return nil, expired()
 			}
 			var onShift bool
-			if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM shifts WHERE rider_id = $1 AND ended_at IS NULL)", f.rider).Scan(&onShift); err != nil {
+			// The open shift must be on the scooter that holds this order's stock.
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM shifts sh JOIN offers f ON f.id = $2 AND f.scooter_id = sh.scooter_id
+				WHERE sh.rider_id = $1 AND sh.ended_at IS NULL)`, f.rider, f.id).Scan(&onShift); err != nil {
 				return nil, err
 			}
 			if !onShift {
@@ -441,11 +443,9 @@ func (s *Service) declineOffer(w http.ResponseWriter, r *http.Request) {
 			if !now.Before(f.expiresAt) {
 				return nil, expired()
 			}
-			// No penalty. The reason is not kept. The order goes to the next rider at once.
+			// No penalty. The reason is not kept. The next pass, within seconds, offers the order
+			// to the next rider, so a clash with another order's offer never fails this decline.
 			if err := releaseOffer(ctx, tx, f.id, "declined", "declined", identity.TypeRider, f.rider); err != nil {
-				return nil, err
-			}
-			if err := dispatch(ctx, tx, f.orderID, now); err != nil {
 				return nil, err
 			}
 		default:

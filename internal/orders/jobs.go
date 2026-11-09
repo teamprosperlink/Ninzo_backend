@@ -106,7 +106,7 @@ func (s *Service) sweep(ctx context.Context, what, pick string, now time.Time, a
 			return act(ctx, tx, id)
 		})
 		switch {
-		case errors.Is(err, pgx.ErrNoRows):
+		case errors.Is(err, pgx.ErrNoRows) && id == "":
 			return changed, nil
 		case errors.Is(err, errUnchanged):
 			skip = append(skip, id)

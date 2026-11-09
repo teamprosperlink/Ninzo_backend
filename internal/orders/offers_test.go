@@ -270,14 +270,14 @@ func TestADeclineGoesToTheNextScooter(t *testing.T) {
 	x.pay(id, "paid")
 	_, tokA := x.signIn(x.scooter)
 	_, tokB := x.signIn(second)
-	x.dispatch(start.Add(6 * time.Second))
-	// The order's own scooter goes first, whichever it is.
+	// The order's own scooter, the one holding the stock, goes first, whichever it is.
 	firstScooter, nextScooter := x.scooter, second
-	if x.count("SELECT count(*) FROM offers WHERE scooter_id = $1", second) == 1 {
+	if x.count("SELECT count(*) FROM orders WHERE id = $1 AND scooter_id = $2", id, second) == 1 {
 		tokA, tokB = tokB, tokA
 		firstScooter, nextScooter = second, x.scooter
 	}
-	if x.count("SELECT count(*) FROM orders WHERE id = $1 AND scooter_id = $2", id, firstScooter) != 1 {
+	x.dispatch(start.Add(6 * time.Second))
+	if x.count("SELECT count(*) FROM offers WHERE scooter_id = $1", firstScooter) != 1 {
 		t.Fatal("the first offer did not go to the scooter holding the stock")
 	}
 	o := x.offer(tokA)
@@ -287,6 +287,7 @@ func TestADeclineGoesToTheNextScooter(t *testing.T) {
 		t.Fatalf("%d %v", code, out)
 	}
 	riderCheck(t, out, "Done")
+	x.dispatch(x.clock)
 	b := x.offer(tokB)
 	if x.count("SELECT coalesce(sum(reserved), 0) FROM scooter_stock WHERE scooter_id = $1", nextScooter) != 2 || x.count("SELECT coalesce(sum(reserved), 0) FROM scooter_stock WHERE scooter_id = $1", firstScooter) != 0 {
 		t.Error("the hold did not move to the second scooter")
@@ -299,6 +300,7 @@ func TestADeclineGoesToTheNextScooter(t *testing.T) {
 	}
 	seq := x.customerSeq(id)
 	x.call("POST", "/offers/"+b["id"].(string)+"/decline", tokB, `{"fencing_token":"`+b["fencing_token"].(string)+`"}`)
+	x.dispatch(x.clock)
 	_, c := x.send("GET", "/orders/"+id, x.token, "")
 	if o := orderOf(c); o["customer_stage"] != "no_scooter" || o["cancellable"] != true || x.customerSeq(id) != seq+1 {
 		t.Fatalf("%v", c)
@@ -346,6 +348,7 @@ func TestOneOrderPerRider(t *testing.T) {
 	start := x.clock
 	first := x.placed(x.chai, 1)
 	x.pay(first, "paid")
+	x.clock = start.Add(time.Second) // Paid later, so offered second.
 	second := x.placed(x.samosa, 1)
 	x.pay(second, "paid")
 	_, tok := x.signIn(x.scooter)
@@ -446,4 +449,68 @@ func TestEndingAShiftGivesBackAnOpenOffer(t *testing.T) {
 	if x.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'NO_SCOOTER'", id) != 1 {
 		t.Error("with no rider left, the order should move to no scooter")
 	}
+}
+
+func TestNoWaitingForARiderWhoCannotCome(t *testing.T) {
+	x := withRiders(newFixture(t))
+	start := x.clock
+	first := x.placed(x.chai, 1)
+	x.pay(first, "paid")
+	x.clock = start.Add(time.Second) // Paid later, so offered second.
+	second := x.placed(x.samosa, 1)
+	x.pay(second, "paid")
+	_, tok := x.signIn(x.scooter)
+	x.dispatch(start.Add(6 * time.Second))
+	o := x.offer(tok)
+	x.clock = start.Add(10 * time.Second)
+	if code, out := x.call("POST", "/offers/"+o["id"].(string)+"/accept", tok, `{"fencing_token":"`+o["fencing_token"].(string)+`"}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	// The only rider holds the first order, so the second waits, but only until its wait deadline.
+	x.dispatch(start.Add(200 * time.Second))
+	if x.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'PAYMENT_SECURED'", second) != 1 {
+		t.Error("before the deadline, the order should wait")
+	}
+	x.dispatch(start.Add(301 * time.Second))
+	if x.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'NO_SCOOTER'", second) != 1 {
+		t.Error("past the wait deadline, the order must stop waiting")
+	}
+}
+
+func TestNoWaitingForASuspendedRider(t *testing.T) {
+	x := withRiders(newFixture(t))
+	start := x.clock
+	first := x.placed(x.chai, 1)
+	x.pay(first, "paid")
+	x.clock = start.Add(time.Second)
+	second := x.placed(x.samosa, 1)
+	x.pay(second, "paid")
+	_, tok := x.signIn(x.scooter)
+	x.dispatch(start.Add(6 * time.Second))
+	o := x.offer(tok)
+	x.clock = start.Add(10 * time.Second)
+	x.call("POST", "/offers/"+o["id"].(string)+"/accept", tok, `{"fencing_token":"`+o["fencing_token"].(string)+`"}`)
+	// The busy rider is suspended: the second order must not wait for them.
+	x.exec("UPDATE riders SET status = 'suspended' WHERE id = (SELECT rider_id FROM shifts WHERE scooter_id = $1)", x.scooter)
+	x.dispatch(start.Add(20 * time.Second))
+	if x.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'NO_SCOOTER'", second) != 1 {
+		t.Error("an order must not wait for a suspended rider")
+	}
+}
+
+func TestAcceptingNeedsTheOffersScooter(t *testing.T) {
+	x := withRiders(newFixture(t))
+	start := x.clock
+	id := x.placed(x.chai, 1)
+	x.pay(id, "paid")
+	_, tok := x.signIn(x.scooter)
+	x.dispatch(start.Add(6 * time.Second))
+	o := x.offer(tok)
+	// The rider's shift moves to another scooter while the offer is open.
+	other := x.id("INSERT INTO scooters (code, zone_id, node_id) VALUES ('SC-OTHER', $1, $2) RETURNING id::text", x.zone, x.node)
+	x.exec("UPDATE shifts SET scooter_id = $1 WHERE scooter_id = $2", other, x.scooter)
+	if code, out := x.call("POST", "/offers/"+o["id"].(string)+"/accept", tok, `{"fencing_token":"`+o["fencing_token"].(string)+`"}`); code != 409 || out["code"] != "offer_expired" {
+		t.Errorf("%d %v", code, out)
+	}
+	_ = id
 }

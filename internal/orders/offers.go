@@ -131,15 +131,23 @@ func dispatch(ctx context.Context, tx pgx.Tx, orderID string, now time.Time) err
 			return err
 		}
 		if pick.Reason != "" {
-			ownBusy := false
+			// Wait only for an active rider who is on this scooter now and holds another live
+			// order, and never past the wait deadline.
+			wait := false
 			if !triedOwn {
-				var onShift bool
-				if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM shifts WHERE scooter_id = $1 AND ended_at IS NULL)", own).Scan(&onShift); err != nil {
+				var deadline *time.Time
+				err := tx.QueryRow(ctx, `SELECT o.wait_deadline FROM orders o WHERE o.id = $2 AND EXISTS (
+						SELECT 1 FROM shifts sh
+						JOIN riders r ON r.id = sh.rider_id AND r.status = 'active'
+						JOIN people p ON p.id = r.person_id AND p.status = 'active'
+						JOIN offers f ON f.rider_id = sh.rider_id AND f.released_at IS NULL
+						WHERE sh.scooter_id = $1 AND sh.ended_at IS NULL)`, own, orderID).Scan(&deadline)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 					return err
 				}
-				ownBusy = onShift
+				wait = err == nil && deadline != nil && now.Before(*deadline)
 			}
-			if ownBusy {
+			if wait {
 				return nil // Its rider is finishing another order. Try again on the next pass.
 			}
 			return noScooter(ctx, tx, orderID, now)
