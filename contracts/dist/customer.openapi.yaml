@@ -1780,7 +1780,7 @@ paths:
                 - orders
     /orders/{order_id}/cancel:
         post:
-            description: Allowed before payment is confirmed, for 5 seconds after (cancel_until), at no_scooter, and once wait_deadline has passed and before the timer starts. Otherwise rejected with cancel_not_allowed (409), with no refund. Order.cancellable says which applies now. See Cancels and refunds in contracts/README.md.
+            description: Allowed before payment is confirmed, for 5 seconds after (cancel_until), at no_scooter, and once wait_deadline has passed and before the timer starts. Otherwise rejected with cancel_not_allowed (409), with no refund. Cancelling an order already cancelled returns it, unchanged. The reason is not kept. Order.cancellable says which applies now. See Cancels and refunds in contracts/README.md.
             operationId: cancelOrder
             parameters:
                 - $ref: '#/components/parameters/OrderId'
@@ -1806,12 +1806,16 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Cancel an order
@@ -1819,7 +1823,7 @@ paths:
                 - orders
     /orders/{order_id}/gate:
         patch:
-            description: 'Allowed only at the payment stage. After payment the address cannot change. The customer can only cancel within the 5-second window. Returns the payment to complete. Errors: gate_change_not_allowed, no_offer, sold_out (all 409).'
+            description: 'Allowed only at the payment stage. After payment the address cannot change. The customer can only cancel within the 5-second window. Returns the payment to complete. The stock is held again on one scooter that reaches the new gate; if none can, nothing changes. Another customer''s gate gets 404. Errors: gate_change_not_allowed, gate_not_verified, no_offer, sold_out (all 409).'
             operationId: changeOrderGate
             parameters:
                 - $ref: '#/components/parameters/OrderId'
@@ -1846,12 +1850,16 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Change the gate before paying
@@ -1875,12 +1883,16 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
                 "503":
@@ -1903,8 +1915,12 @@ paths:
                     description: The refund.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get an order's refund status

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -54,6 +55,8 @@ func main() {
 			// The test payment stands in for Razorpay (decision 0013). Production refuses to start with it.
 			ordering := &orders.Service{Pool: d.DB, Log: d.Log, Payments: orders.TestPayments{}}
 			ordering.MountCustomer(r, d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			// Holds end and order clocks move in the background, inside this API for now (decision 0013).
+			go ordering.RunJobs(ctx, 5*time.Second)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

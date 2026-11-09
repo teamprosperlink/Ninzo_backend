@@ -81,6 +81,7 @@ func (r *refusal) Error() string { return "orders: " + r.code }
 var (
 	errNotFound = errors.New("orders: not found")
 	errBlocked  = errors.New("orders: blocked")
+	errProvider = errors.New("orders: the payment provider did not answer")
 )
 
 // Service serves orders.
@@ -98,7 +99,7 @@ func (s *Service) clock() time.Time {
 	return time.Now()
 }
 
-// MountCustomer adds createOrder, getOrder and listOrders. testPayments adds the staging-only
+// MountCustomer adds the customer's order endpoints. testPayments adds the staging-only
 // endpoint that marks a test payment paid or failed.
 func (s *Service) MountCustomer(r chi.Router, testPayments bool, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
@@ -107,6 +108,10 @@ func (s *Service) MountCustomer(r chi.Router, testPayments bool, signedIn ...fun
 		g.With(idem).Post("/orders", s.create)
 		g.Get("/orders", s.list)
 		g.Get("/orders/{order_id}", s.get)
+		g.With(idem).Post("/orders/{order_id}/cancel", s.cancel)
+		g.With(idem).Patch("/orders/{order_id}/gate", s.changeGate)
+		g.With(idem).Post("/orders/{order_id}/payment/retry", s.retry)
+		g.Get("/orders/{order_id}/refund", s.getRefund)
 		if testPayments {
 			g.Post("/test/payments/{order_id}", s.testPayment)
 		}
@@ -133,6 +138,9 @@ func (s *Service) fail(w http.ResponseWriter, r *http.Request, err error) {
 		identity.WriteBlocked(w)
 	case errors.Is(err, errNotFound):
 		httpserver.WriteError(w, http.StatusNotFound, "not_found", "Not found.", false)
+	case errors.Is(err, errProvider):
+		s.Log.Error("orders: payment provider failed", "request_id", httpserver.RequestID(r.Context()), "error", err.Error())
+		httpserver.WriteError(w, http.StatusServiceUnavailable, "payments_unavailable", "Payment is not available right now. Try again shortly.", true)
 	default:
 		s.Log.Error("orders: request failed", "request_id", httpserver.RequestID(r.Context()), "error", err.Error())
 		httpserver.WriteError(w, http.StatusInternalServerError, "internal_error", "Try again shortly.", true)
@@ -201,7 +209,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	}
 	providerOrder, err := s.Payments.NewOrder(r.Context(), quoted)
 	if err != nil {
-		s.fail(w, r, err)
+		s.fail(w, r, errors.Join(errProvider, err))
 		return
 	}
 	now := s.clock()
