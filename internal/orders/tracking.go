@@ -377,6 +377,14 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		reply, wrong, err = s.handOverTx(ctx, tx, actor.ID, id, body.OTP, handed, client, true)
+		if err == nil && wrong != "" {
+			// A wrong code is final. Kept under the key, so the queued copy of this entry counts
+			// once and does not use up a second attempt (contracts/README.md, Rider offline events).
+			if key := r.Header.Get("Idempotency-Key"); eventIDPattern.MatchString(key) {
+				_, err = tx.Exec(ctx, `INSERT INTO rider_events (rider_id, event_id, type, accepted, code, message, device_time)
+					VALUES ($1, $2, 'handover', false, $3, 'That code is not right.', $4) ON CONFLICT DO NOTHING`, actor.ID, key, wrong, client)
+			}
+		}
 		return err
 	})
 	switch {

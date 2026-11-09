@@ -217,3 +217,33 @@ func TestACurrentQueuedHandoverFarFromTheGateIsRefused(t *testing.T) {
 		t.Errorf("%v", out)
 	}
 }
+
+func TestAWrongCodeSentDirectlyCountsOnce(t *testing.T) {
+	tr := begin(t, nil)
+	tr.at(atGate, 20*time.Second)
+	tr.at(atGateToo, 3*time.Second)
+	wrong := "0000"
+	if tr.otp() == wrong {
+		wrong = "1111"
+	}
+	body := fmt.Sprintf(`{"otp":"%s","quantities":[{"item_id":"%s","qty":2}],"client_time":"%s"}`, wrong, tr.chai, stamp3339(tr.clock))
+	if code, out := tr.callKey("POST", "/orders/"+tr.order+"/handover", tr.tok, body, "evt-direct-wrong"); code != 409 || out["code"] != "wrong_otp" {
+		t.Fatalf("%d %v", code, out)
+	}
+	// The reply was lost, so the queue sends the same entry.
+	_, out := tr.batch(tr.handoverEvent("evt-direct-wrong", wrong, 2, tr.clock))
+	if _, rej := ids(out); rej["evt-direct-wrong"]["code"] != "wrong_otp" {
+		t.Errorf("%v", out)
+	}
+	if tr.count("SELECT otp_attempts FROM orders WHERE id = $1", tr.order) != 1 {
+		t.Error("one wrong entry used up two attempts")
+	}
+}
+
+func TestAnUnknownTypeIsNotStoredAsSent(t *testing.T) {
+	tr := begin(t, nil)
+	tr.batch(`{"event_id":"evt-weird-type","type":"` + strings.Repeat("x", 300) + `","device_time":"` + stamp3339(tr.clock) + `","payload":{}}`)
+	if tr.count("SELECT count(*) FROM rider_events WHERE event_id = 'evt-weird-type' AND type = 'unknown'") != 1 {
+		t.Error("an unknown type must be stored as unknown")
+	}
+}

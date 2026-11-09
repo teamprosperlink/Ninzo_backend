@@ -21,6 +21,8 @@ import (
 
 const maxEvents = 500
 
+var knownEvent = map[string]bool{"location": true, "handover": true, "problem": true, "stock_scan": true, "restock_confirm": true, "restock_decline": true}
+
 var eventIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
 
 type queued struct {
@@ -56,6 +58,11 @@ func (s *Service) sendEventBatch(w http.ResponseWriter, r *http.Request) {
 	accepted := []string{}
 	refused := []map[string]any{}
 	for _, e := range body.Events {
+		if r.Context().Err() != nil {
+			// Out of time: the rest are not tried, and the app sends them again.
+			refused = append(refused, map[string]any{"id": e.ID, "code": "internal_error", "message": "Try again shortly.", "retryable": true})
+			continue
+		}
 		o, err := s.applyEvent(r.Context(), actor, e)
 		if errors.Is(err, identity.ErrSessionInvalid) || errors.Is(err, errBlocked) {
 			s.fail(w, r, err) // The rider cannot act at all, so nothing in the queue can apply.
@@ -145,8 +152,12 @@ func (s *Service) applyEvent(ctx context.Context, actor identity.Actor, e queued
 		if terr == nil {
 			deviceValue = device
 		}
+		kind := e.Type
+		if !knownEvent[kind] {
+			kind = "unknown" // Never store text the app made up.
+		}
 		_, err = tx.Exec(ctx, `INSERT INTO rider_events (rider_id, event_id, type, accepted, code, message, device_time) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			actor.ID, e.ID, e.Type, result.accepted, codeValue, msgValue, deviceValue)
+			actor.ID, e.ID, kind, result.accepted, codeValue, msgValue, deviceValue)
 		return err
 	})
 	return result, err
