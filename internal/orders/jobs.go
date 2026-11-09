@@ -2,6 +2,8 @@ package orders
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,9 +14,11 @@ import (
 // The background passes run inside the customer API for now (decision 0013). Each one takes rows
 // with SKIP LOCKED, so two copies of the API never do the same work, and takes the order's row
 // lock, the same one a customer request takes.
-const batch = 50
+// maxPerPass caps one pass, so a backlog is worked through over a few passes.
+const maxPerPass = 500
 
-// RunJobs runs Tick every so often until ctx ends.
+// RunJobs runs Tick every so often until ctx ends. A panic in one pass is logged, and never stops
+// the API.
 func (s *Service) RunJobs(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -23,49 +27,52 @@ func (s *Service) RunJobs(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if _, err := s.Tick(ctx, s.clock()); err != nil && ctx.Err() == nil {
-				s.Log.Error("orders: background pass failed", "error", err.Error())
-			}
+			s.safeTick(ctx)
 		}
 	}
 }
 
+func (s *Service) safeTick(ctx context.Context) {
+	defer func() {
+		if p := recover(); p != nil {
+			s.Log.Error("orders: background pass panicked", "panic", fmt.Sprint(p))
+		}
+	}()
+	if _, err := s.Tick(ctx, s.clock()); err != nil && ctx.Err() == nil {
+		s.Log.Error("orders: background pass failed", "error", err.Error())
+	}
+}
+
 // Tick ends unpaid orders whose hold is over, giving back their stock, and raises seq when an
-// order's cancellable changes with time, so apps that watch seq see it. It returns how many
-// orders it changed.
+// order's cancellable changes with time, so apps that watch seq see it. Each order is ended in its
+// own transaction, so one order's stock is all a transaction locks, and an order that fails is
+// logged and skipped, never blocking the rest. It returns how many orders it changed.
 func (s *Service) Tick(ctx context.Context, now time.Time) (int, error) {
 	changed := 0
-	for {
-		n := 0
+	skip := []string{}
+	for i := 0; i < maxPerPass; i++ {
+		var id string
 		err := database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
-			rows, err := tx.Query(ctx, `SELECT id::text, state FROM orders WHERE state IN ('PAYMENT_PENDING', 'PAYMENT_FAILED') AND hold_until <= $1
-				ORDER BY hold_until, id LIMIT $2 FOR UPDATE SKIP LOCKED`, now, batch)
+			var state string
+			err := tx.QueryRow(ctx, `SELECT id::text, state FROM orders WHERE state IN ('PAYMENT_PENDING', 'PAYMENT_FAILED') AND hold_until <= $1
+				AND NOT (id::text = ANY($2::text[])) ORDER BY hold_until, id LIMIT 1 FOR UPDATE SKIP LOCKED`, now, skip).Scan(&id, &state)
 			if err != nil {
 				return err
 			}
-			type due struct{ id, state string }
-			all, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (due, error) {
-				var d due
-				return d, r.Scan(&d.id, &d.state)
-			})
-			if err != nil {
-				return err
-			}
-			for _, d := range all {
-				if err := end(ctx, tx, d.id, d.state, "TIMED_OUT", "timed_out", "system", nil, "payment hold ended"); err != nil {
-					return err
-				}
-			}
-			n = len(all)
-			return nil
+			return end(ctx, tx, id, state, "TIMED_OUT", "timed_out", "system", nil, "payment hold ended")
 		})
-		if err != nil {
-			return changed, err
-		}
-		changed += n
-		if n < batch {
+		if errors.Is(err, pgx.ErrNoRows) {
 			break
 		}
+		if err != nil {
+			if id == "" || ctx.Err() != nil {
+				return changed, err
+			}
+			s.Log.Error("orders: ending an unpaid order failed", "order_id", id, "error", err.Error())
+			skip = append(skip, id)
+			continue
+		}
+		changed++
 	}
 	for _, mark := range []string{"cancel_until", "wait_deadline"} {
 		tag, err := s.Pool.Exec(ctx, `WITH due AS (

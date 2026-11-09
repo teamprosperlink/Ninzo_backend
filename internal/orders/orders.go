@@ -704,7 +704,14 @@ func Confirm(ctx context.Context, tx pgx.Tx, orderID, providerOrder string, paid
 		if _, err := tx.Exec(ctx, "UPDATE payments SET status = $2, updated_at = now() WHERE id = $1", paymentID, next); err != nil {
 			return err
 		}
-		return refund(ctx, tx, orderID, paymentID, provider, "customer_cancelled", amount)
+		reason := "customer_cancelled"
+		switch {
+		case alreadyPaid:
+			reason = "duplicate_payment"
+		case state == "TIMED_OUT":
+			reason = "payment_after_hold"
+		}
+		return refund(ctx, tx, orderID, paymentID, provider, reason, amount)
 	}
 	if _, err := tx.Exec(ctx, "UPDATE payments SET status = 'paid', updated_at = now() WHERE id = $1", paymentID); err != nil {
 		return err

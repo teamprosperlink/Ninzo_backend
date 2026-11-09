@@ -35,8 +35,7 @@ func lockOrder(ctx context.Context, tx pgx.Tx, orderID, customerID string) (stri
 	return state, err
 }
 
-// releaseHolds gives back the stock an order still holds. Rows are changed in one order, so two
-// releases never wait on each other.
+// releaseHolds gives back the stock an order still holds, changing rows in scooter and lot order.
 func releaseHolds(ctx context.Context, tx pgx.Tx, orderID, actorType string, actorID any) error {
 	rows, err := tx.Query(ctx, `UPDATE reservations SET status = 'released', released_at = now()
 		WHERE order_id = $1 AND status = 'held' RETURNING scooter_id::text, lot_id::text, qty`, orderID)
@@ -109,7 +108,6 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a reason of up to 200 characters, or none.", false)
 		return
 	}
-	now := s.clock()
 	var reply map[string]any
 	err := database.InTx(r.Context(), s.Pool, func(tx pgx.Tx) error {
 		if err := identity.CheckSession(r.Context(), tx, actor); err != nil {
@@ -122,6 +120,8 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		// The clock is read once the lock is held, so the boundary is decided under it.
+		now := s.clock()
 		var cancelUntil, waitDeadline *time.Time
 		if err := tx.QueryRow(r.Context(), "SELECT cancel_until, wait_deadline FROM orders WHERE id = $1", id).Scan(&cancelUntil, &waitDeadline); err != nil {
 			return err

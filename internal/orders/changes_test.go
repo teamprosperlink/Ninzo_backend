@@ -240,7 +240,7 @@ func TestTheHoldEnds(t *testing.T) {
 	// A payment that lands after the hold ended goes back.
 	f.exec("INSERT INTO payments (order_id, provider, provider_order_id, amount_paise) VALUES ($1, 'test', 'test_late_1', 3900)", failed)
 	f.pay(failed, "paid")
-	if f.count("SELECT count(*) FROM refunds WHERE order_id = $1", failed) != 1 {
+	if f.count("SELECT count(*) FROM refunds WHERE order_id = $1 AND reason_code = 'payment_after_hold'", failed) != 1 {
 		t.Error("a late payment was kept")
 	}
 }
@@ -326,4 +326,61 @@ func TestThePassSkipsAnOrderInUse(t *testing.T) {
 	if n := f.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'CANCELLED'", id); n != 1 {
 		t.Error("the pass overwrote the customer's change")
 	}
+}
+
+func TestTheExactBoundaries(t *testing.T) {
+	f := newFixture(t)
+	f.clock = f.clock.Truncate(time.Microsecond) // The database keeps microseconds.
+	start := f.clock
+	id := f.placed(f.chai, 1)
+	f.pay(id, "paid")
+	var cancelUntil, waitDeadline time.Time
+	if err := f.pool.QueryRow(context.Background(), "SELECT cancel_until, wait_deadline FROM orders WHERE id = $1", id).Scan(&cancelUntil, &waitDeadline); err != nil {
+		t.Fatal(err)
+	}
+	if !cancelUntil.Equal(start.Add(5 * time.Second)) {
+		t.Errorf("cancel_until %v, paid at %v", cancelUntil, start)
+	}
+	f.clock = cancelUntil.Add(-time.Microsecond)
+	if _, out := f.send("GET", "/orders/"+id, f.token, ""); orderOf(out)["cancellable"] != true {
+		t.Error("just inside the window")
+	}
+	f.clock = cancelUntil
+	if code, out := f.send("POST", "/orders/"+id+"/cancel", f.token, `{}`); code != 409 {
+		t.Errorf("at cancel_until itself the window has closed: %d %v", code, out)
+	}
+	f.clock = waitDeadline.Add(-time.Microsecond)
+	if code, _ := f.send("POST", "/orders/"+id+"/cancel", f.token, `{}`); code != 409 {
+		t.Errorf("just before the wait deadline: %d", code)
+	}
+	f.clock = waitDeadline
+	if code, out := f.send("POST", "/orders/"+id+"/cancel", f.token, `{}`); code != 200 {
+		t.Errorf("at the wait deadline itself: %d %v", code, out)
+	}
+}
+
+func TestOneBadOrderDoesNotBlockThePass(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	bad := f.placed(f.chai, 1)
+	good := f.placed(f.samosa, 1)
+	f.exec("UPDATE orders SET hold_until = hold_until - interval '1 second' WHERE id = $1", bad)
+	// Break the bad order's stock row, so giving it back fails.
+	f.exec("UPDATE scooter_stock SET reserved = 0 WHERE lot_id IN (SELECT lot_id FROM reservations WHERE order_id = $1)", bad)
+	n, err := f.svc.Tick(ctx, f.clock.Add(601*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || f.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'TIMED_OUT'", good) != 1 {
+		t.Errorf("%d changed; the good order must still end", n)
+	}
+	if f.count("SELECT count(*) FROM orders WHERE id = $1 AND state = 'PAYMENT_PENDING'", bad) != 1 {
+		t.Error("the bad order should be left for a person to look at")
+	}
+}
+
+func TestAPanicInThePassIsCaught(t *testing.T) {
+	f := newFixture(t)
+	f.svc.now = func() time.Time { panic("boom") }
+	f.svc.safeTick(context.Background())
 }
