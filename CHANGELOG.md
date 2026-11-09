@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### v0.3.0 on staging (#74)
+- Migrations 0012 to 0016 are on Supabase, with test data. Both APIs are deployed, and the flow passed on the real URLs.
+- Evidence: docs/testing/reports/74.md
+
 ### Test rider and the version plan (#74)
 - Added: a test rider through `task testdata`, for trying the rider app on staging.
 - Changed: `milestones.md` follows the owner's decision that payment comes later.
