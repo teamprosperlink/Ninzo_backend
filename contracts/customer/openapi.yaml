@@ -789,6 +789,10 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
     post:
@@ -796,9 +800,11 @@ paths:
       operationId: createOrder
       summary: Create an order and start payment
       description: >-
-        Reserves stock and returns what the app needs for Razorpay checkout. The
-        app never marks an order paid. Errors: sold_out, gate_not_verified,
-        no_offer, phone_required (all 409).
+        Holds the stock on one scooter that has the whole basket, for 10 minutes until payment,
+        and returns what the app needs for checkout. The app never marks an order paid. Until
+        Razorpay is connected, payment is a test payment: use confirmTestPayment on staging.
+        A gate of another customer gets 404. Errors: sold_out, gate_not_verified, no_offer,
+        phone_required (all 409).
       parameters:
         - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -827,12 +833,16 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
         '409':
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
         '503':
@@ -854,8 +864,12 @@ paths:
                 $ref: '#/components/schemas/OrderResponse'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /orders/{order_id}/cancel:
@@ -1133,6 +1147,48 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /test/payments/{order_id}:
+    post:
+      tags: [orders]
+      operationId: confirmTestPayment
+      summary: Mark a test payment paid or failed, on staging only
+      description: >-
+        Stands in for Razorpay until it is connected (decision 0013). It does what Razorpay's
+        webhook will: paid moves the order to looking_for_rider, with the 5-second cancel window,
+        and failed moves it to payment_failed. A repeat changes nothing. Production does not have
+        this endpoint. Only the customer who placed the order can use it.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [result]
+              properties:
+                result:
+                  type: string
+                  enum: [paid, failed]
+      responses:
+        '200':
+          description: The order after the result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /webhooks/razorpay:

@@ -40,6 +40,7 @@ var Settings = []Setting{
 	{"sweet_spot_budget_s", "seconds", 10, 600, true, "Travel time budget for a scooter to serve a gate"},
 	{"straight_line_speed_kmh", "km/h", 3, 60, true, "Speed used for straight-line reach, until real road times"},
 	{"max_search_radius_m", "metres", 100, 20000, true, "Widest rider search. Past it, the order is refused before payment"},
+	{"payment_hold_s", "seconds", 60, 3600, true, "How long an unpaid order holds its stock"},
 }
 
 // ErrInvalidSetting means a change was refused, and nothing was stored.

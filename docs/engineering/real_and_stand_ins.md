@@ -26,8 +26,9 @@ Update this page in the same PR as any change to a row. The shared Doc points ap
 | **Reach in availability** | Stand-in | Straight-line distance from the scooter's staging node, at a placeholder speed | Rider GPS, then real road times from a routing engine | GPS v0.5.0, roads after the road test |
 | H3 map grid | Not built | Not needed at pilot size, where PostGIS is exact | H3 cells, if demand data needs them | After real traffic |
 | Matching riders to orders | Not built | | Nearest rider on shift with the whole basket, then ranking | v0.5.0 |
-| Orders, holds, cancel window, refund rules | Being built | | | v0.4.0 |
-| **Payment** | Being built as a stand-in | Test payment, marked paid or failed by a staging-only endpoint, refused in production | Razorpay and its webhook | Before v1.0.0 |
+| Orders and holds on one scooter | Real | Built (#78). Cancel, retry and gate change come next | | v0.4.0 |
+| Cancel window and refund rules | Being built | The window and deadlines are set when payment is confirmed | | v0.4.0 |
+| **Payment** | Stand-in | Test payment, marked paid or failed by `POST /test/payments/{order_id}` on staging. Production refuses to start with it | Razorpay and its webhook | Before v1.0.0 |
 | Refund money | Being built as a stand-in | The refund is recorded, and no money moves | Razorpay refunds | Before v1.0.0 |
 | Background jobs | Being built | Run inside the customer API, one replica | A separate worker | With two replicas, or after the pilot |
 | Live streams, timer, handover, offers | Not built | Mock only | | v0.5.0 |
