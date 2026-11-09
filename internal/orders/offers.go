@@ -85,7 +85,9 @@ func dispatch(ctx context.Context, tx pgx.Tx, orderID string, now time.Time) err
 	if state != "PAYMENT_SECURED" {
 		return nil
 	}
-	rows, err := tx.Query(ctx, "SELECT DISTINCT scooter_id::text FROM offers WHERE order_id = $1", orderID)
+	// Offers made before a longer ETA was accepted no longer count as tried.
+	rows, err := tx.Query(ctx, `SELECT DISTINCT scooter_id::text FROM offers WHERE order_id = $1
+		AND created_at >= coalesce((SELECT search_from FROM orders WHERE id = $1), '-infinity')`, orderID)
 	if err != nil {
 		return err
 	}
@@ -273,7 +275,7 @@ func markPacked(ctx context.Context, tx pgx.Tx, orderID, actorType string, actor
 	if err := event(ctx, tx, orderID, "RIDER_ACCEPTED", "PACKED", actorType, actorID, "packed"); err != nil {
 		return err
 	}
-	return bumpRider(ctx, tx, rider)
+	return bumpRiderOf(ctx, tx, orderID)
 }
 
 // Dispatch is the background pass for riders: it expires unanswered offers, offers paid orders
@@ -282,6 +284,10 @@ func markPacked(ctx context.Context, tx pgx.Tx, orderID, actorType string, actor
 // in its own transaction under its row lock.
 func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 	total := 0
+	// A late-arrival review not decided in time lets the remedy go ahead.
+	if _, err := s.Pool.Exec(ctx, "UPDATE arrival_reviews SET status = 'timed_out', decided_at = $1 WHERE status = 'open' AND due_at <= $1", now); err != nil {
+		return 0, err
+	}
 	for _, step := range []struct {
 		what, pick string
 		act        func(context.Context, pgx.Tx, string) error
@@ -329,6 +335,16 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 				}
 				return bumpRiderOf(ctx, tx, id)
 			}},
+		{"owing a credit for a missed timer", `SELECT o.id::text FROM orders o JOIN zone_settings g ON g.id = o.global_settings
+			LEFT JOIN zone_settings z ON z.id = o.zone_settings
+			WHERE o.timer_missed
+				AND NOT EXISTS (SELECT 1 FROM remedies m WHERE m.order_id = o.id AND m.type = 'credit')
+				AND NOT EXISTS (SELECT 1 FROM arrival_reviews a WHERE a.order_id = o.id AND a.status IN ('open', 'arrived_in_time'))
+				AND o.state NOT IN ('CANCELLED', 'TIMED_OUT', 'FAILED')
+				AND (o.last_live_ping_at >= $2::timestamptz - make_interval(secs => coalesce(z.signal_release_s, g.signal_release_s))
+					OR $2::timestamptz >= o.timer_started_at + make_interval(secs => o.timer_length_s) + interval '10 minutes')
+				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.timer_started_at, o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
+			func(ctx context.Context, tx pgx.Tx, id string) error { return creditForMissedTimer(ctx, tx, id) }},
 		{"ending an order with no scooter", `SELECT id::text FROM orders WHERE state = 'NO_SCOOTER' AND wait_deadline <= $2
 			AND NOT (id::text = ANY($1::text[])) ORDER BY wait_deadline, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error {

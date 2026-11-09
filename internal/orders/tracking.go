@@ -174,10 +174,16 @@ func track(ctx context.Context, tx pgx.Tx, orderID string, p ping, now time.Time
 	case zone == nil || perimeter == nil:
 		return false, "order has no zone", state, nil
 	case now.Sub(p.device) > lateLimit:
-		return false, "late", state, nil
+		// Too late to move the timer, but it may show the rider was at the gate in time.
+		return false, "late", state, reviewLateArrival(ctx, tx, orderID, p, now)
 	case p.device.Sub(now) > lateLimit:
 		// A phone clock running fast would otherwise make every true ping look older.
 		return false, "from the future", state, nil
+	}
+	if _, err := tx.Exec(ctx, "UPDATE orders SET last_live_ping_at = $2 WHERE id = $1", orderID, now); err != nil {
+		return false, "", "", err
+	}
+	switch {
 	case lastDevice != nil && !p.device.After(*lastDevice):
 		return false, "older than one applied", state, nil
 	case p.accuracy > maxAccuracyM:
@@ -236,11 +242,20 @@ func track(ctx context.Context, tx pgx.Tx, orderID string, p ping, now time.Time
 }
 
 func bumpRiderOf(ctx context.Context, tx pgx.Tx, orderID string) error {
+	if err := touchOffer(ctx, tx, orderID); err != nil {
+		return err
+	}
 	var rider *string
 	if err := tx.QueryRow(ctx, "SELECT rider_id::text FROM orders WHERE id = $1", orderID).Scan(&rider); err != nil || rider == nil {
 		return err
 	}
 	return bumpRider(ctx, tx, *rider)
+}
+
+// touchOffer marks the live offer changed, so the rider's stream sends the order's new state.
+func touchOffer(ctx context.Context, tx pgx.Tx, orderID string) error {
+	_, err := tx.Exec(ctx, "UPDATE offers SET updated_at = clock_timestamp() WHERE order_id = $1 AND released_at IS NULL", orderID)
+	return err
 }
 
 // arrive records the rider at the gate, stopping a running timer. The timer was missed if its
@@ -468,6 +483,9 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'HANDED_OVER', handed_over_at = $2, handover_otp = NULL, seq = seq + 1,
 				audit_flag = coalesce($3, audit_flag), updated_at = now() WHERE id = $1`, id, now, flagValue); err != nil {
+			return err
+		}
+		if err := refundMissingFood(ctx, tx, id); err != nil {
 			return err
 		}
 		if err := event(ctx, tx, id, "ARRIVED", "HANDED_OVER", identity.TypeRider, actor.ID, "handed over"); err != nil {
