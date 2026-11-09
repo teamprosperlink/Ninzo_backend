@@ -81,6 +81,12 @@ func (s Signer) Sign(a Actor) (string, error) {
 // Verify checks an access token for one user type. It accepts only our algorithm, so a token that
 // names another algorithm or none is refused.
 func (s Signer) Verify(token, wantType string) (Actor, error) {
+	a, _, err := s.VerifyUntil(token, wantType)
+	return a, err
+}
+
+// VerifyUntil is Verify, and also says when the token expires, so a live stream can close then.
+func (s Signer) VerifyUntil(token, wantType string) (Actor, time.Time, error) {
 	claims := &accessClaims{}
 	_, err := jwt.ParseWithClaims(token, claims,
 		func(*jwt.Token) (any, error) { return s.Key, nil },
@@ -92,11 +98,11 @@ func (s Signer) Verify(token, wantType string) (Actor, error) {
 	)
 	switch {
 	case errors.Is(err, jwt.ErrTokenExpired):
-		return Actor{}, ErrTokenExpired
+		return Actor{}, time.Time{}, ErrTokenExpired
 	case err != nil:
-		return Actor{}, ErrTokenInvalid
+		return Actor{}, time.Time{}, ErrTokenInvalid
 	case claims.Subject == "" || claims.ChainID == "":
-		return Actor{}, ErrTokenInvalid
+		return Actor{}, time.Time{}, ErrTokenInvalid
 	}
-	return Actor{Type: wantType, ID: claims.Subject, ChainID: claims.ChainID}, nil
+	return Actor{Type: wantType, ID: claims.Subject, ChainID: claims.ChainID}, claims.ExpiresAt.Time, nil
 }
