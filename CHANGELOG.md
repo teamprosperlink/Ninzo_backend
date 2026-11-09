@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Orders, part B (#80)
+- Added: `cancelOrder`, `retryPayment`, `changeOrderGate` and `getOrderRefund`, following the cancel and refund table in contracts/README.md.
+- Added: a background pass inside the customer API that ends unpaid orders after their hold and raises `seq` when `cancellable` changes. Migration 0018, not applied to Supabase.
+- Evidence: docs/testing/reports/80.md
+
 ### Orders, part A (#78)
 - Added: orders, order lines with their price, an append-only order history, holds on one scooter, payments and refunds. Migration 0017, not applied to Supabase.
 - Added: `createOrder`, `getOrder`, `listOrders`, and `confirmTestPayment` on staging, standing in for Razorpay.

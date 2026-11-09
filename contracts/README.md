@@ -238,7 +238,7 @@ Owner decision, 2026-11-04.
 - **No rider is contacted until `cancel_until` has passed,** so a cancel inside the window can never waste a rider's time.
 - The 5 seconds is a console setting. The minimum wait cannot be set longer than the maximum wait.
 - **Payment is charged up front,** with no holds (owner decision, 2026-11-04). Every refund goes back to the original payment method.
-- **The boundary is decided by the database:** the server compares its time with `cancel_until` under the order's row lock. A cancel commits together with its stored response, and a cancel of an order this customer already cancelled returns success. Starting the rider search takes the same lock, so exactly one of them wins.
+- **The boundary is decided by the server:** it reads its clock after taking the order's row lock and compares it with `cancel_until`. A cancel commits together with its stored response, and a cancel of an order this customer already cancelled returns success. Starting the rider search takes the same lock, so exactly one of them wins.
 - **A payment confirmed on an order that has already ended is refunded automatically.**
 - A time-driven change to `cancellable` saves a change and raises `seq`. It happens at set times for every order, so it reveals nothing.
 - A customer who is absent at the gate, or gave a wrong address, is not a failure on Ninzo's side, so there is no refund (**Proposed**).
@@ -250,6 +250,8 @@ Owner decision, 2026-11-04.
 | Case | `reason_code` |
 |---|---|
 | Cancel within the 5 seconds, or a payment confirmed after a cancel | `customer_cancelled` |
+| A payment confirmed after the 10-minute hold ended the order | `payment_after_hold` |
+| A second payment for an order already paid | `duplicate_payment` |
 | No scooter, timeout, a cancel at `no_scooter`, or any failure before `rider_accepted` was shown | `no_rider_found` |
 | Cancel after `wait_deadline` | `wait_deadline_passed` |
 | Breakdown or accident after `rider_accepted` was shown | `order_failed` |
