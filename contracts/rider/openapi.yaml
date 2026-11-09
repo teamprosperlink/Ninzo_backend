@@ -977,6 +977,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '429':
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':

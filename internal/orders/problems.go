@@ -119,27 +119,42 @@ func (s *Service) reportProblem(w http.ResponseWriter, r *http.Request) {
 		if err := riderOK(ctx, tx, actor.ID); err != nil {
 			return err
 		}
+		var err error
+		reply, err = s.problemTx(ctx, tx, actor.ID, body.Type, body.OrderID, body.Note, true)
+		return err
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusCreated, reply)
+}
+
+// problemTx records a rider's problem and acts on it: the core of reportProblem, shared with the
+// offline batch.
+func (s *Service) problemTx(ctx context.Context, tx pgx.Tx, riderID, kind, orderID, noteText string, save bool) (reply map[string]any, err error) {
+	err = func() error {
 		outcome := "recorded"
 		var order any
-		if body.OrderID != "" {
+		if orderID != "" {
 			var mine bool
-			if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM offers WHERE order_id = $1 AND rider_id = $2)", body.OrderID, actor.ID).Scan(&mine); err != nil {
+			if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM offers WHERE order_id = $1 AND rider_id = $2)", orderID, riderID).Scan(&mine); err != nil {
 				return err
 			}
 			if !mine {
 				return &refusal{"order_not_yours", "That order is not one of yours."}
 			}
-			order = body.OrderID
+			order = orderID
 		}
-		breakdown := body.Type == "breakdown" || body.Type == "accident"
+		breakdown := kind == "breakdown" || kind == "accident"
 		if breakdown {
 			// The scooter is taken out of service, so it gets no more offers.
 			if _, err := tx.Exec(ctx, `UPDATE scooters SET status = 'maintenance', updated_at = now()
-				WHERE id = (SELECT scooter_id FROM shifts WHERE rider_id = $1 AND ended_at IS NULL)`, actor.ID); err != nil {
+				WHERE id = (SELECT scooter_id FROM shifts WHERE rider_id = $1 AND ended_at IS NULL)`, riderID); err != nil {
 				return err
 			}
 			var live, liveState string
-			err := tx.QueryRow(ctx, "SELECT order_id::text, state FROM offers WHERE rider_id = $1 AND released_at IS NULL", actor.ID).Scan(&live, &liveState)
+			err := tx.QueryRow(ctx, "SELECT order_id::text, state FROM offers WHERE rider_id = $1 AND released_at IS NULL", riderID).Scan(&live, &liveState)
 			switch {
 			case errors.Is(err, pgx.ErrNoRows):
 			case err != nil:
@@ -151,7 +166,7 @@ func (s *Service) reportProblem(w http.ResponseWriter, r *http.Request) {
 				// Read again under the lock: a cancel, a handover or a pass may have taken it.
 				var still bool
 				if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM offers WHERE rider_id = $1 AND order_id = $2 AND released_at IS NULL)",
-					actor.ID, live).Scan(&still); err != nil {
+					riderID, live).Scan(&still); err != nil {
 					return err
 				}
 				if !still {
@@ -164,10 +179,10 @@ func (s *Service) reportProblem(w http.ResponseWriter, r *http.Request) {
 				}
 				if visible {
 					outcome = "order_failed"
-					err = failOrder(ctx, tx, live, "rider "+body.Type)
+					err = failOrder(ctx, tx, live, "rider "+kind)
 				} else {
 					outcome = "rematched"
-					err = rematch(ctx, tx, live, "rider "+body.Type, now)
+					err = rematch(ctx, tx, live, "rider "+kind, now)
 				}
 				if err != nil {
 					return err
@@ -176,26 +191,25 @@ func (s *Service) reportProblem(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var note any
-		if body.Note != "" {
-			note = body.Note
+		if noteText != "" {
+			note = noteText
 		}
 		var id string
 		if err := tx.QueryRow(ctx, `INSERT INTO problem_reports (rider_id, order_id, type, source, note, outcome) VALUES ($1, $2, $3, 'rider', $4, $5)
-			RETURNING id::text`, actor.ID, order, body.Type, note, outcome).Scan(&id); err != nil {
+			RETURNING id::text`, riderID, order, kind, note, outcome).Scan(&id); err != nil {
 			return err
 		}
-		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: actor.ID, Action: "problem.reported", EntityType: "problem_report", EntityID: id,
-			After: map[string]any{"type": body.Type, "outcome": outcome}}); err != nil {
+		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: riderID, Action: "problem.reported", EntityType: "problem_report", EntityID: id,
+			After: map[string]any{"type": kind, "outcome": outcome}}); err != nil {
 			return err
 		}
 		reply = map[string]any{"report_id": id, "server_time": serverTime()}
+		if !save {
+			return nil
+		}
 		return idempotency.Save(ctx, tx, http.StatusCreated, reply)
-	})
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	httpserver.WriteJSON(w, http.StatusCreated, reply)
+	}()
+	return reply, err
 }
 
 // signalLost raises one support alert for an order whose rider went quiet after the timer started.

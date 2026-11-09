@@ -360,7 +360,22 @@ func (s *Service) scanStock(w http.ResponseWriter, r *http.Request) {
 		if _, err := readRider(r.Context(), tx, actor.ID); err != nil {
 			return err
 		}
-		_, scooter, open, err := openShift(r.Context(), tx, actor.ID)
+		var err error
+		reply, err = ScanTx(r.Context(), tx, actor.ID, code, true)
+		return err
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, reply)
+}
+
+// ScanTx loads a whole lot onto the rider's scooter: the core of scanStock, shared with the
+// offline batch. A refusal is an error RefusalOf can read.
+func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (reply map[string]any, err error) {
+	err = func() error {
+		_, scooter, open, err := openShift(ctx, tx, riderID)
 		if err != nil {
 			return err
 		}
@@ -373,7 +388,7 @@ func (s *Service) scanStock(w http.ResponseWriter, r *http.Request) {
 		var expires time.Time
 		var expired bool
 		// Locked, so one lot cannot go onto two scooters at once.
-		err = tx.QueryRow(r.Context(), `SELECT id::text, item_id::text, qty, status, temp_status, expires_at, expires_at <= now()
+		err = tx.QueryRow(ctx, `SELECT id::text, item_id::text, qty, status, temp_status, expires_at, expires_at <= now()
 			FROM lots WHERE code = $1 FOR UPDATE`, code).Scan(&u.LotID, &u.ItemID, &qty, &status, &u.TempStatus, &expires, &expired)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return refuse("bad_scan", "That code is not a known lot.")
@@ -389,30 +404,38 @@ func (s *Service) scanStock(w http.ResponseWriter, r *http.Request) {
 			return refuse("lot_expired", "This lot has expired.")
 		}
 		var loaded bool
-		if err := tx.QueryRow(r.Context(), "SELECT EXISTS (SELECT 1 FROM scooter_stock WHERE lot_id = $1)", u.LotID).Scan(&loaded); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM scooter_stock WHERE lot_id = $1)", u.LotID).Scan(&loaded); err != nil {
 			return err
 		}
 		if loaded {
 			return refuse("lot_already_on_scooter", "This lot is already on a scooter.")
 		}
-		if _, err := tx.Exec(r.Context(), "INSERT INTO scooter_stock (scooter_id, lot_id, on_hand) VALUES ($1, $2, $3)", scooter, u.LotID, qty); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO scooter_stock (scooter_id, lot_id, on_hand) VALUES ($1, $2, $3)", scooter, u.LotID, qty); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(r.Context(), `INSERT INTO stock_ledger (scooter_id, lot_id, delta_on_hand, reason, actor_type, actor_id)
-			VALUES ($1, $2, $3, 'scan', 'rider', $4)`, scooter, u.LotID, qty, actor.ID); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO stock_ledger (scooter_id, lot_id, delta_on_hand, reason, actor_type, actor_id)
+			VALUES ($1, $2, $3, 'scan', 'rider', $4)`, scooter, u.LotID, qty, riderID); err != nil {
 			return err
 		}
-		if err := bump(r.Context(), tx, actor.ID); err != nil {
+		if err := bump(ctx, tx, riderID); err != nil {
 			return err
 		}
 		reply = map[string]any{"unit": u, "server_time": serverTime()}
-		return idempotency.Save(r.Context(), tx, http.StatusOK, reply)
-	})
-	if err != nil {
-		s.fail(w, r, err)
-		return
+		if !save {
+			return nil
+		}
+		return idempotency.Save(ctx, tx, http.StatusOK, reply)
+	}()
+	return reply, err
+}
+
+// RefusalOf returns the contract's code and message when err is a refusal.
+func RefusalOf(err error) (code, message string, ok bool) {
+	var no *refusal
+	if errors.As(err, &no) {
+		return no.code, no.message, true
 	}
-	httpserver.WriteJSON(w, http.StatusOK, reply)
+	return "", "", false
 }
 
 type stockLot struct {

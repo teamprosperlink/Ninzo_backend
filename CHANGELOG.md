@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The offline event batch (#98)
+- Added: `sendEventBatch`. Queued location, handover, problem and stock scan events apply in order, each on its own, with the same rules as the direct requests. A repeated `event_id` returns its first final result; a direct request sent first with the same key counts once.
+- Added: `rider_events`, migration 0023, not applied to Supabase.
+- Evidence: docs/testing/reports/98.md
+
 ### Rider problems and reassignment (#96)
 - Added: `reportProblem`. A breakdown or accident takes the scooter out of service; an order the customer has not seen accepted goes to another rider silently, and one they have seen fails with a full refund (`order_failed`). Other problems are recorded for support.
 - Added: when a rider's on-time pings stop for `reassign_after_s` (2 minutes) before the timer, the order is reassigned, unless the customer already has the code; once the timer runs, support is alerted instead.

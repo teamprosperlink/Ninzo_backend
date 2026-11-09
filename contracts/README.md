@@ -284,6 +284,7 @@ Every action is queued first with a unique `event_id`. A direct request uses tha
 - A repeated `event_id` returns the stored result if that result was final: accepted, or rejected with `retryable: false`. A rejection with `retryable: true` is not stored, so the event is checked again.
 - `retryable` on a rejected event means the same event may succeed later. If it is false, the app shows the rejection to the rider and removes the event from the queue.
 - `device_time` is kept as evidence. The official time is when the server received the event (**Proposed**).
+- Rejection codes include `invalid_event`, `unknown_event_type`, `not_found`, `wrong_otp`, `order_cancelled`, `order_reassigned`, `bad_scan` and `not_available_yet` (restock, until `v0.7.0`, retryable), and `internal_error` (retryable).
 
 | Event arrives when | Result | What happens next |
 |---|---|---|
