@@ -202,7 +202,7 @@ var builtInV050 = []string{"offers", "location_pings"}
 
 var builtInV040 = []string{"orders", "order_items", "order_events", "reservations", "payments", "refunds"}
 
-var builtInV030 = []string{"zones", "zone_settings", "gates", "gate_history", "menu_items", "price_history", "staging_nodes", "scooters", "lots", "scooter_stock", "stock_ledger", "shifts", "rider_state", "availability_rules"}
+var builtInV030 = []string{"zones", "zone_settings", "gates", "gate_history", "menu_items", "price_history", "staging_nodes", "scooters", "lots", "scooter_stock", "stock_ledger", "shifts", "rider_state", "availability_rules", "rider_events"}
 
 func TestSchemaMatchesTheDataMap(t *testing.T) {
 	db, p := freshDB(t)

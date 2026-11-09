@@ -111,10 +111,26 @@ func (s *Service) ping(w http.ResponseWriter, r *http.Request) {
 		if err := riderOK(ctx, tx, actor.ID); err != nil {
 			return err
 		}
+		var err error
+		next, err = s.pingTx(ctx, tx, actor.ID, p)
+		return err
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusAccepted, map[string]any{"next_ping_s": next, "server_time": serverTime()})
+}
+
+// pingTx applies one ping for a rider and keeps it: the core of locationPing, shared with the
+// offline batch. It returns how soon to ping again.
+func (s *Service) pingTx(ctx context.Context, tx pgx.Tx, riderID string, p ping) (next int, err error) {
+	next = 15
+	err = func() error {
 		var order any
 		applied, note := false, "no order"
 		var id string
-		err := tx.QueryRow(ctx, "SELECT order_id::text FROM offers WHERE rider_id = $1 AND released_at IS NULL AND state = 'accepted'", actor.ID).Scan(&id)
+		err := tx.QueryRow(ctx, "SELECT order_id::text FROM offers WHERE rider_id = $1 AND released_at IS NULL AND state = 'accepted'", riderID).Scan(&id)
 		switch {
 		case err == nil:
 			if _, err := tx.Exec(ctx, "SELECT 1 FROM orders WHERE id = $1 FOR UPDATE", id); err != nil {
@@ -135,14 +151,10 @@ func (s *Service) ping(w http.ResponseWriter, r *http.Request) {
 			noteValue = note
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO location_pings (rider_id, order_id, lat, lng, speed_mps, accuracy_m, device_time, received_at, applied, note)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, actor.ID, order, p.lat, p.lng, p.speed, p.accuracy, p.device, s.clock(), applied, noteValue)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, riderID, order, p.lat, p.lng, p.speed, p.accuracy, p.device, s.clock(), applied, noteValue)
 		return err
-	})
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	httpserver.WriteJSON(w, http.StatusAccepted, map[string]any{"next_ping_s": next, "server_time": serverTime()})
+	}()
+	return next, err
 }
 
 // track applies one ping to a locked order. Two pings in a row inside the zone, once the order is
@@ -363,12 +375,41 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		if err := riderOK(ctx, tx, actor.ID); err != nil {
 			return err
 		}
-		if !idPattern.MatchString(id) {
-			return errNotFound
+		var err error
+		reply, wrong, err = s.handOverTx(ctx, tx, actor.ID, id, body.OTP, handed, client, true)
+		if err == nil && wrong != "" {
+			// A wrong code is final. Kept under the key, so the queued copy of this entry counts
+			// once and does not use up a second attempt (contracts/README.md, Rider offline events).
+			if key := r.Header.Get("Idempotency-Key"); eventIDPattern.MatchString(key) {
+				_, err = tx.Exec(ctx, `INSERT INTO rider_events (rider_id, event_id, type, accepted, code, message, device_time)
+					VALUES ($1, $2, 'handover', false, $3, 'That code is not right.', $4) ON CONFLICT DO NOTHING`, actor.ID, key, wrong, client)
+			}
 		}
+		return err
+	})
+	switch {
+	case errors.Is(err, errInvalid):
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send one quantity for each ordered item, no more than ordered.", false)
+	case err != nil:
+		s.fail(w, r, err)
+	case wrong != "":
+		httpserver.WriteError(w, http.StatusConflict, wrong, "That code is not right.", false)
+	default:
+		httpserver.WriteJSON(w, http.StatusOK, reply)
+	}
+}
+
+// handOverTx hands over a locked order for a rider: the core of handOver, shared with the offline
+// batch. wrong is set, with the attempt committed, when the code is wrong. save stores the reply
+// for the direct request's Idempotency-Key.
+func (s *Service) handOverTx(ctx context.Context, tx pgx.Tx, riderID, id, otpSent string, handed map[string]int, client time.Time, save bool) (reply map[string]any, wrong string, err error) {
+	if !idPattern.MatchString(id) {
+		return nil, "", errNotFound
+	}
+	err = func() error {
 		var offer string
 		err := tx.QueryRow(ctx, `SELECT id::text FROM offers WHERE order_id = $1 AND rider_id = $2 AND state = 'accepted'
-			ORDER BY created_at DESC, id DESC LIMIT 1`, id, actor.ID).Scan(&offer)
+			ORDER BY created_at DESC, id DESC LIMIT 1`, id, riderID).Scan(&offer)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotFound
 		}
@@ -399,6 +440,9 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			reply = map[string]any{"order": view, "server_time": serverTime()}
+			if !save {
+				return nil
+			}
 			return idempotency.Save(ctx, tx, http.StatusOK, reply)
 		}
 		if f.orderState == "HANDED_OVER" || f.orderState == "COMPLETED" {
@@ -421,7 +465,7 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		if attempts >= maxOTPAttempts {
 			return &refusal{"otp_attempts_exceeded", "Too many wrong codes. Call support."}
 		}
-		if otp == nil || body.OTP != *otp {
+		if otp == nil || otpSent != *otp {
 			// The count must stick, so this commits, and the 409 is written afterwards.
 			_, err := tx.Exec(ctx, "UPDATE orders SET otp_attempts = otp_attempts + 1, updated_at = now() WHERE id = $1", id)
 			wrong = "wrong_otp"
@@ -444,7 +488,7 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		var lat, lng float64
 		fresh := true
 		err = tx.QueryRow(ctx, `SELECT lat, lng FROM location_pings WHERE rider_id = $1 AND applied AND received_at >= $2 ORDER BY id DESC LIMIT 1`,
-			actor.ID, now.Add(-freshPing)).Scan(&lat, &lng)
+			riderID, now.Add(-freshPing)).Scan(&lat, &lng)
 		if errors.Is(err, pgx.ErrNoRows) {
 			fresh = false
 		} else if err != nil {
@@ -471,7 +515,7 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		if err := handStock(ctx, tx, id, actor.ID, handed); err != nil {
+		if err := handStock(ctx, tx, id, riderID, handed); err != nil {
 			return err
 		}
 		for item, qty := range handed {
@@ -490,31 +534,22 @@ func (s *Service) handOver(w http.ResponseWriter, r *http.Request) {
 		if err := refundMissingFood(ctx, tx, id); err != nil {
 			return err
 		}
-		if err := event(ctx, tx, id, "ARRIVED", "HANDED_OVER", identity.TypeRider, actor.ID, "handed over"); err != nil {
+		if err := event(ctx, tx, id, "ARRIVED", "HANDED_OVER", identity.TypeRider, riderID, "handed over"); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, "UPDATE offers SET final_state = 'HANDED_OVER', released_at = now(), updated_at = now() WHERE id = $1", offer); err != nil {
 			return err
 		}
-		if err := bumpRider(ctx, tx, actor.ID); err != nil {
+		if err := bumpRider(ctx, tx, riderID); err != nil {
 			return err
 		}
-		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: actor.ID, Action: "order.handed_over", EntityType: "order", EntityID: id,
+		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: riderID, Action: "order.handed_over", EntityType: "order", EntityID: id,
 			After: map[string]any{"flag": flag}}); err != nil {
 			return err
 		}
 		return finish()
-	})
-	switch {
-	case errors.Is(err, errInvalid):
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send one quantity for each ordered item, no more than ordered.", false)
-	case err != nil:
-		s.fail(w, r, err)
-	case wrong != "":
-		httpserver.WriteError(w, http.StatusConflict, wrong, "That code is not right.", false)
-	default:
-		httpserver.WriteJSON(w, http.StatusOK, reply)
-	}
+	}()
+	return reply, wrong, err
 }
 
 // riderMoving says whether the rider's latest fresh ping shows them moving.
