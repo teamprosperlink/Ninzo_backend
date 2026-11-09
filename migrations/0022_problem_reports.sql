@@ -12,8 +12,8 @@ CREATE TABLE problem_reports (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX problem_reports_order_idx ON problem_reports (order_id) WHERE order_id IS NOT NULL;
--- The system raises a lost signal once per order.
-CREATE UNIQUE INDEX problem_reports_one_signal_alert ON problem_reports (order_id) WHERE source = 'system' AND type = 'signal_lost';
+-- The system raises a lost signal once per order and rider.
+CREATE UNIQUE INDEX problem_reports_one_signal_alert ON problem_reports (order_id, rider_id) WHERE source = 'system' AND type = 'signal_lost';
 ALTER TABLE problem_reports ENABLE ROW LEVEL SECURITY;
 
 -- +goose Down

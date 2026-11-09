@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 )
 
@@ -216,5 +218,62 @@ func TestAScooterBrokenBeforeTheOfferGetsNone(t *testing.T) {
 	x.dispatch(start.Add(6 * time.Second))
 	if x.count("SELECT count(*) FROM offers WHERE order_id = $1", id) != 0 {
 		t.Error("a scooter in maintenance was offered the order")
+	}
+}
+
+func TestAnEndedOrderIsNeverTakenBack(t *testing.T) {
+	tr, _ := accepted(t, false)
+	tr.clock = tr.clock.Add(301 * time.Second)
+	if code, out := tr.send("POST", "/orders/"+tr.order+"/cancel", tr.fixture.token, `{}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	// Whatever arrives late, a rematch or a failure leaves the cancelled order as it is.
+	ctx := context.Background()
+	for _, act := range []func(pgx.Tx) error{
+		func(tx pgx.Tx) error { return rematch(ctx, tx, tr.order, "late report", tr.clock) },
+		func(tx pgx.Tx) error { return failOrder(ctx, tx, tr.order, "late report") },
+	} {
+		if err := database.InTx(ctx, tr.pool, act); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tr.state() != "CANCELLED" || tr.count("SELECT count(*) FROM refunds WHERE order_id = $1", tr.order) != 1 {
+		t.Errorf("an ended order changed: %s", tr.state())
+	}
+	if code, _ := tr.report("breakdown", tr.order); code != 201 || tr.state() != "CANCELLED" {
+		t.Errorf("a report after a cancel changed the order: %s", tr.state())
+	}
+}
+
+func TestTheNewRidersPingsCountAfterARematch(t *testing.T) {
+	tr, other := accepted(t, true)
+	tr.at(far, 20*time.Second)
+	tr.report("breakdown", tr.order)
+	tr.dispatch(tr.clock)
+	_, tok := tr.signIn(other)
+	o := tr.riders.offer(tok)
+	tr.clock = tr.clock.Add(3 * time.Second)
+	if code, out := tr.call("POST", "/offers/"+o["id"].(string)+"/accept", tok, `{"fencing_token":"`+o["fencing_token"].(string)+`"}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	// One second later, the new rider pings from the gate, a kilometre from the old rider.
+	tr.clock = tr.clock.Add(time.Second)
+	tr.tok = tok
+	tr.pingAt(atGate, 0, 5, tr.clock)
+	if n := tr.count("SELECT count(*) FROM location_pings WHERE order_id = $1 AND applied AND note IS NULL", tr.order); n != 2 {
+		t.Errorf("the new rider's ping was judged against the old rider's: %d applied", n)
+	}
+}
+
+func TestEachRiderGetsTheirOwnSignalAlert(t *testing.T) {
+	tr, _ := accepted(t, false)
+	tr.exec(`INSERT INTO problem_reports (rider_id, order_id, type, source, outcome)
+		SELECT r.id, $1, 'signal_lost', 'system', 'support_alerted' FROM riders r WHERE r.id <> (SELECT rider_id FROM orders WHERE id = $1) LIMIT 1`, tr.order)
+	tr.ready(200)
+	tr.at(inZone, 20*time.Second)
+	tr.at(inZone, 3*time.Second)
+	tr.dispatch(tr.clock.Add(3 * time.Minute))
+	if tr.count("SELECT count(*) FROM problem_reports WHERE type = 'signal_lost' AND order_id = $1", tr.order) != 2 {
+		t.Error("an alert about an earlier rider hid this rider's lost signal")
 	}
 }

@@ -364,7 +364,7 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 			LEFT JOIN zone_settings z ON z.id = o.zone_settings
 			WHERE o.state IN ('TIMER_RUNNING', 'ARRIVED')
 				AND o.last_live_ping_at + make_interval(secs => coalesce(z.reassign_after_s, g.reassign_after_s)) <= $2
-				AND NOT EXISTS (SELECT 1 FROM problem_reports p WHERE p.order_id = o.id AND p.source = 'system' AND p.type = 'signal_lost')
+				AND NOT EXISTS (SELECT 1 FROM problem_reports p WHERE p.order_id = o.id AND p.rider_id = o.rider_id AND p.source = 'system' AND p.type = 'signal_lost')
 				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error { return signalLost(ctx, tx, id) }},
 		{"ending an order with no scooter", `SELECT id::text FROM orders WHERE state = 'NO_SCOOTER' AND wait_deadline <= $2

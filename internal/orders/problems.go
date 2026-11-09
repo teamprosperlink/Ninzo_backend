@@ -41,6 +41,13 @@ func rematch(ctx context.Context, tx pgx.Tx, orderID, why string, now time.Time)
 	if err != nil {
 		return err
 	}
+	// Only an order still with a rider can be taken back. One that ended or was handed over, even
+	// a moment ago, is left alone.
+	switch state {
+	case "OFFERED", "RIDER_ACCEPTED", "PACKED", "ARRIVED":
+	default:
+		return nil
+	}
 	rows, err := tx.Query(ctx, `UPDATE offers SET state = CASE WHEN state = 'open' THEN 'expired' ELSE state END,
 			ended_reason = 'reassigned', final_state = $2, released_at = now(), updated_at = now()
 		WHERE order_id = $1 AND released_at IS NULL RETURNING rider_id::text`, orderID, state)
@@ -58,6 +65,7 @@ func rematch(ctx context.Context, tx pgx.Tx, orderID, why string, now time.Time)
 	if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'PAYMENT_SECURED', rider_id = NULL, rider_accepted_at = NULL, packed_at = NULL,
 			timer_length_s = NULL, zone_radius_m = NULL, arrival_perimeter_m = NULL, handover_otp = NULL, otp_attempts = 0, otp_released_at = NULL,
 			zone_hits = 0, perimeter_hits = 0, last_ping_at = NULL, last_live_ping_at = NULL, last_device_time = NULL,
+			arrived_at = NULL, arrival_source = NULL, audit_flag = NULL,
 			min_wait_until_seen = min_wait_until_seen AND $2 = 0, seq = seq + $2, updated_at = now()
 		WHERE id = $1`, orderID, bump); err != nil {
 		return err
@@ -78,6 +86,11 @@ func failOrder(ctx context.Context, tx pgx.Tx, orderID, why string) error {
 	var state string
 	if err := tx.QueryRow(ctx, "SELECT state FROM orders WHERE id = $1", orderID).Scan(&state); err != nil {
 		return err
+	}
+	switch state {
+	case "OFFERED", "RIDER_ACCEPTED", "PACKED", "TIMER_RUNNING", "ARRIVED":
+	default:
+		return nil // Already ended or handed over.
 	}
 	if err := end(ctx, tx, orderID, state, "FAILED", "failed", "system", nil, why); err != nil {
 		return err
@@ -135,6 +148,15 @@ func (s *Service) reportProblem(w http.ResponseWriter, r *http.Request) {
 				if _, err := tx.Exec(ctx, "SELECT 1 FROM orders WHERE id = $1 FOR UPDATE", live); err != nil {
 					return err
 				}
+				// Read again under the lock: a cancel, a handover or a pass may have taken it.
+				var still bool
+				if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM offers WHERE rider_id = $1 AND order_id = $2 AND released_at IS NULL)",
+					actor.ID, live).Scan(&still); err != nil {
+					return err
+				}
+				if !still {
+					break
+				}
 				now := s.clock()
 				_, visible, err := shown(ctx, tx, live, now)
 				if err != nil {
@@ -180,6 +202,6 @@ func (s *Service) reportProblem(w http.ResponseWriter, r *http.Request) {
 func signalLost(ctx context.Context, tx pgx.Tx, orderID string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO problem_reports (rider_id, order_id, type, source, outcome)
 		SELECT rider_id, id, 'signal_lost', 'system', 'support_alerted' FROM orders WHERE id = $1
-		ON CONFLICT (order_id) WHERE source = 'system' AND type = 'signal_lost' DO NOTHING`, orderID)
+		ON CONFLICT (order_id, rider_id) WHERE source = 'system' AND type = 'signal_lost' DO NOTHING`, orderID)
 	return err
 }
