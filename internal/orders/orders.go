@@ -192,8 +192,14 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The payment provider is an outside call, so it comes before the transaction.
-	providerOrder, err := s.Payments.NewOrder(r.Context(), 0)
+	// The payment provider is an outside call, so it comes before the transaction, with the total
+	// at today's prices. The transaction checks the prices have not changed since.
+	quoted, err := quote(r.Context(), s.Pool, basket)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	providerOrder, err := s.Payments.NewOrder(r.Context(), quoted)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -268,6 +274,9 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		if total != quoted {
+			return &refusal{"price_changed", "A price changed. Load the menu and try again."}
+		}
 		if _, err := tx.Exec(r.Context(), "UPDATE orders SET total_paise = $2 WHERE id = $1", orderID, total); err != nil {
 			return err
 		}
@@ -296,6 +305,23 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusCreated, reply)
+}
+
+// quote prices a basket now. An item not found or not on sale is left for the order to refuse.
+func quote(ctx context.Context, q querier, basket map[string]int) (int, error) {
+	total := 0
+	for item, qty := range basket {
+		var price int
+		err := q.QueryRow(ctx, "SELECT price_paise FROM menu_items WHERE id = $1", item).Scan(&price)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		total += price * qty
+	}
+	return max(total, 1), nil
 }
 
 // holdStock reserves units of an item on the scooter, from the lots expiring first. PickScooter already
@@ -403,7 +429,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		return nil, err
 	}
 	var refunded bool
-	if err := q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM refunds WHERE order_id = $1 AND status <> 'failed')", orderID).Scan(&refunded); err != nil {
+	if err := q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM refunds WHERE order_id = $1 AND status = 'processed')", orderID).Scan(&refunded); err != nil {
 		return nil, err
 	}
 	stage := Stage(state)
@@ -534,7 +560,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.Pool.Query(r.Context(), `SELECT id::text, created_at FROM orders WHERE customer_id = $1
-		AND (date_trunc('microseconds', created_at), id) < ($2, $3::uuid) ORDER BY created_at DESC, id DESC LIMIT $4`,
+		AND (created_at, id) < ($2, $3::uuid) ORDER BY created_at DESC, id DESC LIMIT $4`,
 		actor.ID, after, afterID, limit+1)
 	if err != nil {
 		s.fail(w, r, err)
@@ -588,10 +614,25 @@ func (s *Service) testPayment(w http.ResponseWriter, r *http.Request) {
 		if err := identity.CheckSession(r.Context(), tx, actor); err != nil {
 			return err
 		}
+		if _, err := customer(r.Context(), tx, actor.ID); err != nil {
+			return err
+		}
 		if err := owned(r.Context(), tx, id, actor.ID); err != nil {
 			return err
 		}
-		if err := Confirm(r.Context(), tx, id, body.Result == "paid", now); err != nil {
+		var providerOrder string
+		err := tx.QueryRow(r.Context(), `SELECT provider_order_id FROM payments WHERE order_id = $1 AND status = 'created'
+			ORDER BY created_at DESC, id DESC LIMIT 1`, id).Scan(&providerOrder)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Nothing is waiting for a result, so there is nothing to do. A repeat lands here.
+			order, err := view(r.Context(), tx, s, id, now)
+			reply = map[string]any{"order": order, "server_time": serverTime()}
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if err := Confirm(r.Context(), tx, id, providerOrder, body.Result == "paid", now); err != nil {
 			return err
 		}
 		order, err := view(r.Context(), tx, s, id, now)
@@ -608,9 +649,9 @@ func (s *Service) testPayment(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, reply)
 }
 
-// Confirm applies a payment result, as Razorpay's webhook will. A repeat has no second effect. A
-// payment confirmed on an order that has ended is refunded at once.
-func Confirm(ctx context.Context, tx pgx.Tx, orderID string, paid bool, now time.Time) error {
+// Confirm applies a payment result for one provider order, as Razorpay's webhook will. A repeat
+// has no second effect. Money taken for an order that has ended, or is already paid, goes back.
+func Confirm(ctx context.Context, tx pgx.Tx, orderID, providerOrder string, paid bool, now time.Time) error {
 	var state string
 	var cancelWindow, maxWait int
 	if err := tx.QueryRow(ctx, `SELECT o.state,
@@ -619,10 +660,10 @@ func Confirm(ctx context.Context, tx pgx.Tx, orderID string, paid bool, now time
 		WHERE o.id = $1 FOR UPDATE OF o`, orderID).Scan(&state, &cancelWindow, &maxWait); err != nil {
 		return err
 	}
-	var paymentID, status string
+	var paymentID, status, provider string
 	var amount int
-	err := tx.QueryRow(ctx, `SELECT id::text, status, amount_paise FROM payments WHERE order_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1 FOR UPDATE`, orderID).
-		Scan(&paymentID, &status, &amount)
+	err := tx.QueryRow(ctx, `SELECT id::text, status, amount_paise, provider FROM payments WHERE order_id = $1 AND provider_order_id = $2 FOR UPDATE`,
+		orderID, providerOrder).Scan(&paymentID, &status, &amount, &provider)
 	if err != nil {
 		return err
 	}
@@ -641,14 +682,23 @@ func Confirm(ctx context.Context, tx pgx.Tx, orderID string, paid bool, now time
 		}
 		return event(ctx, tx, orderID, state, "PAYMENT_FAILED", "system", nil, "payment failed")
 	}
-	if _, err := tx.Exec(ctx, "UPDATE payments SET status = 'paid', updated_at = now() WHERE id = $1", paymentID); err != nil {
-		return err
-	}
 	if state != "PAYMENT_PENDING" && state != "PAYMENT_FAILED" {
-		// The order ended, or is already paid, so this money goes straight back.
-		_, err := tx.Exec(ctx, `INSERT INTO refunds (order_id, payment_id, reason_code, amount_paise, status, expected_by)
-			VALUES ($1, $2, 'customer_cancelled', $3, 'pending', now() + interval '7 days') ON CONFLICT (payment_id, reason_code) DO NOTHING`,
-			orderID, paymentID, amount)
+		// The order has ended, or another payment already paid for it, so this money goes back.
+		// Only one row per order may be paid, so a second one is recorded as refunded.
+		var alreadyPaid bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM payments WHERE order_id = $1 AND status = 'paid')", orderID).Scan(&alreadyPaid); err != nil {
+			return err
+		}
+		next := "paid"
+		if alreadyPaid {
+			next = "refunded"
+		}
+		if _, err := tx.Exec(ctx, "UPDATE payments SET status = $2, updated_at = now() WHERE id = $1", paymentID, next); err != nil {
+			return err
+		}
+		return refund(ctx, tx, orderID, paymentID, provider, "customer_cancelled", amount)
+	}
+	if _, err := tx.Exec(ctx, "UPDATE payments SET status = 'paid', updated_at = now() WHERE id = $1", paymentID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'PAYMENT_SECURED', seq = seq + 1, paid_at = $2::timestamptz,
@@ -657,4 +707,17 @@ func Confirm(ctx context.Context, tx pgx.Tx, orderID string, paid bool, now time
 		return err
 	}
 	return event(ctx, tx, orderID, state, "PAYMENT_SECURED", "system", nil, fmt.Sprintf("payment %s", paymentID))
+}
+
+// refund records money going back. The test payment moved no money, so its refund is done at
+// once. A real provider's refund is pending until the provider says it is processed.
+func refund(ctx context.Context, tx pgx.Tx, orderID, paymentID, provider, reason string, amount int) error {
+	status := "pending"
+	if provider == "test" {
+		status = "processed"
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO refunds (order_id, payment_id, reason_code, amount_paise, status, expected_by)
+		VALUES ($1, $2, $3, $4, $5, now() + interval '7 days') ON CONFLICT (payment_id, reason_code) DO NOTHING`,
+		orderID, paymentID, reason, amount, status)
+	return err
 }

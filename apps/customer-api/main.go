@@ -53,7 +53,7 @@ func main() {
 			reach.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// The test payment stands in for Razorpay (decision 0013). Production refuses to start with it.
 			ordering := &orders.Service{Pool: d.DB, Log: d.Log, Payments: orders.TestPayments{}}
-			ordering.MountCustomer(r, true, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			ordering.MountCustomer(r, d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

@@ -92,7 +92,7 @@ CREATE TABLE payments (
     provider          text        NOT NULL CHECK (provider IN ('test', 'razorpay')),
     provider_order_id text        NOT NULL UNIQUE,
     amount_paise      integer     NOT NULL CHECK (amount_paise > 0),
-    status            text        NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'paid', 'failed')),
+    status            text        NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'paid', 'failed', 'refunded')),
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now()
 );
@@ -122,6 +122,7 @@ LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 BEGIN
+    PERFORM 1 FROM public.payments WHERE id = NEW.payment_id FOR UPDATE;
     IF (SELECT coalesce(sum(amount_paise), 0) FROM public.refunds WHERE payment_id = NEW.payment_id AND status <> 'failed')
         > (SELECT amount_paise FROM public.payments WHERE id = NEW.payment_id) THEN
         RAISE EXCEPTION 'refunds would exceed the payment';

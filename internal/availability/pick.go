@@ -77,36 +77,49 @@ func PickScooter(ctx context.Context, tx pgx.Tx, lat, lng float64, now time.Time
 		pick.Reason = ReasonNoCoverage
 		return pick, nil
 	}
-	for _, scooter := range scooters {
-		// Lock this scooter's good stock, then count it, so nothing changes between the two.
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id
-			WHERE ss.scooter_id = $1 AND l.item_id = ANY($2::uuid[]) ORDER BY ss.lot_id FOR UPDATE OF ss`, scooter, items); err != nil {
-			return Pick{}, err
-		}
-		have := map[string]int{}
+	count := func(scooter string) (map[string]int, error) {
 		rows, err := tx.Query(ctx, `SELECT l.item_id::text, sum(ss.on_hand - ss.reserved)::int
 			FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id
 			WHERE ss.scooter_id = $1 AND l.item_id = ANY($2::uuid[]) AND l.status = 'ok' AND l.temp_status = 'ok' AND l.expires_at > now()
 			GROUP BY l.item_id`, scooter, items)
 		if err != nil {
-			return Pick{}, err
+			return nil, err
 		}
+		have := map[string]int{}
 		var item string
 		var qty int
-		if _, err := pgx.ForEachRow(rows, []any{&item, &qty}, func() error { have[item] = qty; return nil }); err != nil {
-			return Pick{}, err
-		}
-		enough := true
+		_, err = pgx.ForEachRow(rows, []any{&item, &qty}, func() error { have[item] = qty; return nil })
+		return have, err
+	}
+	enough := func(have map[string]int) bool {
 		for id, want := range basket {
 			if have[id] < want {
-				enough = false
-				break
+				return false
 			}
 		}
-		if enough {
+		return true
+	}
+	for _, scooter := range scooters {
+		have, err := count(scooter)
+		if err != nil {
+			return Pick{}, err
+		}
+		if !enough(have) {
+			continue
+		}
+		// Lock only this scooter's rows, in one order, then count again: another order may have
+		// taken units since the count above.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM scooter_stock WHERE scooter_id = $1 ORDER BY lot_id FOR UPDATE`, scooter); err != nil {
+			return Pick{}, err
+		}
+		if have, err = count(scooter); err != nil {
+			return Pick{}, err
+		}
+		if enough(have) {
 			pick.ScooterID = scooter
 			return pick, nil
 		}
+		break // Only one scooter is ever locked, so a lost race is a sold-out answer, not a wait.
 	}
 	pick.Reason = ReasonSoldOut
 	return pick, nil

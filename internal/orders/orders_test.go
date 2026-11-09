@@ -480,3 +480,72 @@ func TestProductionRefusesTheTestPayment(t *testing.T) {
 }
 
 func configFor(env string) config.Config { return config.Config{Env: env} }
+
+func TestTwoRefundsAtOnceCannotExceedThePayment(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	_, out := f.order(f.chai, 1)
+	id := out["order"].(map[string]any)["id"].(string)
+	payment := f.id("SELECT id::text FROM payments WHERE order_id = $1", id)
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, "INSERT INTO refunds (order_id, payment_id, reason_code, amount_paise) VALUES ($1, $2, 'a', 3000)", id, payment); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.pool.Exec(ctx, "INSERT INTO refunds (order_id, payment_id, reason_code, amount_paise) VALUES ($1, $2, 'b', 3000)", id, payment)
+		done <- err
+	}()
+	for i := 0; i < 200; i++ {
+		if f.count("SELECT count(*) FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())") > 0 {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Error("two refunds at once went over the payment")
+	}
+}
+
+func TestASecondPaymentOnAPaidOrderGoesBack(t *testing.T) {
+	f := newFixture(t)
+	_, out := f.order(f.chai, 1)
+	id := out["order"].(map[string]any)["id"].(string)
+	f.send("POST", "/test/payments/"+id, f.token, `{"result":"paid"}`)
+	second := "test_second_1"
+	f.exec("INSERT INTO payments (order_id, provider, provider_order_id, amount_paise) VALUES ($1, 'test', $2, 4900)", id, second)
+	if err := database.InTx(context.Background(), f.pool, func(tx pgx.Tx) error { return Confirm(context.Background(), tx, id, second, true, f.clock) }); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count("SELECT count(*) FROM payments WHERE order_id = $1 AND status = 'refunded'", id); n != 1 {
+		t.Error("the second payment was not recorded as refunded")
+	}
+	if n := f.count("SELECT count(*) FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE p.provider_order_id = $1 AND r.status = 'processed'", second); n != 1 {
+		t.Error("the second payment was not refunded")
+	}
+}
+
+func TestABlockedCustomerCannotConfirm(t *testing.T) {
+	f := newFixture(t)
+	_, out := f.order(f.chai, 1)
+	id := out["order"].(map[string]any)["id"].(string)
+	f.exec("UPDATE people SET status = 'blocked' WHERE id = (SELECT person_id FROM customers WHERE id = $1)", f.cust)
+	if code, out := f.send("POST", "/test/payments/"+id, f.token, `{"result":"paid"}`); code != 403 || out["code"] != "account_blocked" {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestAPriceChangeDuringCheckoutIsRefused(t *testing.T) {
+	f := newFixture(t)
+	got, err := quote(context.Background(), f.pool, map[string]int{f.chai: 2, f.samosa: 1})
+	if err != nil || got != 2*4900+3900 {
+		t.Errorf("%d %v", got, err)
+	}
+}

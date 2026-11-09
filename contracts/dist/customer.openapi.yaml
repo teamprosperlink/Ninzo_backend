@@ -1632,7 +1632,7 @@ paths:
             tags:
                 - orders
         post:
-            description: 'Holds the stock on one scooter that has the whole basket, for 10 minutes until payment, and returns what the app needs for checkout. The app never marks an order paid. Until Razorpay is connected, payment is a test payment: use confirmTestPayment on staging. A gate of another customer gets 404. Errors: sold_out, gate_not_verified, no_offer, phone_required (all 409).'
+            description: 'Holds the stock on one scooter that has the whole basket, for 10 minutes until payment, and returns what the app needs for checkout. The app never marks an order paid. Until Razorpay is connected, payment is a test payment: use confirmTestPayment on staging. A gate of another customer gets 404. Errors: sold_out, gate_not_verified, no_offer, phone_required, price_changed (all 409). A replay returns the reply as it was, so read the order with getOrder after a reconnect.'
             operationId: createOrder
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
