@@ -15,6 +15,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/catalog"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/orders"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
@@ -27,7 +28,7 @@ func main() {
 	if err := service.Run(ctx, service.Options{
 		Name: "customer-api",
 		Validate: func(cfg config.Config) error {
-			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg))
+			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg))
 		},
 		Mount: func(r chi.Router, d service.Deps) {
 			limits := identity.NewLimits(ratelimit.NewMemory(), d.Config, d.Log)
@@ -50,6 +51,9 @@ func main() {
 			menu.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			reach := &availability.Service{Pool: d.DB, Log: d.Log}
 			reach.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			// The test payment stands in for Razorpay (decision 0013). Production refuses to start with it.
+			ordering := &orders.Service{Pool: d.DB, Log: d.Log, Payments: orders.TestPayments{}}
+			ordering.MountCustomer(r, d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

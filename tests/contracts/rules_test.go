@@ -24,6 +24,7 @@ var operationsWithoutIdempotency = map[string]bool{
 	"requestPhoneOtp":    true,
 	"verifyPhone":        true,
 	"changeSignInMethod": true,
+	"confirmTestPayment": true,
 	"signOut":            true,
 	"refreshToken":       true,
 	"razorpayWebhook":    true,

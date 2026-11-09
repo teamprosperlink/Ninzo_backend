@@ -116,6 +116,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `notifyWhenAvailable` | `customers`, `people`, `gates` | `availability_notifications`, `idempotency_keys` | | |
 | `listOrders` | `orders`, `order_items`, `payments`, `gates`, `riders`, `remedies` | | | |
 | `createOrder` | `people`, `customers`, `orders`, `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooters`, `scooter_stock`, `lots` | `orders`, `order_items`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |
+| `confirmTestPayment` | `orders`, `payments`, `zone_settings`, `refresh_tokens` | `orders`, `payments`, `order_events`, `refunds` | | Staging only. Stands in for the Razorpay webhook |
 | `getOrder` | `orders`, `order_items`, `payments`, `gates`, `riders`, `eta_offers`, `remedies` | | | |
 | `cancelOrder` | `orders`, `payments`, `reservations`, `offers` | `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `offers`, `rider_state`, `refunds`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | None: the refund runs from a task |
 | `changeOrderGate` | `orders`, `gates`, `zones`, `zone_settings`, `scooters`, `scooter_stock`, `lots`, `reservations`, `payments` | `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |

@@ -232,6 +232,19 @@ func customerRoutes() []route {
 			}
 			createOrder(c)
 		}},
+		{method: "POST", path: "/test/payments/{order_id}", noIdempotent: true, handle: func(c *call) {
+			body, ok := needsBody(c, "result")
+			if !ok {
+				return
+			}
+			o := currentOrder(c.scenario, c.now)
+			if body["result"] == "failed" {
+				o["customer_stage"], o["payment_status"] = "payment_failed", "failed"
+			} else {
+				o["customer_stage"], o["payment_status"] = "looking_for_rider", "paid"
+			}
+			c.json(200, map[string]any{"order": o})
+		}},
 		{method: "GET", path: "/orders/{order_id}", handle: func(c *call) {
 			if c.param("order_id") == "ord_missing" {
 				c.fail(404, "not_found", "No such order.", false)
