@@ -57,6 +57,7 @@ func main() {
 			ordering.MountCustomer(r, d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Holds end and order clocks move in the background, inside this API for now (decision 0013).
 			go ordering.RunJobs(ctx, 5*time.Second)
+			ordering.MountCustomerStream(r, &orders.Streams{Signer: sessions.Signer})
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

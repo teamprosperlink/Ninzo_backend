@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Live streams (#88)
+- Added: the customer's order stream and the rider's stream, as in the stream contracts: sign-in by frame, `auth_ok`, heartbeats with `seq`, `order_update`, `rider_position`, `offer` and `order_state`, and the close codes 4401, 4403, 4404 and 4410.
+- Evidence: docs/testing/reports/88.md
+
 ### The zone timer and handover (#86)
 - Added: `locationPing`, kept as evidence. Two pings in a row inside the zone start the timer once the order is packed and the minimum wait has passed; two inside the arrival perimeter stop it. A packed rider already inside the perimeter gets no timer.
 - Added: `handOver` with the customer's code and quantities. Stock is taken off the scooter for good.
