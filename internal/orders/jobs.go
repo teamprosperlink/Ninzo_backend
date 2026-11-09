@@ -38,8 +38,12 @@ func (s *Service) safeTick(ctx context.Context) {
 			s.Log.Error("orders: background pass panicked", "panic", fmt.Sprint(p))
 		}
 	}()
-	if _, err := s.Tick(ctx, s.clock()); err != nil && ctx.Err() == nil {
+	now := s.clock()
+	if _, err := s.Tick(ctx, now); err != nil && ctx.Err() == nil {
 		s.Log.Error("orders: background pass failed", "error", err.Error())
+	}
+	if _, err := s.Dispatch(ctx, now); err != nil && ctx.Err() == nil {
+		s.Log.Error("orders: rider pass failed", "error", err.Error())
 	}
 }
 
@@ -83,6 +87,38 @@ func (s *Service) Tick(ctx context.Context, now time.Time) (int, error) {
 			return changed, err
 		}
 		changed += int(tag.RowsAffected())
+	}
+	return changed, nil
+}
+
+// sweep works through due orders one at a time, each in its own transaction. pick selects one row
+// id, with $1 the ids to skip and $2 now, locked with SKIP LOCKED. A row that fails is logged and
+// skipped, and a row left unchanged is skipped quietly.
+func (s *Service) sweep(ctx context.Context, what, pick string, now time.Time, act func(context.Context, pgx.Tx, string) error) (int, error) {
+	changed := 0
+	skip := []string{}
+	for i := 0; i < maxPerPass; i++ {
+		var id string
+		err := database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
+			if err := tx.QueryRow(ctx, pick, skip, now).Scan(&id); err != nil {
+				return err
+			}
+			return act(ctx, tx, id)
+		})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return changed, nil
+		case errors.Is(err, errUnchanged):
+			skip = append(skip, id)
+		case err != nil:
+			if id == "" || ctx.Err() != nil {
+				return changed, err
+			}
+			s.Log.Error("orders: "+what+" failed", "id", id, "error", err.Error())
+			skip = append(skip, id)
+		default:
+			changed++
+		}
 	}
 	return changed, nil
 }

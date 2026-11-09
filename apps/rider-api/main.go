@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/orders"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
@@ -39,6 +40,8 @@ func main() {
 			profiles.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 			work := &shifts.Service{Pool: d.DB, Log: d.Log}
 			work.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
+			delivery := &orders.Service{Pool: d.DB, Log: d.Log}
+			delivery.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rider-api:", err)

@@ -5,6 +5,14 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Offers (#84)
+- Added: offers to one rider at a time once the cancel window closes: `getRiderState`, `listOffers`, `acceptOffer`, `declineOffer`, `markReady` and `getRiderOrder`.
+- Added: the rider pass that expires offers, moves an order to the next free scooter, packs at the packing limit, and refunds an order left at no scooter.
+- Added: the customer sees `rider_accepted` and the rider's first name once the minimum wait has passed.
+- Added: the `offer_timeout_s` setting, 30 seconds. Migration 0019, not applied to Supabase.
+- Changed: ending a shift gives back an open offer, and is refused with `order_in_progress` while an order is accepted.
+- Evidence: docs/testing/reports/84.md
+
 ### Orders, part B (#80)
 - Added: `cancelOrder`, `retryPayment`, `changeOrderGate` and `getOrderRefund`, following the cancel and refund table in contracts/README.md.
 - Added: a background pass inside the customer API that ends unpaid orders after their hold and raises `seq` when `cancellable` changes. Migration 0018, not applied to Supabase.

@@ -278,7 +278,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			total += unit * qty
-			if err := holdStock(r.Context(), tx, orderID, pick.ScooterID, item, qty, actor.ID); err != nil {
+			if err := holdStock(r.Context(), tx, orderID, pick.ScooterID, item, qty, identity.TypeCustomer, actor.ID); err != nil {
 				return err
 			}
 		}
@@ -334,7 +334,7 @@ func quote(ctx context.Context, q querier, basket map[string]int) (int, error) {
 
 // holdStock reserves units of an item on the scooter, from the lots expiring first. PickScooter already
 // locked these rows and counted enough.
-func holdStock(ctx context.Context, tx pgx.Tx, orderID, scooter, item string, qty int, actor string) error {
+func holdStock(ctx context.Context, tx pgx.Tx, orderID, scooter, item string, qty int, actorType string, actorID any) error {
 	rows, err := tx.Query(ctx, `SELECT ss.lot_id::text, ss.on_hand - ss.reserved FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id
 		WHERE ss.scooter_id = $1 AND l.item_id = $2 AND l.status = 'ok' AND l.temp_status = 'ok' AND l.expires_at > now()
 			AND ss.on_hand > ss.reserved
@@ -362,7 +362,7 @@ func holdStock(ctx context.Context, tx pgx.Tx, orderID, scooter, item string, qt
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO stock_ledger (scooter_id, lot_id, delta_on_hand, delta_reserved, reason, actor_type, actor_id)
-			VALUES ($1, $2, 0, $3, 'reserve', 'customer', $4)`, scooter, l.id, take, actor); err != nil {
+			VALUES ($1, $2, 0, $3, 'reserve', $4, $5)`, scooter, l.id, take, actorType, actorID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, "INSERT INTO reservations (order_id, scooter_id, lot_id, item_id, qty) VALUES ($1, $2, $3, $4, $5)", orderID, scooter, l.id, item, take); err != nil {
@@ -399,18 +399,38 @@ func Stage(state string) string {
 	}
 }
 
+// stageAt is Stage with the minimum wait: until it passes, a rider who has accepted stays hidden.
+func stageAt(state string, minWait *time.Time, now time.Time) string {
+	shown := minWait != nil && !now.Before(*minWait)
+	switch state {
+	case "RIDER_ACCEPTED", "PACKED":
+		if shown {
+			return "rider_accepted"
+		}
+		return "looking_for_rider"
+	case "ARRIVED":
+		if shown {
+			return "arrived"
+		}
+		return "looking_for_rider"
+	}
+	return Stage(state)
+}
+
 // view builds the customer's Order. It never includes the true state.
 func view(ctx context.Context, q querier, s *Service, orderID string, now time.Time) (map[string]any, error) {
 	var state, gateID, label, currency string
 	var ended *string
 	var seq int64
 	var total int
-	var cancelUntil, waitDeadline *time.Time
+	var cancelUntil, waitDeadline, minWait, endedAt *time.Time
 	var created time.Time
+	var riderName *string
+	var hasRider, waitSeen bool
 	err := q.QueryRow(ctx, `SELECT o.state, o.seq, o.total_paise, o.currency, o.ended_reason, o.cancel_until, o.wait_deadline, o.created_at,
-			o.gate_id::text, h.label
-		FROM orders o JOIN gate_history h ON h.id = o.gate_history_id WHERE o.id = $1`, orderID).
-		Scan(&state, &seq, &total, &currency, &ended, &cancelUntil, &waitDeadline, &created, &gateID, &label)
+			o.gate_id::text, h.label, o.min_wait_until, o.ended_at, o.rider_id IS NOT NULL, r.name, o.min_wait_until_seen
+		FROM orders o JOIN gate_history h ON h.id = o.gate_history_id LEFT JOIN riders r ON r.id = o.rider_id WHERE o.id = $1`, orderID).
+		Scan(&state, &seq, &total, &currency, &ended, &cancelUntil, &waitDeadline, &created, &gateID, &label, &minWait, &endedAt, &hasRider, &riderName, &waitSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -440,7 +460,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 	if err := q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM refunds WHERE order_id = $1 AND status = 'processed')", orderID).Scan(&refunded); err != nil {
 		return nil, err
 	}
-	stage := Stage(state)
+	stage := stageAt(state, minWait, now)
 	status := "pending"
 	switch {
 	case refunded:
@@ -462,6 +482,26 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		cancellable = true
 	case "looking_for_rider":
 		cancellable = (cancelUntil != nil && now.Before(*cancelUntil)) || (waitDeadline != nil && !now.Before(*waitDeadline))
+	case "rider_accepted":
+		cancellable = waitDeadline != nil && !now.Before(*waitDeadline)
+	}
+	// The rider is shown from rider_accepted on, and on an ended order only if they were shown.
+	var rider any
+	shown := hasRider && minWait != nil
+	switch stage {
+	case "rider_accepted", "timer_running", "arrived", "handed_over":
+	case "ended":
+		// Shown if the wait's end was recorded, or the order ended after it.
+		shown = shown && (waitSeen || (endedAt != nil && !endedAt.Before(*minWait)))
+	default:
+		shown = false
+	}
+	if shown {
+		first := "Your rider"
+		if riderName != nil && strings.TrimSpace(*riderName) != "" {
+			first = strings.Fields(*riderName)[0]
+		}
+		rider = map[string]any{"first_name": first}
 	}
 	var endedReason any
 	if ended != nil {
@@ -474,7 +514,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		"payment_status": status, "payment_request": request, "cancellable": cancellable,
 		"cancel_until": stamp(cancelUntil), "wait_deadline": stamp(waitDeadline),
 		// No rider is ever shown before v0.5.0, so these stay at their "not yet" values.
-		"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": nil,
+		"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": rider,
 		"timer":  map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false},
 		"remedy": nil, "handover_otp": nil, "created_at": created.UTC().Format(time.RFC3339Nano),
 	}, nil
@@ -661,11 +701,12 @@ func (s *Service) testPayment(w http.ResponseWriter, r *http.Request) {
 // has no second effect. Money taken for an order that has ended, or is already paid, goes back.
 func Confirm(ctx context.Context, tx pgx.Tx, orderID, providerOrder string, paid bool, now time.Time) error {
 	var state string
-	var cancelWindow, maxWait int
+	var cancelWindow, maxWait, minWait int
 	if err := tx.QueryRow(ctx, `SELECT o.state,
-			coalesce(z.cancel_window_s, g.cancel_window_s), coalesce(z.max_wait_before_timer_s, g.max_wait_before_timer_s)
+			coalesce(z.cancel_window_s, g.cancel_window_s), coalesce(z.max_wait_before_timer_s, g.max_wait_before_timer_s),
+			coalesce(z.min_search_wait_s, g.min_search_wait_s, 0)
 		FROM orders o JOIN zone_settings g ON g.id = o.global_settings LEFT JOIN zone_settings z ON z.id = o.zone_settings
-		WHERE o.id = $1 FOR UPDATE OF o`, orderID).Scan(&state, &cancelWindow, &maxWait); err != nil {
+		WHERE o.id = $1 FOR UPDATE OF o`, orderID).Scan(&state, &cancelWindow, &maxWait, &minWait); err != nil {
 		return err
 	}
 	var paymentID, status, provider string
@@ -717,8 +758,9 @@ func Confirm(ctx context.Context, tx pgx.Tx, orderID, providerOrder string, paid
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'PAYMENT_SECURED', seq = seq + 1, paid_at = $2::timestamptz,
-			cancel_until = $2::timestamptz + make_interval(secs => $3::int), wait_deadline = $2::timestamptz + make_interval(secs => $4::int), updated_at = now()
-		WHERE id = $1`, orderID, now, cancelWindow, maxWait); err != nil {
+			cancel_until = $2::timestamptz + make_interval(secs => $3::int), wait_deadline = $2::timestamptz + make_interval(secs => $4::int),
+			min_wait_until = $2::timestamptz + make_interval(secs => $5::int), updated_at = now()
+		WHERE id = $1`, orderID, now, cancelWindow, maxWait, minWait); err != nil {
 		return err
 	}
 	return event(ctx, tx, orderID, state, "PAYMENT_SECURED", "system", nil, fmt.Sprintf("payment %s", paymentID))

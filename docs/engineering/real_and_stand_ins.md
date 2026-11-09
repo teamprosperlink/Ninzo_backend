@@ -29,6 +29,8 @@ Update this page in the same PR as any change to a row. The shared Doc points ap
 | Orders and holds on one scooter | Real | Built (#78), on staging (#82) | | v0.4.0 |
 | Cancel window, retry, gate change and refund rules | Real | Built (#80), on staging (#82). Refunds of the test payment are marked processed at once, as no money moved | Razorpay refunds stay pending until Razorpay says processed | v0.4.0 |
 | Background passes: holds end after 10 minutes, seq moves when cancellable changes | Real, in a simple form | A loop every 5 seconds inside the customer API, safe with several copies | A separate worker with scheduled tasks, when load needs it | v0.4.0 |
+| Offers: one rider at a time, accept, decline, expiry, Ready, the packing limit, no scooter | Real | Built (#84). The order's own scooter goes first, then the nearest free one holding the whole basket. One order per rider | | v0.5.0 |
+| `rider_moving` on Ready | Not built | Ready is accepted without checking the rider is stopped | Checked from GPS pings, in part 2 | v0.5.0 |
 | **Payment** | Stand-in | Test payment, marked paid or failed by `POST /test/payments/{order_id}` on staging. Production refuses to start with it | Razorpay and its webhook | Before v1.0.0 |
 | Refund money | Being built as a stand-in | The refund is recorded, and no money moves | Razorpay refunds | Before v1.0.0 |
 | Background jobs | Being built | Run inside the customer API, one replica | A separate worker | With two replicas, or after the pilot |
