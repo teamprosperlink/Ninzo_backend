@@ -191,7 +191,9 @@ func track(ctx context.Context, tx pgx.Tx, orderID string, p ping, now time.Time
 	}
 	var lastLat, lastLng float64
 	var lastAt time.Time
-	err = tx.QueryRow(ctx, `SELECT lat, lng, device_time FROM location_pings WHERE order_id = $1 AND applied ORDER BY id DESC LIMIT 1`, orderID).
+	// Only this rider's pings: after a rematch, the last rider's position says nothing.
+	err = tx.QueryRow(ctx, `SELECT lat, lng, device_time FROM location_pings WHERE order_id = $1 AND applied
+		AND rider_id = (SELECT rider_id FROM orders WHERE id = $1) ORDER BY id DESC LIMIT 1`, orderID).
 		Scan(&lastLat, &lastLng, &lastAt)
 	if err == nil {
 		if dt := p.device.Sub(lastAt).Seconds(); dt > 0 && metres(lastLat, lastLng, p.lat, p.lng)/dt > maxPlausibleMps {
