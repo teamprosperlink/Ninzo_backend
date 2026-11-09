@@ -182,16 +182,36 @@ func withLogAndRecover(log *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// withLimits applies to normal requests. Live streams and large uploads must not use it: a
-// stream built on this context would die at RequestTimeout. They also need their own handling
-// of the server's ReadTimeout and WriteTimeout, and a RegisterOnShutdown hook to close them.
+// withLimits applies to normal requests. A live stream skips it, because a stream built on this
+// context would die at RequestTimeout. A stream calls ForStream for the server's ReadTimeout and
+// WriteTimeout, and is cut off when the process stops, which the app handles by reconnecting.
 func withLimits(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStream(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
 		defer cancel()
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// isStream says a request asks to become a WebSocket stream.
+func isStream(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+// ForStream readies a request to become a long-lived stream: it clears the read and write
+// deadlines the server puts on every connection. Go clears them itself when a connection is
+// taken over, so this is a safety net in case that changes. Call it before taking over.
+func ForStream(w http.ResponseWriter) error {
+	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(time.Time{}); err != nil {
+		return err
+	}
+	return rc.SetWriteDeadline(time.Time{})
 }
 
 // NewRouter builds an API's router. mount adds its endpoints under /v1, and may be nil.
