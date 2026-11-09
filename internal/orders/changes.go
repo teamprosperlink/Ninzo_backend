@@ -74,7 +74,7 @@ func releaseHolds(ctx context.Context, tx pgx.Tx, orderID, actorType string, act
 
 // end moves a locked order to an ended state, and gives back its stock.
 func end(ctx context.Context, tx pgx.Tx, orderID, from, to, endedReason, actorType string, actorID any, why string) error {
-	if _, err := tx.Exec(ctx, `UPDATE orders SET state = $2, ended_reason = $3, ended_at = now(), seq = seq + 1, updated_at = now()
+	if _, err := tx.Exec(ctx, `UPDATE orders SET state = $2, ended_reason = $3, ended_at = now(), seq = seq + 1, handover_otp = NULL, updated_at = now()
 		WHERE id = $1`, orderID, to, endedReason); err != nil {
 		return err
 	}

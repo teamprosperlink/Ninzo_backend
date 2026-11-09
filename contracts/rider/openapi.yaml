@@ -840,12 +840,16 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
         '503':
@@ -930,6 +934,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '429':
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
