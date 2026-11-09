@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 )
 
 // Close codes, from contracts/README.md, Live streams.
@@ -96,6 +97,11 @@ type watcher struct {
 func (s *Service) serve(w http.ResponseWriter, r *http.Request, st *Streams, wt watcher) {
 	// Sign-in is by a token frame, never a cookie, so a page on another site gains nothing by
 	// connecting. Any origin may connect, as on the mock, so a web build of the apps works.
+	if err := httpserver.ForStream(w); err != nil {
+		s.Log.Error("orders: a stream could not clear the server's deadlines", "error", err.Error())
+		http.Error(w, "streams are not available", http.StatusInternalServerError)
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return

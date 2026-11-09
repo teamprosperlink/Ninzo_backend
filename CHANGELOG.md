@@ -5,6 +5,9 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Fixed (#90)
+- Live streams no longer drop after about 20 seconds: a WebSocket upgrade skips the request limit, and the stream clears the server's read and write deadlines.
+
 ### Live streams (#88)
 - Added: the customer's order stream and the rider's stream, as in the stream contracts: sign-in by frame, `auth_ok`, heartbeats with `seq`, `order_update`, `rider_position`, `offer` and `order_state`, and the close codes 4401, 4403, 4404 and 4410.
 - Evidence: docs/testing/reports/88.md

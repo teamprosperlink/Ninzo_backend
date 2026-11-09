@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-09 | #90 | Streams outlive the server's limits, local | See PR | PASS | [reports/90.md](reports/90.md) |
 | 2026-11-09 | #88 | `v0.5.0` live streams, local only | See PR | PASS | [reports/88.md](reports/88.md) |
 | 2026-11-09 | #86 | `v0.5.0` the zone timer and handover, local only | See PR | PASS | [reports/86.md](reports/86.md) |
 | 2026-11-09 | #84 | `v0.5.0` offers, local only | See PR | PASS | [reports/84.md](reports/84.md) |

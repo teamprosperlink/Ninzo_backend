@@ -377,3 +377,73 @@ func TestClientIP(t *testing.T) {
 		}
 	}
 }
+
+// A live stream must outlive RequestTimeout and the server's read and write timeouts. This runs
+// the real server, so it takes about half a minute.
+func TestAStreamOutlivesTheRequestLimits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("slow")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan string, 1)
+	handler := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), ready, func(r chi.Router) {
+		r.Get("/stream", func(w http.ResponseWriter, req *http.Request) {
+			if err := ForStream(w); err != nil {
+				result <- "ForStream: " + err.Error()
+				return
+			}
+			conn, buf, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				result <- "hijack: " + err.Error()
+				return
+			}
+			defer conn.Close()
+			_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			_ = buf.Flush()
+			// Read past the server's ReadTimeout, then write past its WriteTimeout and RequestTimeout.
+			line, err := buf.ReadString('\n')
+			if err != nil {
+				result <- "read: " + err.Error()
+				return
+			}
+			time.Sleep(time.Until(start.Add(WriteTimeoutForTest() + 2*time.Second)))
+			state := "live"
+			if req.Context().Err() != nil {
+				state = "context ended"
+			}
+			if _, err := conn.Write([]byte(state + " " + line)); err != nil {
+				result <- "write: " + err.Error()
+				return
+			}
+			result <- "ok"
+		})
+	})
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go func() { _ = serve(ctx, ln, handler, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
+	start = time.Now()
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, _ = conn.Write([]byte("GET /v1/stream HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"))
+	time.Sleep(17 * time.Second)
+	_, _ = conn.Write([]byte("hello\n"))
+	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	reply, _ := io.ReadAll(io.LimitReader(conn, 4096))
+	if got := <-result; got != "ok" {
+		t.Fatalf("the stream was cut off: %s", got)
+	}
+	if !strings.Contains(string(reply), "live hello") {
+		t.Errorf("reply %q", reply)
+	}
+}
+
+var start time.Time
+
+// WriteTimeoutForTest is the server's write timeout, the longest of its limits.
+func WriteTimeoutForTest() time.Duration { return RequestTimeout + 5*time.Second }
