@@ -87,20 +87,16 @@ type watcher struct {
 	seq func(ctx context.Context) (int64, error)
 	// changed returns the frames for a new seq, and a close code if the stream should end after them.
 	changed func(ctx context.Context, seq int64) ([]frame, websocket.StatusCode, error)
+	// initial returns the current state, sent right after auth_ok.
+	initial func(ctx context.Context, seq int64) ([]frame, error)
 	// passing returns an update with no seq, such as the rider's position, if there is a new one.
 	passing func(ctx context.Context) (*frame, error)
 }
 
 func (s *Service) serve(w http.ResponseWriter, r *http.Request, st *Streams, wt watcher) {
-	select {
-	case st.open <- struct{}{}:
-		defer func() { <-st.open }()
-	default:
-		w.Header().Set("Retry-After", "5")
-		http.Error(w, "too many streams", http.StatusServiceUnavailable)
-		return
-	}
-	conn, err := websocket.Accept(w, r, nil)
+	// Sign-in is by a token frame, never a cookie, so a page on another site gains nothing by
+	// connecting. Any origin may connect, as on the mock, so a web build of the apps works.
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}
@@ -156,6 +152,14 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, st *Streams, wt 
 			return
 		}
 	}
+	// Only a signed-in stream takes one of the open slots.
+	select {
+	case st.open <- struct{}{}:
+		defer func() { <-st.open }()
+	default:
+		_ = conn.Close(websocket.StatusTryAgainLater, "too many streams")
+		return
+	}
 	live, err := identity.SessionLive(ctx, s.Pool, actor)
 	if err != nil || !live {
 		_ = conn.Close(closeUnauthorized, "the session has ended")
@@ -176,6 +180,18 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, st *Streams, wt 
 	}
 	if !send(ctx, conn, frame{kind: "auth_ok", data: map[string]any{}}) {
 		return
+	}
+	if wt.initial != nil {
+		out, err := wt.initial(ctx, seq)
+		if err != nil {
+			_ = conn.Close(websocket.StatusInternalError, "try again")
+			return
+		}
+		for _, f := range out {
+			if !send(ctx, conn, f) {
+				return
+			}
+		}
 	}
 	expiry := time.NewTimer(time.Until(expires))
 	defer expiry.Stop()
@@ -245,6 +261,9 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, st *Streams, wt 
 	}
 }
 
+// over says the order's story is finished, so its stream closes with 4410, as the mock does.
+func over(stage string) bool { return stage == "ended" || stage == "handed_over" }
+
 func send(ctx context.Context, conn *websocket.Conn, f frame) bool {
 	body := map[string]any{"type": f.kind, "server_time": serverTime(), "data": f.data}
 	if f.seq > 0 {
@@ -281,13 +300,13 @@ func (s *Service) customerStream(w http.ResponseWriter, r *http.Request, st *Str
 			case err != nil:
 				return 0, err
 			case owner != a.ID:
-				return closeForbidden, nil
+				return closeNotFound, nil // As GET does, so a stream never shows an order exists.
 			}
 			var state string
 			if err := s.Pool.QueryRow(ctx, "SELECT state FROM orders WHERE id = $1", id).Scan(&state); err != nil {
 				return 0, err
 			}
-			if Stage(state) == "ended" {
+			if over(Stage(state)) {
 				return closeOrderEnded, nil
 			}
 			return 0, nil
@@ -307,10 +326,17 @@ func (s *Service) customerStream(w http.ResponseWriter, r *http.Request, st *Str
 				seq = v
 			}
 			out := []frame{{kind: "order_update", seq: seq, data: order}}
-			if order["customer_stage"] == "ended" {
+			if stage, _ := order["customer_stage"].(string); over(stage) {
 				return out, closeOrderEnded, nil
 			}
 			return out, 0, nil
+		},
+		initial: func(ctx context.Context, seq int64) ([]frame, error) {
+			order, err := view(ctx, s.Pool, s, id, s.clock())
+			if err != nil {
+				return nil, err
+			}
+			return []frame{{kind: "order_update", seq: max(seq, 1), data: order}}, nil
 		},
 		passing: func(ctx context.Context) (*frame, error) {
 			order, err := view(ctx, s.Pool, s, id, s.clock())
@@ -341,6 +367,29 @@ func (s *Service) customerStream(w http.ResponseWriter, r *http.Request, st *Str
 
 func (s *Service) riderStream(w http.ResponseWriter, r *http.Request, st *Streams) {
 	var rider string
+	var lastChange time.Time
+	// latest is the offer that changed last, and when.
+	latest := func(ctx context.Context) (string, time.Time, error) {
+		var id string
+		var at time.Time
+		err := s.Pool.QueryRow(ctx, "SELECT id::text, updated_at FROM offers WHERE rider_id = $1 ORDER BY updated_at DESC, id DESC LIMIT 1", rider).Scan(&id, &at)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", time.Time{}, nil
+		}
+		return id, at, err
+	}
+	event := func(ctx context.Context, offer string, seq int64) ([]frame, error) {
+		f, err := readOffer(ctx, s.Pool, offer)
+		if err != nil {
+			return nil, err
+		}
+		if f.state == "accepted" {
+			v, err := riderOrderView(ctx, s.Pool, f)
+			return []frame{{kind: "order_state", seq: max(seq, 1), data: v}}, err
+		}
+		v, err := offerView(ctx, s.Pool, f, s.clock())
+		return []frame{{kind: "offer", seq: max(seq, 1), data: v}}, err
+	}
 	s.serve(w, r, st, watcher{
 		actorType: identity.TypeRider,
 		admit: func(ctx context.Context, a identity.Actor) (websocket.StatusCode, error) {
@@ -359,27 +408,29 @@ func (s *Service) riderStream(w http.ResponseWriter, r *http.Request, st *Stream
 			err := s.Pool.QueryRow(ctx, "SELECT coalesce((SELECT seq FROM rider_state WHERE rider_id = $1), 0)", rider).Scan(&seq)
 			return seq, err
 		},
-		// One event per change: the offer or order that changed last. If several changed between
-		// two looks, seq skips, and the app fetches its state, as the README says.
+		// An event only when an offer or order changed. A shift or stock change sends nothing, so
+		// the next heartbeat's higher seq makes the app fetch its state, as the README says.
 		changed: func(ctx context.Context, seq int64) ([]frame, websocket.StatusCode, error) {
-			var offer string
-			err := s.Pool.QueryRow(ctx, "SELECT id::text FROM offers WHERE rider_id = $1 ORDER BY updated_at DESC, id DESC LIMIT 1", rider).Scan(&offer)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, 0, nil
-			}
-			if err != nil {
+			offer, at, err := latest(ctx)
+			if err != nil || offer == "" || !at.After(lastChange) {
 				return nil, 0, err
 			}
-			f, err := readOffer(ctx, s.Pool, offer)
-			if err != nil {
-				return nil, 0, err
+			lastChange = at
+			out, err := event(ctx, offer, seq)
+			return out, 0, err
+		},
+		// A live offer or order is sent at once. An old one is not.
+		initial: func(ctx context.Context, seq int64) ([]frame, error) {
+			offer, at, err := latest(ctx)
+			if err != nil || offer == "" {
+				return nil, err
 			}
-			if f.state == "accepted" {
-				v, err := riderOrderView(ctx, s.Pool, f)
-				return []frame{{kind: "order_state", seq: seq, data: v}}, 0, err
+			lastChange = at
+			var released *time.Time
+			if err := s.Pool.QueryRow(ctx, "SELECT released_at FROM offers WHERE id = $1", offer).Scan(&released); err != nil || released != nil {
+				return nil, err
 			}
-			v, err := offerView(ctx, s.Pool, f, s.clock())
-			return []frame{{kind: "offer", seq: seq, data: v}}, 0, err
+			return event(ctx, offer, seq)
 		},
 	})
 }

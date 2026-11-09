@@ -189,7 +189,7 @@ func TestStreamsRefuseWhoShouldNotListen(t *testing.T) {
 		{"no auth frame", "/orders/" + l.order + "/stream", "", l.custSrv, closeUnauthorized},
 		{"a bad token", "/orders/" + l.order + "/stream", "nope", l.custSrv, closeUnauthorized},
 		{"a rider's token on the customer stream", "/orders/" + l.order + "/stream", l.tok, l.custSrv, closeUnauthorized},
-		{"another customer's order", "/orders/" + l.order + "/stream", other, l.custSrv, closeForbidden},
+		{"another customer's order", "/orders/" + l.order + "/stream", other, l.custSrv, closeNotFound},
 		{"no such order", "/orders/00000000-0000-0000-0000-000000000000/stream", l.fixture.token, l.custSrv, closeNotFound},
 		{"a customer's token on the rider stream", "/riders/me/stream", l.fixture.token, l.rideSrv, closeUnauthorized},
 	}
@@ -210,7 +210,7 @@ func TestStreamsRefuseWhoShouldNotListen(t *testing.T) {
 
 func TestATokenMustBeRenewed(t *testing.T) {
 	l := withStreams(t)
-	short := identity.Signer{Key: l.sessions.Signer.Key, TTL: 700 * time.Millisecond}
+	short := identity.Signer{Key: l.sessions.Signer.Key, TTL: 2 * time.Second}
 	a, err := l.sessions.Signer.Verify(l.fixture.token, identity.TypeCustomer)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,9 @@ func TestATokenMustBeRenewed(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := open(t, l.custSrv, "/orders/"+l.order+"/stream", token)
-	s.next("auth_ok")
+	if f, code := s.next("auth_ok"); f == nil {
+		t.Fatalf("the short token was refused at sign-in: %d", code)
+	}
 	if _, code := s.next("never"); code != closeUnauthorized {
 		t.Errorf("a token not renewed: %d", code)
 	}
@@ -263,6 +265,80 @@ func TestThePositionStaysHiddenDuringTheMinimumWait(t *testing.T) {
 			t.Fatal("the rider's position was sent during the minimum wait")
 		}
 		if f["type"] == "heartbeat" {
+			break
+		}
+	}
+}
+
+func TestTheStreamStartsWithTheCurrentState(t *testing.T) {
+	l := withStreams(t)
+	s := open(t, l.custSrv, "/orders/"+l.order+"/stream", l.fixture.token)
+	s.next("auth_ok")
+	up, _ := s.next("order_update")
+	if up == nil || up["seq"] != float64(1) || up["data"].(map[string]any)["customer_stage"] != "payment" {
+		t.Errorf("%v", up)
+	}
+}
+
+func TestAShiftChangeSendsNoStaleEvent(t *testing.T) {
+	l := withStreams(t)
+	l.pay(l.order, "paid")
+	l.dispatch(l.clock.Add(6 * time.Second))
+	s := open(t, l.rideSrv, "/riders/me/stream", l.tok)
+	s.next("auth_ok")
+	if f, _ := s.next("offer"); f == nil {
+		t.Fatal("no live offer at connect")
+	}
+	// Something else the rider sees changes, such as a stock scan.
+	l.exec("UPDATE rider_state SET seq = seq + 1")
+	want := float64(l.count("SELECT seq::int FROM rider_state"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for {
+		_, raw, err := s.conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f map[string]any
+		_ = json.Unmarshal(raw, &f)
+		if f["type"] == "offer" || f["type"] == "order_state" {
+			t.Fatalf("an old offer was sent for a new seq: %v", f)
+		}
+		if f["type"] == "heartbeat" && f["seq"] == want {
+			break
+		}
+	}
+}
+
+func TestAHandedOverOrderEndsTheStream(t *testing.T) {
+	l := withStreams(t)
+	l.pay(l.order, "paid")
+	l.dispatch(l.clock.Add(6 * time.Second))
+	o := l.riders.offer(l.tok)
+	l.offer, l.fencing = o["id"].(string), o["fencing_token"].(string)
+	l.clock = l.clock.Add(10 * time.Second)
+	l.call("POST", "/offers/"+l.offer+"/accept", l.tok, l.token())
+	l.ready(200)
+	s := open(t, l.custSrv, "/orders/"+l.order+"/stream", l.fixture.token)
+	s.next("auth_ok")
+	l.at(atGate, 20*time.Second)
+	l.at(atGateToo, 3*time.Second)
+	body := `{"otp":"` + l.otp() + `","quantities":[{"item_id":"` + l.chai + `","qty":1}],"client_time":"` + l.clock.UTC().Format(time.RFC3339) + `"}`
+	if code, out := l.call("POST", "/orders/"+l.order+"/handover", l.tok, body); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	for {
+		f, code := s.next("order_update")
+		if f == nil {
+			if code != closeOrderEnded {
+				t.Errorf("closed with %d", code)
+			}
+			break
+		}
+		if f["data"].(map[string]any)["customer_stage"] == "handed_over" {
+			if _, code := s.next("never"); code != closeOrderEnded {
+				t.Errorf("a handed-over order's stream closed with %d", code)
+			}
 			break
 		}
 	}
