@@ -48,8 +48,12 @@ ALTER TABLE eta_offers ENABLE ROW LEVEL SECURITY;
 -- as tried.
 ALTER TABLE orders ADD COLUMN search_from timestamptz;
 
+-- The last ping that arrived on time. A flush of queued pings says the phone is back, but not
+-- where the rider was, so a credit counts only on-time pings.
+ALTER TABLE orders ADD COLUMN last_live_ping_at timestamptz;
+
 -- +goose Down
-ALTER TABLE orders DROP COLUMN search_from;
+ALTER TABLE orders DROP COLUMN search_from, DROP COLUMN last_live_ping_at;
 DROP TABLE eta_offers;
 DROP TABLE arrival_reviews;
 DROP TABLE remedies;

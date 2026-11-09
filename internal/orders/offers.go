@@ -340,7 +340,8 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 			WHERE o.timer_missed
 				AND NOT EXISTS (SELECT 1 FROM remedies m WHERE m.order_id = o.id AND m.type = 'credit')
 				AND NOT EXISTS (SELECT 1 FROM arrival_reviews a WHERE a.order_id = o.id AND a.status IN ('open', 'arrived_in_time'))
-				AND (o.last_ping_at >= $2::timestamptz - make_interval(secs => coalesce(z.signal_release_s, g.signal_release_s))
+				AND o.state NOT IN ('CANCELLED', 'TIMED_OUT', 'FAILED')
+				AND (o.last_live_ping_at >= $2::timestamptz - make_interval(secs => coalesce(z.signal_release_s, g.signal_release_s))
 					OR $2::timestamptz >= o.timer_started_at + make_interval(secs => o.timer_length_s) + interval '10 minutes')
 				AND NOT (o.id::text = ANY($1::text[])) ORDER BY o.timer_started_at, o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
 			func(ctx context.Context, tx pgx.Tx, id string) error { return creditForMissedTimer(ctx, tx, id) }},

@@ -305,3 +305,55 @@ func TestTheRiderStreamSendsOrderChanges(t *testing.T) {
 	}
 	_ = fmt.Sprint()
 }
+
+func TestAFlushOfOldPingsIsNotASignal(t *testing.T) {
+	tr := begin(t, creditOf(nil))
+	begun := tr.runTimer()
+	tr.dispatch(begun.Add(95 * time.Second))
+	// The phone comes back and flushes its queue in order: first a ping from on the way.
+	tr.clock = begun.Add(150 * time.Second)
+	tr.pingAt(far, 0, 5, begun.Add(30*time.Second))
+	tr.dispatch(tr.clock)
+	if tr.remedies() != 0 {
+		t.Fatal("a flushed ping is not a live signal, so the credit must wait")
+	}
+	// Then the one from the gate, inside the timer: a review opens and holds the credit.
+	tr.pingAt(atGate, 0, 5, begun.Add(60*time.Second))
+	tr.dispatch(tr.clock)
+	if tr.remedies() != 0 || tr.count("SELECT count(*) FROM arrival_reviews WHERE status = 'open'") != 1 {
+		t.Error("the review must hold the credit")
+	}
+}
+
+func TestAUsedETAIsRefused(t *testing.T) {
+	x := toNoScooter(t)
+	id := x.id("SELECT id::text FROM orders")
+	offer := x.id("INSERT INTO eta_offers (order_id, scooter_id, eta_s, expires_at) VALUES ($1, $2, 600, $3) RETURNING id::text", id, x.scooter, x.clock.Add(time.Minute))
+	if code, out := x.send("POST", "/orders/"+id+"/accept-eta", x.token, `{"eta_offer_id":"`+offer+`"}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	// The search fails again: back at no scooter.
+	x.exec("UPDATE orders SET state = 'NO_SCOOTER' WHERE id = $1", id)
+	if code, out := x.send("POST", "/orders/"+id+"/accept-eta", x.token, `{"eta_offer_id":"`+offer+`"}`); code != 409 || out["code"] != "eta_offer_expired" {
+		t.Errorf("a used offer was accepted again: %d %v", code, out)
+	}
+}
+
+func TestAnEndedOrderGetsNoCredit(t *testing.T) {
+	tr := begin(t, creditOf(nil))
+	tr.runTimer()
+	tr.exec("UPDATE orders SET state = 'FAILED', ended_reason = 'failed', timer_missed = true WHERE id = $1", tr.order)
+	tr.dispatch(tr.clock.Add(time.Hour))
+	if tr.remedies() != 0 {
+		t.Error("a failed order is refunded in full, not credited as well")
+	}
+}
+
+func TestARefundShowsBeforeACredit(t *testing.T) {
+	tr := begin(t, creditOf(nil))
+	tr.exec("INSERT INTO remedies (order_id, type, reason, amount_paise) VALUES ($1, 'refund', 'missing_food', 4900)", tr.order)
+	tr.exec("INSERT INTO remedies (order_id, type, reason, amount_paise, created_at) VALUES ($1, 'credit', 'timer_missed', 2000, now() + interval '1 minute')", tr.order)
+	if r, _ := tr.customer()["remedy"].(map[string]any); r == nil || r["type"] != "refund" {
+		t.Errorf("%v", r)
+	}
+}

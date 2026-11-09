@@ -70,11 +70,13 @@ func refundMissingFood(ctx context.Context, tx pgx.Tx, orderID string) error {
 	return owe(ctx, tx, orderID, "refund", "missing_food", missing)
 }
 
-// remedyView is the customer's remedy: the latest one owed, or null.
+// remedyView is the customer's remedy: a refund if there is one, else the latest owed, or null.
 func remedyView(ctx context.Context, q querier, orderID string) (any, error) {
 	var kind string
 	var amount *int
-	err := q.QueryRow(ctx, "SELECT type, amount_paise FROM remedies WHERE order_id = $1 AND status <> 'cancelled' ORDER BY created_at DESC, id DESC LIMIT 1",
+	// The contract has one remedy. Money already going back shows first.
+	err := q.QueryRow(ctx, `SELECT type, amount_paise FROM remedies WHERE order_id = $1 AND status <> 'cancelled'
+		ORDER BY (type = 'refund') DESC, created_at DESC, id DESC LIMIT 1`,
 		orderID).Scan(&kind, &amount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -166,7 +168,10 @@ func (s *Service) acceptETA(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if accepted != nil && state != "NO_SCOOTER" {
+		if accepted != nil && state == "NO_SCOOTER" {
+			return gone // Used once already: a new search needs a new offer.
+		}
+		if accepted != nil {
 			order, err := view(ctx, tx, s, id, now) // Accepted already: the same answer again.
 			reply = map[string]any{"order": order, "server_time": serverTime()}
 			if err != nil {

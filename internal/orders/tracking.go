@@ -179,6 +179,11 @@ func track(ctx context.Context, tx pgx.Tx, orderID string, p ping, now time.Time
 	case p.device.Sub(now) > lateLimit:
 		// A phone clock running fast would otherwise make every true ping look older.
 		return false, "from the future", state, nil
+	}
+	if _, err := tx.Exec(ctx, "UPDATE orders SET last_live_ping_at = $2 WHERE id = $1", orderID, now); err != nil {
+		return false, "", "", err
+	}
+	switch {
 	case lastDevice != nil && !p.device.After(*lastDevice):
 		return false, "older than one applied", state, nil
 	case p.accuracy > maxAccuracyM:
