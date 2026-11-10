@@ -6,6 +6,7 @@ package restock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -15,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
+	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
@@ -303,7 +306,97 @@ func move(ctx context.Context, tx pgx.Tx, id, to string, now time.Time) (string,
 	return rider, err
 }
 
-// Simulator plays the hub staff at a hub with no active staff: it accepts a confirmed request, packs it,
+// Tick is one pass of the real restock jobs: the stock check that drafts suggestions, and the
+// expiry of cassettes nobody collected. It never acts for hub staff.
+func (s *Service) Tick(ctx context.Context, now time.Time) {
+	if _, err := s.Suggest(ctx, now); err != nil && ctx.Err() == nil {
+		s.Log.Error("restock: stock check failed", "error", err.Error())
+	}
+	if err := s.ExpireUncollected(ctx, now); err != nil && ctx.Err() == nil {
+		s.Log.Error("restock: expiring cassettes failed", "error", err.Error())
+	}
+	if err := s.ExpireUnaccepted(ctx, now); err != nil && ctx.Err() == nil {
+		s.Log.Error("restock: expiring unaccepted requests failed", "error", err.Error())
+	}
+}
+
+// ExpireUnaccepted ends confirmed requests no hub accepted within the zone's restock_accept_s, so
+// the scooter can ask again elsewhere. Nothing is packed yet, so nothing goes back on a shelf. Each
+// request has its own transaction.
+func (s *Service) ExpireUnaccepted(ctx context.Context, now time.Time) error {
+	skip := []string{}
+	for i := 0; i < 200; i++ {
+		done := false
+		var id string
+		err := database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
+			var rider, zone string
+			var since time.Time
+			err := tx.QueryRow(ctx, `SELECT r.id::text, r.rider_id::text, h.zone_id::text, r.state_changed_at FROM restock_requests r JOIN hubs h ON h.id = r.hub_id
+				WHERE r.state = 'confirmed' AND r.state_changed_at <= $1::timestamptz - interval '2 minutes' AND NOT (r.id::text = ANY($2::text[]))
+				ORDER BY r.state_changed_at, r.id LIMIT 1 FOR UPDATE OF r SKIP LOCKED`, now, skip).Scan(&id, &rider, &zone, &since)
+			if errors.Is(err, pgx.ErrNoRows) {
+				done = true
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			settings, err := geo.LoadSettings(ctx, tx, zone)
+			if err != nil {
+				return err
+			}
+			limit, _ := settings.Get("restock_accept_s")
+			if now.Sub(since) < time.Duration(limit)*time.Second {
+				skip = append(skip, id) // Not due yet in this zone.
+				return nil
+			}
+			if _, err := tx.Exec(ctx, "UPDATE restock_requests SET state = 'expired', reason = coalesce(reason, 'no hub accepted it'), state_changed_at = $2, updated_at = now() WHERE id = $1",
+				id, now); err != nil {
+				return err
+			}
+			if err := audit.Record(ctx, tx, audit.Event{ActorType: audit.ActorSystem, Action: "restock.unaccepted", EntityType: "restock_request", EntityID: id}); err != nil {
+				return err
+			}
+			return bumpRider(ctx, tx, rider, id)
+		})
+		if err != nil {
+			if id == "" || ctx.Err() != nil {
+				return err
+			}
+			s.Log.Error("restock: expiring an unaccepted request failed", "request_id", id, "error", err.Error())
+			skip = append(skip, id)
+			continue
+		}
+		if done {
+			return nil
+		}
+	}
+	return nil
+}
+
+// RunJobs runs Tick every so often until ctx ends. A failure or panic is logged, never fatal.
+func (s *Service) RunJobs(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						s.Log.Error("restock: jobs panicked", "panic", fmt.Sprint(p))
+					}
+				}()
+				s.Tick(ctx, s.clock())
+			}()
+		}
+	}
+}
+
+// Simulator plays the hub staff, for tests only since the hub APIs (v0.8.0 part F). At a hub with no
+// active staff, it accepts a confirmed request, packs it,
 // and marks it ready, packing whole lots from the hub's own stock, earliest expiry first. What the
 // hub cannot fill becomes a shortfall: another hub in the zone that has it, or a partial fill.
 type Simulator struct {

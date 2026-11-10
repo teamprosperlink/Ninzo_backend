@@ -401,7 +401,8 @@ func (s *Service) suggestFor(ctx context.Context, tx pgx.Tx, scooter string, now
 	// The nearest active hub in the zone. With no waiting point, the first by name.
 	var hub string
 	err = tx.QueryRow(ctx, `SELECT id::text FROM hubs WHERE zone_id = $1 AND status = 'active'
-		ORDER BY CASE WHEN $2::float8 IS NULL THEN 0 ELSE (lat - $2) * (lat - $2) + (lng - $3) * (lng - $3) END, name, id LIMIT 1`, zone, lat, lng).Scan(&hub)
+		ORDER BY NOT EXISTS (SELECT 1 FROM hub_staff s WHERE s.hub_id = hubs.id AND s.status = 'active'),
+			CASE WHEN $2::float8 IS NULL THEN 0 ELSE (lat - $2) * (lat - $2) + (lng - $3) * (lng - $3) END, name, id LIMIT 1`, zone, lat, lng).Scan(&hub)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // No hub in this zone yet.
 	}
