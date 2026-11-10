@@ -260,3 +260,91 @@ func TestAnUncollectedCassetteExpires(t *testing.T) {
 		t.Error("only the scanned lot stays with the request")
 	}
 }
+
+func TestAScanAfterTheCassetteEndedIsRefused(t *testing.T) {
+	f := newFixture(t)
+	f.withRequests()
+	f.hubLot(f.hub, "HUB-LATE-1", f.chai, 4, time.Hour)
+	id := f.request(f.chai, 8)
+	f.packed(time.Now())
+	if code, _ := f.post("/restock/"+id+"/shortfall-response", f.token, `{"accept":false}`); code != 200 {
+		t.Fatal(code)
+	}
+	if code, _, ok := shifts.RefusalOf(f.scan("HUB-LATE-1")); !ok || code != "bad_scan" {
+		t.Error("a lot from a refused cassette was scanned")
+	}
+	if f.state(id) != "cancelled" {
+		t.Errorf("%s", f.state(id))
+	}
+	if _, out := f.get("/restock/"+id, f.token); len(out["request"].(map[string]any)["lot_numbers"].([]any)) != 0 {
+		t.Errorf("released lots are still listed: %v", out)
+	}
+}
+
+// TestAScanRacingARefusal runs a scan that has found the cassette while the rider refuses it. The
+// scan waits on the request's lock, then must see it ended.
+func TestAScanRacingARefusal(t *testing.T) {
+	f := newFixture(t)
+	f.withRequests()
+	ctx := context.Background()
+	f.hubLot(f.hub, "HUB-RACE-1", f.chai, 4, time.Hour)
+	id := f.request(f.chai, 8)
+	f.packed(time.Now())
+	refuse, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer refuse.Rollback(ctx)
+	if _, err := f.svc.RespondTx(ctx, refuse, f.rider, id, false, false); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { result <- f.scan("HUB-RACE-1") }()
+	time.Sleep(500 * time.Millisecond) // The scan is now waiting on the request's lock.
+	if err := refuse.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, ok := shifts.RefusalOf(<-result); !ok || code != "bad_scan" {
+		t.Error("the scan took a lot from a cassette that was refused while it waited")
+	}
+	if f.state(id) != "cancelled" || f.count("SELECT count(*) FROM scooter_stock") != 0 {
+		t.Errorf("the refused cassette was overwritten: %s", f.state(id))
+	}
+}
+
+func TestAcceptingAnotherHubReturnsTheFollowUp(t *testing.T) {
+	f := newFixture(t)
+	f.withRequests()
+	f.hubLot(f.hub, "HUB-FR-1", f.chai, 4, time.Hour)
+	f.hubLot(f.other, "HUB-FR-2", f.chai, 10, time.Hour)
+	id := f.request(f.chai, 8)
+	f.packed(time.Now())
+	_, out := f.post("/restock/"+id+"/shortfall-response", f.token, `{"accept":true}`)
+	follow := f.id("SELECT id::text FROM restock_requests WHERE follow_of = $1", id)
+	if out["request"].(map[string]any)["id"] != follow || out["request"].(map[string]any)["state"] != "confirmed" {
+		t.Errorf("%v", out)
+	}
+}
+
+func TestPickupAndExpiryAreAudited(t *testing.T) {
+	f := newFixture(t)
+	f.hubLot(f.hub, "HUB-AU-1", f.chai, 5, time.Hour)
+	f.hubLot(f.hub, "HUB-AU-2", f.samosa, 5, time.Hour)
+	first := f.request(f.chai, 5)
+	now := time.Now()
+	f.packed(now)
+	if err := f.scan("HUB-AU-1"); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SELECT count(*) FROM audit_events WHERE action = 'restock.received' AND entity_id = $1", first) != 1 {
+		t.Error("the pickup was not audited")
+	}
+	second := f.request(f.samosa, 5)
+	f.packed(now)
+	if err := (&Simulator{Service: f.svc}).expireUncollected(context.Background(), now.Add(45*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SELECT count(*) FROM audit_events WHERE action = 'restock.uncollected' AND entity_id = $1", second) != 1 {
+		t.Error("the expiry was not audited")
+	}
+}

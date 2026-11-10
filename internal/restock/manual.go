@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
@@ -105,6 +106,10 @@ func (s *Service) CreateTx(ctx context.Context, tx pgx.Tx, rider, hub string, li
 	if id == "" {
 		if err := tx.QueryRow(ctx, `INSERT INTO restock_requests (rider_id, scooter_id, hub_id, source, state, reason, state_changed_at)
 			VALUES ($1, $2, $3, 'manual', 'confirmed', $4, $5) RETURNING id::text`, rider, scooter, hub, why, now).Scan(&id); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return nil, &refusal{"restock_already_open", "This scooter already has a restock in progress."}
+			}
 			return nil, err
 		}
 	}
@@ -167,6 +172,7 @@ func (s *Service) RespondTx(ctx context.Context, tx pgx.Tx, rider, id string, ac
 	if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM restock_lots WHERE request_id = $1 AND released_at IS NULL)", id).Scan(&packed); err != nil {
 		return nil, err
 	}
+	shown := id // The request the answer returns: the follow-up, when one is opened.
 	next := "ready"
 	switch {
 	case action == "other_hub" && accept:
@@ -197,6 +203,7 @@ func (s *Service) RespondTx(ctx context.Context, tx pgx.Tx, rider, id string, ac
 		if err := bumpRider(ctx, tx, rider, follow); err != nil {
 			return nil, err
 		}
+		shown = follow
 	}
 	if err := bumpRider(ctx, tx, rider, id); err != nil {
 		return nil, err
@@ -205,7 +212,7 @@ func (s *Service) RespondTx(ctx context.Context, tx pgx.Tx, rider, id string, ac
 		After: map[string]any{"action": action, "state": next}}); err != nil {
 		return nil, err
 	}
-	v, err := View(ctx, tx, id)
+	v, err := View(ctx, tx, shown)
 	if err != nil {
 		return nil, err
 	}
@@ -270,34 +277,55 @@ func (s *Service) respond(w http.ResponseWriter, r *http.Request) {
 
 // expireUncollected ends packed cassettes nobody came for, long after arrive_by, and puts their
 // unscanned lots back on the shelf. A cassette the rider started on is received for what was taken.
+// Each cassette has its own transaction, so one failure never holds up the rest.
 func (sim *Simulator) expireUncollected(ctx context.Context, now time.Time) error {
-	return database.InTx(ctx, sim.Service.Pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `UPDATE restock_requests SET state = CASE WHEN state = 'picked_up' THEN 'received' ELSE 'expired' END,
-				state_changed_at = $1, updated_at = now()
-			WHERE state IN ('ready', 'partial', 'picked_up') AND arrive_by IS NOT NULL AND arrive_by + make_interval(secs => $2) <= $1
-			RETURNING id::text, rider_id::text`, now, uncollected.Seconds())
-		if err != nil {
-			return err
-		}
-		type ended struct{ id, rider string }
-		list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ended, error) {
-			var e ended
-			return e, r.Scan(&e.id, &e.rider)
+	skip := []string{}
+	for i := 0; i < 200; i++ {
+		done := false
+		var id string
+		err := database.InTx(ctx, sim.Service.Pool, func(tx pgx.Tx) error {
+			var rider, state string
+			err := tx.QueryRow(ctx, `SELECT id::text, rider_id::text, state FROM restock_requests
+				WHERE state IN ('ready', 'partial', 'picked_up') AND arrive_by IS NOT NULL AND arrive_by + make_interval(secs => $2) <= $1
+					AND NOT (id::text = ANY($3::text[]))
+				ORDER BY arrive_by, id LIMIT 1 FOR UPDATE SKIP LOCKED`, now, uncollected.Seconds(), skip).Scan(&id, &rider, &state)
+			if errors.Is(err, pgx.ErrNoRows) {
+				done = true
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			to := "expired"
+			if state == "picked_up" {
+				to = "received"
+			}
+			if _, err := tx.Exec(ctx, "UPDATE restock_requests SET state = $2, state_changed_at = $3, updated_at = now() WHERE id = $1", id, to, now); err != nil {
+				return err
+			}
+			if err := release(ctx, tx, id, now); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "UPDATE shortfalls SET status = 'refused', decided_at = $2 WHERE request_id = $1 AND status = 'open'", id, now); err != nil {
+				return err
+			}
+			if err := audit.Record(ctx, tx, audit.Event{ActorType: audit.ActorSystem, Action: "restock.uncollected", EntityType: "restock_request", EntityID: id,
+				After: map[string]any{"state": to}}); err != nil {
+				return err
+			}
+			return bumpRider(ctx, tx, rider, id)
 		})
 		if err != nil {
-			return err
+			if id == "" || ctx.Err() != nil {
+				return err
+			}
+			sim.Service.Log.Error("restock: expiring a cassette failed", "request_id", id, "error", err.Error())
+			skip = append(skip, id)
+			continue
 		}
-		for _, e := range list {
-			if err := release(ctx, tx, e.id, now); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, "UPDATE shortfalls SET status = 'refused', decided_at = $2 WHERE request_id = $1 AND status = 'open'", e.id, now); err != nil {
-				return err
-			}
-			if err := bumpRider(ctx, tx, e.rider, e.id); err != nil {
-				return err
-			}
+		if done {
+			return nil
 		}
-		return nil
-	})
+	}
+	return nil
 }

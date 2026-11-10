@@ -21,6 +21,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 )
 
 var idPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -417,6 +418,19 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 			FROM lots l WHERE l.id = $1`, u.LotID, riderID).Scan(&atHub, &cassette); err != nil {
 			return err
 		}
+		if cassette != nil {
+			// Lock the request, then check again: a shortfall answer or an expiry may have ended it,
+			// and released this lot, while this scan waited.
+			var open bool
+			if err := tx.QueryRow(ctx, `SELECT q.state IN ('ready', 'partial', 'picked_up') AND EXISTS (SELECT 1 FROM restock_lots x
+					WHERE x.request_id = q.id AND x.lot_id = $2 AND x.released_at IS NULL)
+				FROM restock_requests q WHERE q.id = $1 FOR UPDATE`, *cassette, u.LotID).Scan(&open); err != nil {
+				return err
+			}
+			if !open {
+				cassette = nil
+			}
+		}
 		mine = cassette != nil
 		if atHub && !mine {
 			return refuse("bad_scan", "That lot is at a hub and is not in your cassette.")
@@ -440,7 +454,7 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 			return err
 		}
 		if atHub {
-			if err := pickUp(ctx, tx, *cassette); err != nil {
+			if err := pickUp(ctx, tx, riderID, *cassette); err != nil {
 				return err
 			}
 		}
@@ -546,14 +560,20 @@ func handBack(ctx context.Context, tx pgx.Tx, rider string) error {
 
 // pickUp moves a cassette on after one of its lots is scanned: picked_up, then received once every
 // packed lot is on the scooter. Taking a short cassette settles its shortfall: the partial fill is
-// accepted, and another hub is refused.
-func pickUp(ctx context.Context, tx pgx.Tx, request string) error {
+// accepted, and another hub is refused. The caller holds the request's row lock.
+func pickUp(ctx context.Context, tx pgx.Tx, rider, request string) error {
 	if _, err := tx.Exec(ctx, `UPDATE shortfalls SET status = CASE WHEN action = 'other_hub' THEN 'refused' ELSE 'accepted' END, decided_at = now()
 		WHERE request_id = $1 AND status = 'open'`, request); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `UPDATE restock_requests q SET state = CASE WHEN EXISTS (SELECT 1 FROM restock_lots x WHERE x.request_id = q.id
+	var state string
+	if err := tx.QueryRow(ctx, `UPDATE restock_requests q SET state = CASE WHEN EXISTS (SELECT 1 FROM restock_lots x WHERE x.request_id = q.id
 			AND x.released_at IS NULL AND NOT EXISTS (SELECT 1 FROM scooter_stock ss WHERE ss.lot_id = x.lot_id)) THEN 'picked_up' ELSE 'received' END,
-		state_changed_at = now(), updated_at = now() WHERE q.id = $1`, request)
-	return err
+		state_changed_at = now(), updated_at = now() WHERE q.id = $1 AND q.state IN ('ready', 'partial', 'picked_up') RETURNING state`, request).Scan(&state); err != nil {
+		return err
+	}
+	if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: rider, Action: "restock." + state, EntityType: "restock_request", EntityID: request}); err != nil {
+		return err
+	}
+	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
 }

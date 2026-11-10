@@ -137,7 +137,7 @@ func View(ctx context.Context, q querier, id string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err = q.Query(ctx, "SELECT l.code FROM restock_lots x JOIN lots l ON l.id = x.lot_id WHERE x.request_id = $1 ORDER BY l.code", id)
+	rows, err = q.Query(ctx, "SELECT l.code FROM restock_lots x JOIN lots l ON l.id = x.lot_id WHERE x.request_id = $1 AND x.released_at IS NULL ORDER BY l.code", id)
 	if err != nil {
 		return nil, err
 	}
