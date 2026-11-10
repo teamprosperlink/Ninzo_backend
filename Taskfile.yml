@@ -36,13 +36,16 @@ tasks:
     cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/migrate -local status"]
   test:db:
     desc: Run the database tests on local Postgres, in throwaway databases
-    cmds: ["TEST_DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' REQUIRE_DB_TESTS=yes go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./internal/shifts/ ./internal/availability/ ./internal/orders/ ./internal/restock/ ./cmd/riders/ ./cmd/settings/ ./cmd/testdata/"]
+    cmds: ["TEST_DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' REQUIRE_DB_TESTS=yes go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./internal/shifts/ ./internal/availability/ ./internal/orders/ ./internal/restock/ ./internal/relocation/ ./internal/earnings/ ./internal/hub/ ./cmd/riders/ ./cmd/settings/ ./cmd/testdata/"]
   run:customer:
     desc: Run customer-api on port 8080, against local Postgres only
     cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8080 GOOGLE_CLIENT_IDS=144794375699-vdlaflhhjmpfgdv8qscjlncp2909ea1l.apps.googleusercontent.com JWT_SIGNING_KEY=local-only-development-signing-key OTP_TEST_MODE=true OTP_TEST_CODE=123456 DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/customer-api"]
   run:rider:
     desc: Run rider-api on port 8081, against local Postgres only
     cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8081 JWT_SIGNING_KEY=local-only-development-signing-key OTP_TEST_MODE=true OTP_TEST_CODE=123456 DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/rider-api"]
+  run:partner:
+    desc: Run partner-api on port 8082, against local Postgres only
+    cmds: ["APP_ENV=local LOG_LEVEL=debug HTTP_PORT=8082 JWT_SIGNING_KEY=local-only-development-signing-key OTP_TEST_MODE=true OTP_TEST_CODE=123456 DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./apps/partner-api"]
   staging:status:
     desc: Show the target and migration status of the database in .env. Changes nothing
     dotenv: [".env"]
@@ -61,13 +64,14 @@ tasks:
   staging:testdata:
     desc: Add the Bengaluru test zones and the test menu to the database in .env. Asks first, and needs the owner's okay
     dotenv: [".env"]
-    prompt: Add the test zones, menu, fleet and rider to the Supabase project in .env?
+    prompt: Add the test zones, menu, fleet, hubs, rider and hub staff to the Supabase project in .env?
     cmds:
       - go run ./cmd/testdata -remote zones
       - go run ./cmd/testdata -remote menu
       - go run ./cmd/testdata -remote fleet
       - go run ./cmd/testdata -remote hubs
       - go run ./cmd/testdata -remote rider
+      - go run ./cmd/testdata -remote staff
   riders:
     desc: "Approve a rider on local Postgres. Example: task riders -- approve -phone +919800000001 -zone ID -reason why -by name"
     cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable' go run ./cmd/riders -local {{.CLI_ARGS}}"]

@@ -28,7 +28,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 )
 
-const usage = "usage: testdata -local|-remote zones|menu|fleet|hubs|rider"
+const usage = "usage: testdata -local|-remote zones|menu|fleet|hubs|rider|staff"
 
 // testItems are placeholders until the owner gives the real menu.
 var testItems = []struct {
@@ -55,7 +55,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer) error {
-	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "hubs" && args[1] != "rider") {
+	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "hubs" && args[1] != "rider" && args[1] != "staff") {
 		return errors.New(usage)
 	}
 	dsn := getenv("DATABASE_URL")
@@ -82,6 +82,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return err
 	}
 	defer pool.Close()
+	if args[1] == "staff" {
+		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addStaff(ctx, tx, out, target) })
+	}
 	if args[1] == "rider" {
 		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addRider(ctx, tx, out, target) })
 	}
@@ -328,4 +331,71 @@ func addHubs(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Targ
 		fmt.Fprintf(out, "test hub ready in %s\n", z.name)
 	}
 	return nil
+}
+
+// testStaff are a hub lead and a hub staff member at the first test zone's test hub, so the partner
+// app can be tried on staging with the test code.
+var testStaff = []struct{ phone, name, role string }{
+	{"+919800000091", "Test Hub Lead", "hub_lead"},
+	{"+919800000092", "Test Hub Staff", "hub_staff"},
+}
+
+// addStaff makes the test hub staff once. A real person with one of these numbers is never touched.
+func addStaff(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Target) error {
+	var hub string
+	err := tx.QueryRow(ctx, `SELECT h.id::text FROM hubs h JOIN zones z ON z.id = h.zone_id WHERE h.is_test AND z.is_test ORDER BY z.name LIMIT 1`).Scan(&hub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("no test hub: run hubs first")
+	}
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	for _, st := range testStaff {
+		var person string
+		var isNew bool
+		err := tx.QueryRow(ctx, "SELECT id::text FROM people WHERE phone = $1", st.phone).Scan(&person)
+		if errors.Is(err, pgx.ErrNoRows) {
+			isNew = true
+			err = tx.QueryRow(ctx, "INSERT INTO people (phone) VALUES ($1) RETURNING id::text", st.phone).Scan(&person)
+		}
+		if err != nil {
+			return errors.New(target.Safe(err))
+		}
+		var existing string
+		err = tx.QueryRow(ctx, "SELECT id::text FROM hub_staff WHERE person_id = $1", person).Scan(&existing)
+		switch {
+		case err == nil:
+			fmt.Fprintf(out, "kept the test %s %s\n", st.role, st.phone)
+			continue
+		case !errors.Is(err, pgx.ErrNoRows):
+			return errors.New(target.Safe(err))
+		case !isNew:
+			real, err := realPerson(ctx, tx, person)
+			if err != nil {
+				return errors.New(target.Safe(err))
+			}
+			if real {
+				return fmt.Errorf("%s belongs to a real person, so test data will not touch it", st.phone)
+			}
+		}
+		var id string
+		if err := tx.QueryRow(ctx, "INSERT INTO hub_staff (person_id, hub_id, role, name, is_test) VALUES ($1, $2, $3, $4, true) RETURNING id::text",
+			person, hub, st.role, st.name).Scan(&id); err != nil {
+			return errors.New(target.Safe(err))
+		}
+		if err := audit.Record(ctx, tx, audit.Event{ActorType: audit.ActorSystem, Action: "staff.added", EntityType: "hub_staff", EntityID: id, Reason: "test data"}); err != nil {
+			return errors.New(target.Safe(err))
+		}
+		fmt.Fprintf(out, "added the test %s %s\n", st.role, st.phone)
+	}
+	return nil
+}
+
+// realPerson is true when a person is used by anything but test data: a customer, a rider, or a
+// person who is not active.
+func realPerson(ctx context.Context, tx pgx.Tx, person string) (bool, error) {
+	var real bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM customers WHERE person_id = $1) OR EXISTS (SELECT 1 FROM riders WHERE person_id = $1)
+		OR EXISTS (SELECT 1 FROM people WHERE id = $1 AND status <> 'active')`, person).Scan(&real)
+	return real, err
 }

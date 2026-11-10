@@ -10,11 +10,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// The user types with a session today. Partner and staff follow in v0.8.0 and v0.9.0, which also
-// need the actor_type checks on refresh_tokens, otp_requests and devices widened.
+// The user types with a session. Console staff follow in v0.9.0, which also widens the actor_type
+// checks on refresh_tokens, otp_requests and devices again (migration 0030 added staff).
 const (
 	TypeCustomer = "customer"
 	TypeRider    = "rider"
+	TypeStaff    = "staff" // Hub staff and hub leads.
 )
 
 const issuer = "ninzo"

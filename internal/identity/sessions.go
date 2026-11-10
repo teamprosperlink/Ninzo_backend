@@ -198,6 +198,8 @@ func isActive(ctx context.Context, tx pgx.Tx, a Actor) (bool, error) {
 		query = `SELECT p.status = 'active' FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`
 	case TypeRider:
 		query = `SELECT p.status = 'active' AND r.status <> 'suspended' FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`
+	case TypeStaff:
+		query = `SELECT p.status = 'active' AND s.status = 'active' FROM hub_staff s JOIN people p ON p.id = s.person_id WHERE s.id = $1`
 	default:
 		return false, fmt.Errorf("identity: unknown user type %q", a.Type)
 	}
