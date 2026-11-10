@@ -1189,12 +1189,13 @@ paths:
       tags:
       - restock
       operationId: respondToShortfall
-      summary: Accept or refuse a substitute
-      description: 'For a request the hub could not fill. A partial fill: accepting keeps what was packed
-        (closed if nothing was), refusing cancels the request. Another hub: accepting cancels this request
-        and opens one for the whole request there, refusing keeps what was packed here. Scanning a lot from
-        the cassette settles the shortfall the same way as taking what was packed. Errors: shortfall_not_open
-        (409).'
+      summary: Answer a shortfall
+      description: >-
+        For a request the hub sealed short (state partial). A partial fill: accepting keeps what was
+        packed (closed if nothing was), refusing cancels the request. A substitute: accepting sends the
+        request back to packing with the substitute in place of what was short, refusing keeps what was
+        packed. Another hub: accepting opens the whole request there, refusing keeps what was packed here.
+        Errors: shortfall_not_open (409).
       parameters:
       - $ref: '#/components/parameters/RestockRequestId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey

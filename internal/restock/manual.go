@@ -179,11 +179,18 @@ func (s *Service) RespondTx(ctx context.Context, tx pgx.Tx, rider, id string, ac
 		next = "cancelled" // The whole request moves to the other hub, below.
 	case action == "partial" && !accept:
 		next = "cancelled"
+	case action == "substitute" && accept:
+		next = "packing" // The hub packs the substitute, then seals again.
 	case !packed:
 		next = "closed" // Nothing was packed, so there is nothing to collect.
 	}
-	if next != "ready" {
+	if next != "ready" && next != "packing" {
 		if err := release(ctx, tx, id, now); err != nil {
+			return nil, err
+		}
+	}
+	if next == "packing" {
+		if err := takeSubstitute(ctx, tx, id); err != nil {
 			return nil, err
 		}
 	}
@@ -329,4 +336,30 @@ func (sim *Simulator) expireUncollected(ctx context.Context, now time.Time) erro
 		}
 	}
 	return nil
+}
+
+// takeSubstitute changes the lines for an accepted substitute: each short line keeps what was
+// packed (a line with nothing packed goes), and the substitute is asked for in the missing units.
+// The hub then packs the substitute and seals again; it seals what it has if it runs short.
+func takeSubstitute(ctx context.Context, tx pgx.Tx, id string) error {
+	var sub string
+	var missing int
+	if err := tx.QueryRow(ctx, `SELECT s.substitute_item_id::text, (SELECT coalesce(sum(qty_missing), 0) FROM shortfall_lines WHERE request_id = s.request_id)::int
+		FROM shortfalls s WHERE s.request_id = $1`, id).Scan(&sub, &missing); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE restock_lines w SET qty = w.filled_qty FROM shortfall_lines f
+		WHERE f.request_id = w.request_id AND f.item_id = w.item_id AND w.request_id = $1 AND coalesce(w.filled_qty, 0) > 0`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM restock_lines w USING shortfall_lines f
+		WHERE f.request_id = w.request_id AND f.item_id = w.item_id AND w.request_id = $1 AND coalesce(w.filled_qty, 0) = 0`, id); err != nil {
+		return err
+	}
+	if missing < 1 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO restock_lines (request_id, item_id, qty) VALUES ($1, $2, $3)
+		ON CONFLICT (request_id, item_id) DO UPDATE SET qty = least(restock_lines.qty + EXCLUDED.qty, 500)`, id, sub, min(missing, 500))
+	return err
 }

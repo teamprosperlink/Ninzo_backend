@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Shortfall, sealing and quarantine (#125)
+- Added: `recordShortfall` (every short line; partial, substitute or another hub in the zone), `markHubRequestReady` (the lots scanned; partial with a shortfall, even empty; again changes nothing), `getCassetteLabel`, `listHubLots` and `quarantineLot` (hub lead only; the lot leaves any unsealed cassette).
+- Changed: a rider accepting a substitute reopens packing with the substitute in place of what was short; the simulator records its short lines.
+- Added: migration 0032, `shortfall_lines` (with the simulator's past shortfalls filled in), the shortfall's reason and who recorded it, and who quarantined a lot and why. Not applied to Supabase.
+- Evidence: docs/testing/reports/125.md
+
 ### The hub queue (#124)
 - Added: `listHubRequests`, `getHubRequest`, `acceptHubRequest` (one acceptance only), `getPickList` (soonest expiry first), `scanHubLot`, `unscanHubLot` and the hub live channel `/v1/hub/stream`.
 - Added: migration 0031, `hub_state`, and `seq` and `accepted_by` on requests. Every change the rider sees also raises the hub's seq.

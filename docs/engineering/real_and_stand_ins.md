@@ -62,3 +62,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Partner (hub) API | Mock only | Contract and mock (#122). The real hub APIs come in parts B to F | | v0.8.0 |
 | Hub staff sign-in and `GET /hub/me` | Real | Built (#123): phone and OTP, sessions as for riders; test staff +919800000091 (hub lead) and +919800000092 (hub staff) at the first test hub. Staff are added by the admin from v0.9.0 | | v0.8.0 |
 | The hub queue, accept, pick list, scan, unscan and the hub live channel | Real | Built (#124). The slot and rider arrival are estimates (5 and 10 minutes) until a hub sets its own. At a hub with active staff, the simulator stands aside | | v0.8.0 |
+| Shortfall lines, sealing the cassette, the label, the hub's lots, quarantine (hub lead), and substitutes | Real | Built (#125). A substitute accepted by the rider reopens packing with the substitute in place of what was short | | v0.8.0 |

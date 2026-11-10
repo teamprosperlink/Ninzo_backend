@@ -523,6 +523,10 @@ func pack(ctx context.Context, tx pgx.Tx, id string, now time.Time) (bool, error
 	if other != nil {
 		action = "other_hub"
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO shortfalls (request_id, action, other_hub_id) VALUES ($1, $2, $3)", id, action, other)
+	if _, err := tx.Exec(ctx, "INSERT INTO shortfalls (request_id, action, other_hub_id) VALUES ($1, $2, $3)", id, action, other); err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO shortfall_lines (request_id, item_id, qty_missing) SELECT $1, item, least(qty, 500) FROM unnest($2::uuid[], $3::int[]) AS short(item, qty)`,
+		id, shortItems, shortQty)
 	return true, err
 }
