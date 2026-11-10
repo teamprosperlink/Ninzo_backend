@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Hub offline sync (#126)
+- Added: `POST /hub/events` applies queued accept, scan, unscan, shortfall, ready and quarantine in order, each once by event_id, with the same rules as their endpoints. One rejected event never blocks the rest; a direct call and its queued copy count once.
+- Added: migration 0033, `hub_events`. Not applied to Supabase.
+- Evidence: docs/testing/reports/126.md
+
 ### Shortfall, sealing and quarantine (#125)
 - Added: `recordShortfall` (every short line; partial, substitute or another hub in the zone), `markHubRequestReady` (the lots scanned; partial with a shortfall, even empty; again changes nothing), `getCassetteLabel`, `listHubLots` and `quarantineLot` (hub lead only; the lot leaves any unsealed cassette).
 - Changed: a rider accepting a substitute reopens packing with the substitute in place of what was short; the simulator records its short lines.
