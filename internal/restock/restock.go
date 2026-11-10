@@ -313,6 +313,9 @@ func (sim *Simulator) Run(ctx context.Context, every time.Duration) {
 				if _, err := sim.Step(ctx, now); err != nil && ctx.Err() == nil {
 					sim.Service.Log.Error("restock: simulator failed", "error", err.Error())
 				}
+				if err := sim.expireUncollected(ctx, now); err != nil && ctx.Err() == nil {
+					sim.Service.Log.Error("restock: expiring cassettes failed", "error", err.Error())
+				}
 			}()
 		}
 	}

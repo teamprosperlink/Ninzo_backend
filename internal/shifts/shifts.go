@@ -411,11 +411,13 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 		var loaded bool
 		// A lot still at a hub is picked up only from this rider's own cassette, once it is packed.
 		var atHub, mine bool
-		if err := tx.QueryRow(ctx, `SELECT l.hub_id IS NOT NULL, EXISTS (SELECT 1 FROM restock_lots x JOIN restock_requests q ON q.id = x.request_id
-				WHERE x.lot_id = l.id AND x.released_at IS NULL AND q.rider_id = $2 AND q.state IN ('ready', 'partial'))
-			FROM lots l WHERE l.id = $1`, u.LotID, riderID).Scan(&atHub, &mine); err != nil {
+		var cassette *string
+		if err := tx.QueryRow(ctx, `SELECT l.hub_id IS NOT NULL, (SELECT q.id::text FROM restock_lots x JOIN restock_requests q ON q.id = x.request_id
+				WHERE x.lot_id = l.id AND x.released_at IS NULL AND q.rider_id = $2 AND q.state IN ('ready', 'partial', 'picked_up'))
+			FROM lots l WHERE l.id = $1`, u.LotID, riderID).Scan(&atHub, &cassette); err != nil {
 			return err
 		}
+		mine = cassette != nil
 		if atHub && !mine {
 			return refuse("bad_scan", "That lot is at a hub and is not in your cassette.")
 		}
@@ -436,6 +438,11 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 		if _, err := tx.Exec(ctx, `INSERT INTO stock_ledger (scooter_id, lot_id, delta_on_hand, reason, actor_type, actor_id)
 			VALUES ($1, $2, $3, 'scan', 'rider', $4)`, scooter, u.LotID, qty, riderID); err != nil {
 			return err
+		}
+		if atHub {
+			if err := pickUp(ctx, tx, *cassette); err != nil {
+				return err
+			}
 		}
 		if err := bump(ctx, tx, riderID); err != nil {
 			return err
@@ -534,5 +541,19 @@ func handBack(ctx context.Context, tx pgx.Tx, rider string) error {
 		_, err = tx.Exec(ctx, `INSERT INTO order_events (order_id, from_state, to_state, actor_type, actor_id, reason)
 			VALUES ($1, 'OFFERED', 'PAYMENT_SECURED', 'rider', $2, 'shift ended')`, order, rider)
 	}
+	return err
+}
+
+// pickUp moves a cassette on after one of its lots is scanned: picked_up, then received once every
+// packed lot is on the scooter. Taking a short cassette settles its shortfall: the partial fill is
+// accepted, and another hub is refused.
+func pickUp(ctx context.Context, tx pgx.Tx, request string) error {
+	if _, err := tx.Exec(ctx, `UPDATE shortfalls SET status = CASE WHEN action = 'other_hub' THEN 'refused' ELSE 'accepted' END, decided_at = now()
+		WHERE request_id = $1 AND status = 'open'`, request); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE restock_requests q SET state = CASE WHEN EXISTS (SELECT 1 FROM restock_lots x WHERE x.request_id = q.id
+			AND x.released_at IS NULL AND NOT EXISTS (SELECT 1 FROM scooter_stock ss WHERE ss.lot_id = x.lot_id)) THEN 'picked_up' ELSE 'received' END,
+		state_changed_at = now(), updated_at = now() WHERE q.id = $1`, request)
 	return err
 }
