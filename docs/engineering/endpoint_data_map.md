@@ -67,6 +67,9 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `restock` | `restock_lots` | Lot numbers in the cassette | v0.7.0 |
 | `restock` | `shortfalls` | What a hub could not fill | v0.7.0 |
 | `hub` | `hub_staff` | Hub staff and hub leads, each at one hub | v0.8.0 |
+| `hub` | `hub_state` | Each hub's seq, raised by every change to its requests, for the live channel | v0.8.0 |
+| `hub` | `shortfall_lines` | The short lines of a shortfall, with the missing quantity | v0.8.0 |
+| `hub` | `hub_events` | Queued hub actions, each applied once by event_id | v0.8.0 |
 
 ### 1.1 Columns that are easy to miss
 - **`orders`:** state, customer stage and `customer_seq`. `cancel_until`, `min_wait_until`, `wait_deadline`. `timer_started_at`, `timer_stopped_at`, `timer_missed`. **Fixed when the rider accepts, so a console change cannot affect it:** `timer_duration_s`, `perimeter_m`, `location_zone_id` and its version. `arrival_source` (`gps` or `handover`). `handover_otp`, `otp_attempts`, `ended_reason`. The `Idempotency-Key` that created it.
@@ -172,6 +175,30 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `getRestock` | `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
 | `reportProblem` | `rider_events`, `orders` | `rider_events`, `problem_reports`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
 | `getEarnings` | `earnings` | | | |
+
+## 4.1 Partner API
+
+The partner (hub) app's endpoints (#122). Every hub path acts on the signed-in staff member's hub. Parts C to E of v0.8.0 build the rows after `getStaff`; until then only the contract and mock exist.
+
+| Endpoint | Reads | Writes | Redis | Outside calls |
+|---|---|---|---|---|
+| `requestOtp` | `otp_requests`, `hub_staff`, `people` | `otp_requests` | Rate limit | SMS gateway, only if the account exists |
+| `verifyOtp` | `otp_requests`, `hub_staff`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
+| `refreshToken` | `refresh_tokens`, `people`, `hub_staff` | `refresh_tokens`, `audit_events` | Rate limit | |
+| `signOut` | `refresh_tokens` | `refresh_tokens` | | |
+| `getStaff` | `hub_staff`, `people`, `hubs` | | | |
+| `listHubRequests` | `hub_staff`, `hub_state`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `menu_items`, `scooters`, `shortfalls`, `shortfall_lines` | | | |
+| `getHubRequest` | `hub_staff`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `menu_items`, `scooters`, `shortfalls`, `shortfall_lines` | | | |
+| `acceptHubRequest` | `hub_staff`, `hubs`, `restock_requests` | `restock_requests`, `hub_state`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
+| `getPickList` | `hub_staff`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `menu_items`, `scooter_stock` | | | |
+| `scanHubLot` | `hub_staff`, `restock_requests`, `restock_lines`, `lots`, `restock_lots`, `scooter_stock` | `restock_lots`, `restock_requests`, `hub_state`, `rider_state`, `outbox_events`, `idempotency_keys` | | |
+| `unscanHubLot` | `hub_staff`, `restock_requests`, `lots`, `restock_lots` | `restock_lots`, `restock_requests`, `hub_state`, `rider_state`, `idempotency_keys` | | |
+| `recordShortfall` | `hub_staff`, `restock_requests`, `restock_lines`, `hubs`, `menu_items` | `shortfalls`, `shortfall_lines`, `restock_requests`, `hub_state`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
+| `markHubRequestReady` | `hub_staff`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `shortfalls` | `restock_requests`, `restock_lines`, `hub_state`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
+| `getCassetteLabel` | `hub_staff`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `menu_items`, `scooters`, `hubs` | | | |
+| `listHubLots` | `hub_staff`, `lots`, `restock_lots` | | | |
+| `quarantineLot` | `hub_staff`, `lots`, `restock_lots`, `restock_requests`, `scooter_stock` | `lots`, `restock_lots`, `restock_requests`, `hub_state`, `audit_events`, `idempotency_keys` | | |
+| `sendEventBatch` | `hub_events`, `hub_staff`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `shortfalls` | `hub_events`, `restock_lots`, `restock_requests`, `restock_lines`, `shortfalls`, `shortfall_lines`, `lots`, `hub_state`, `rider_state`, `outbox_events`, `audit_events` | | |
 
 ## 5. Background work
 `cmd/worker` runs these from `scheduled_tasks`, or from `outbox_events`. A restart loses nothing, because they are rows and not memory. Each one must be safe to run twice.
