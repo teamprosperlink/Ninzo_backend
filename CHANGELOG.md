@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Relocation (#108)
+- Added: a check every 30 seconds that asks a spare rider (from a node with two or more waiting) to move to the nearest node with recent orders and nobody waiting. `listNodes` shows the suggestion; `acceptRelocation` moves the rider's node and scooter and starts paid time; a ping near the node marks arrival. Ignoring or refusing has no penalty.
+- Added: migration 0028, `relocations` and five settings: `relocation_window_s` (1800), `relocation_min_orders` (2), `relocation_ttl_s` (300), `relocation_rest_s` (900), `relocation_arrive_m` (100). Not applied to Supabase.
+- Evidence: docs/testing/reports/108.md
+
 ### Manual restock and the pickup (#107)
 - Added: `createRestock` (merges into a confirmed request at the same hub, replaces a suggestion) and `respondToShortfall` (a partial fill or another hub, which opens a follow-up request there).
 - Added: scanning cassette lots moves a request to `picked_up`, then `received`, and settles an open shortfall. A cassette nobody collects 30 minutes after `arrive_by` expires and its lots go back on the shelf.

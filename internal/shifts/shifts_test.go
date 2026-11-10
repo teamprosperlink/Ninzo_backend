@@ -481,3 +481,26 @@ func TestAVerificationTieIsNotVerified(t *testing.T) {
 		t.Errorf("%d %v", code, out)
 	}
 }
+
+func TestNodesShowAMoveAndEndingTheShiftCancelsIt(t *testing.T) {
+	f := newFixture(t)
+	f.scooter("SC-1")
+	rider, token := f.rider()
+	f.start(token)
+	to := f.id("INSERT INTO staging_nodes (zone_id, name, lat, lng, capacity) VALUES ($1, 'Node B', 12.94, 77.63, 4) RETURNING id::text", f.zone)
+	move := f.id(`INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at)
+		SELECT $1, id, node_id, $2, '2 orders expected, nobody nearby', now() + interval '5 minutes' FROM shifts WHERE rider_id = $1 AND ended_at IS NULL RETURNING id::text`, rider, to)
+	_, out := f.send("GET", "/nodes?zone_id="+f.zone, token, "")
+	check(t, out, "NodeList")
+	m, _ := out["relocation"].(map[string]any)
+	if m == nil || m["id"] != move || m["node_id"] != to {
+		t.Fatalf("%v", out)
+	}
+	check(t, m, "RelocationSuggestion")
+	if code, out := f.send("POST", "/riders/me/shifts/end", token, `{}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	if f.id("SELECT state FROM relocations WHERE id = $1", move) != "cancelled" {
+		t.Error("ending the shift must cancel the move")
+	}
+}

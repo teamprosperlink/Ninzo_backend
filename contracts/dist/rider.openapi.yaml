@@ -2272,7 +2272,7 @@ paths:
                 - support
     /riders/me/relocations/{relocation_id}/accept:
         post:
-            description: 'Moving is paid time. Ignoring or refusing a move has no penalty. Errors: relocation_expired (409).'
+            description: 'Moving is paid time, from accepting until the rider is near the node, an order offer interrupts the move, or the shift ends. Ignoring or refusing a move has no penalty. Errors: relocation_expired (409).'
             operationId: acceptRelocation
             parameters:
                 - description: The suggestion.
@@ -2293,14 +2293,20 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Accept a suggested move
             tags:
                 - shift

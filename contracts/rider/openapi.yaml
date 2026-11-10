@@ -480,7 +480,8 @@ paths:
       - shift
       operationId: acceptRelocation
       summary: Accept a suggested move
-      description: 'Moving is paid time. Ignoring or refusing a move has no penalty. Errors: relocation_expired
+      description: 'Moving is paid time, from accepting until the rider is near the node, an order offer
+        interrupts the move, or the shift ends. Ignoring or refusing a move has no penalty. Errors: relocation_expired
         (409).'
       parameters:
       - name: relocation_id
@@ -501,14 +502,20 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /riders/me/stock/scan:
     post:
       tags:

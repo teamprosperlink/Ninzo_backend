@@ -58,3 +58,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | **Hub staff** | Stand-in | Built (#105): a simulator accepts, packs and readies a confirmed restock, packing whole lots from the hub's own stock, and records a shortfall when it cannot fill | The partner APIs, v0.8.0 | v0.7.0 |
 | Restock suggestions: the stock check, confirm with edits, decline, expiry | Real | Built (#106). Low level, target, lifetime and check interval are settings | | v0.7.0 |
 | Manual restock, shortfall answers, the cassette pickup and expiry of uncollected cassettes | Real | Built (#107). A substitute shortfall is answered, but only real hub staff (v0.8.0) offer one | | v0.7.0 |
+| Relocation: suggested moves toward demand, accept, arrival from pings | Real, simple rule | Built (#108). Demand is recent paid orders counted at the node nearest each gate; distance is straight-line. The demand forecast and road times come in v1.0.0 | | v0.7.0 |
