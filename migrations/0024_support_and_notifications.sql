@@ -1,4 +1,9 @@
 -- +goose Up
+-- Take the orders lock first. The background pass updates orders every few seconds, and this
+-- migration alters orders and touches every row, so taking the lock late can deadlock with it.
+-- Taken first, the migration only waits.
+LOCK TABLE orders IN ACCESS EXCLUSIVE MODE;
+
 -- Customer reports (data map: support_tickets, ticket_messages). Text is the customer's own words,
 -- kept for support.
 CREATE TABLE support_tickets (
