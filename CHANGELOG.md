@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Hub staff sign-in (#123)
+- Added: `apps/partner-api`, the partner (hub) API. Hub staff and hub leads sign in with phone and OTP (decision 0014); `GET /hub/me` returns the staff member, their role and hub, and whether the hub is open.
+- Added: migration 0030, `hub_staff`, and the staff type on codes, sessions and devices. Not applied to Supabase.
+- Added: test staff in `cmd/testdata staff`.
+- Evidence: docs/testing/reports/123.md
+
 ### Partner contract and mock (#122)
 - Added: `contracts/partner/openapi.yaml` and the hub live channel, for the partner (hub) app: staff sign-in by phone and OTP, the queue, accept, pick list, scan, unscan, shortfall, ready, label, lots, quarantine (hub lead only) and the offline event batch.
 - Added: the mock serves them at `/partner/v1` with 27 scenarios; CI checks the mock against the contract.

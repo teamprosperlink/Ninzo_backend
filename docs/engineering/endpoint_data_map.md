@@ -66,6 +66,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `restock` | `restock_lines` | Items and filled quantities | v0.7.0 |
 | `restock` | `restock_lots` | Lot numbers in the cassette | v0.7.0 |
 | `restock` | `shortfalls` | What a hub could not fill | v0.7.0 |
+| `hub` | `hub_staff` | Hub staff and hub leads, each at one hub | v0.8.0 |
 
 ### 1.1 Columns that are easy to miss
 - **`orders`:** state, customer stage and `customer_seq`. `cancel_until`, `min_wait_until`, `wait_deadline`. `timer_started_at`, `timer_stopped_at`, `timer_missed`. **Fixed when the rider accepts, so a console change cannot affect it:** `timer_duration_s`, `perimeter_m`, `location_zone_id` and its version. `arrival_source` (`gps` or `handover`). `handover_otp`, `otp_attempts`, `ended_reason`. The `Idempotency-Key` that created it.
@@ -76,7 +77,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 - Added `scooters`, `location_zones`, `zone_settings`, `hubs`, `scheduled_tasks`, `rider_state`, `rider_events`, `devices`, `relocations`, `earnings`, `problem_reports`, `ticket_messages`, `remedies`, `arrival_reviews`, `eta_offers` and `restock_lots`, which the contracts need.
 - `offers` belongs to `dispatch`, which writes it. Console settings belong to `geo`.
 - `order_legs` waits for multi-scooter orders, which are P2. The pilot is single-leg.
-- `hub_queue_slots` and hub staff tables wait for the partner API, in v0.8.0. Console staff, roles and approvals wait for v0.9.0.
+- `hub_staff` is built in v0.8.0 (#123). `hub_queue_slots` waits until the hub queue needs time slots. Console staff, roles and approvals wait for v0.9.0.
 
 ## 2. What Redis holds
 Redis is never the source of truth. If it is lost, positions refill from the next pings, and everything else comes from Postgres.

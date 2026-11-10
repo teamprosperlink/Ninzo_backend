@@ -15,6 +15,7 @@ import (
 const (
 	TypeCustomer = "customer"
 	TypeRider    = "rider"
+	TypeStaff    = "staff" // Hub staff and hub leads.
 )
 
 const issuer = "ninzo"

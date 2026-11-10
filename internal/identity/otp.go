@@ -185,14 +185,18 @@ func (o *OTPs) request(ctx context.Context, actorType, phone, purpose, requested
 }
 
 // canSignIn decides whether a code is really sent. Customers register by signing in, so any number
-// can. Riders must already have a profile. A blocked account still gets a code: it is told only
+// can. Riders and hub staff must already have a profile. A blocked account still gets a code: it is told only
 // after proving the number, so a stranger cannot learn it is blocked.
 func (o *OTPs) canSignIn(ctx context.Context, tx pgx.Tx, actorType, phone string) (bool, error) {
 	if actorType == TypeCustomer {
 		return true, nil
 	}
+	query := `SELECT EXISTS (SELECT 1 FROM riders r JOIN people p ON p.id = r.person_id WHERE p.phone = $1)`
+	if actorType == TypeStaff {
+		query = `SELECT EXISTS (SELECT 1 FROM hub_staff s JOIN people p ON p.id = s.person_id WHERE p.phone = $1)`
+	}
 	var exists bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM riders r JOIN people p ON p.id = r.person_id WHERE p.phone = $1)`, phone).Scan(&exists)
+	err := tx.QueryRow(ctx, query, phone).Scan(&exists)
 	return exists, err
 }
 
@@ -200,7 +204,8 @@ func (o *OTPs) canSignIn(ctx context.Context, tx pgx.Tx, actorType, phone string
 type Verified struct {
 	Pair   Pair
 	Actor  Actor
-	Status string // A rider's status. Empty for a customer.
+	Status string // A rider's status, or a staff member's role. Empty for a customer.
+	HubID  string // A staff member's hub.
 }
 
 // Verify checks a code and starts a session. A wrong code's attempt is committed even though the
@@ -309,6 +314,19 @@ func (o *OTPs) signIn(ctx context.Context, tx pgx.Tx, actorType, phone string, s
 		if !active {
 			return Verified{}, ErrAccountBlocked
 		}
+	case TypeStaff:
+		var active bool
+		err := tx.QueryRow(ctx, `SELECT s.id::text, s.role, s.hub_id::text, p.status = 'active' AND s.status = 'active'
+			FROM hub_staff s JOIN people p ON p.id = s.person_id WHERE p.phone = $1`, phone).Scan(&actorID, &v.Status, &v.HubID, &active)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Verified{}, ErrInvalidOTP // The phone changed after the code was sent.
+		}
+		if err != nil {
+			return Verified{}, err
+		}
+		if !active {
+			return Verified{}, ErrAccountBlocked
+		}
 	default:
 		return Verified{}, fmt.Errorf("identity: unknown user type %q", actorType)
 	}
@@ -379,6 +397,8 @@ func stillAllowed(ctx context.Context, tx pgx.Tx, actorType, actorID, phone stri
 		query = `SELECT p.phone = $2, p.status = 'active' FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`
 	case TypeRider:
 		query = `SELECT p.phone = $2, p.status = 'active' AND r.status <> 'suspended' FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`
+	case TypeStaff:
+		query = `SELECT p.phone = $2, p.status = 'active' AND s.status = 'active' FROM hub_staff s JOIN people p ON p.id = s.person_id WHERE s.id = $1`
 	default:
 		return fmt.Errorf("identity: unknown user type %q", actorType)
 	}

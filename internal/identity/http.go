@@ -193,9 +193,12 @@ func (o *OTPs) handleVerify(actorType string) http.HandlerFunc {
 				"expires_in_s":  v.Pair.ExpiresInS,
 				"server_time":   serverTime(),
 			}
-			if actorType == TypeRider {
+			switch actorType {
+			case TypeRider:
 				reply["rider_id"], reply["status"] = v.Actor.ID, v.Status
-			} else {
+			case TypeStaff:
+				reply["staff_id"], reply["role"], reply["hub_id"] = v.Actor.ID, v.Status, v.HubID
+			default:
 				reply["customer_id"], reply["phone_verified"] = v.Actor.ID, true
 			}
 			httpserver.WriteJSON(w, http.StatusOK, reply)
