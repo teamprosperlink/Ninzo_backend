@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The hub queue (#124)
+- Added: `listHubRequests`, `getHubRequest`, `acceptHubRequest` (one acceptance only), `getPickList` (soonest expiry first), `scanHubLot`, `unscanHubLot` and the hub live channel `/v1/hub/stream`.
+- Added: migration 0031, `hub_state`, and `seq` and `accepted_by` on requests. Every change the rider sees also raises the hub's seq.
+- Changed: the hub simulator stands aside at a hub with active staff.
+- Evidence: docs/testing/reports/124.md
+
 ### Hub staff sign-in (#123)
 - Added: `apps/partner-api`, the partner (hub) API. Hub staff and hub leads sign in with phone and OTP (decision 0014); `GET /hub/me` returns the staff member, their role and hub, and whether the hub is open.
 - Added: migration 0030, `hub_staff`, and the staff type on codes, sessions and devices. Not applied to Supabase.

@@ -597,5 +597,15 @@ func pickUp(ctx context.Context, tx pgx.Tx, rider, request string) error {
 	if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: rider, Action: "restock." + state, EntityType: "restock_request", EntityID: request}); err != nil {
 		return err
 	}
+	// The request's seq and the hub's, so the hub sees the cassette collected. ScanTx raises the
+	// rider's. (restock.BumpRider does the same, but restock's tests import this package.)
+	var hub string
+	if err := tx.QueryRow(ctx, "UPDATE restock_requests SET seq = seq + 1, updated_at = now() WHERE id = $1 RETURNING hub_id::text", request).Scan(&hub); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO hub_state (hub_id, seq) VALUES ($1, 1)
+		ON CONFLICT (hub_id) DO UPDATE SET seq = hub_state.seq + 1, updated_at = now()`, hub); err != nil {
+		return err
+	}
 	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
 }
