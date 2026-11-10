@@ -137,7 +137,7 @@ func View(ctx context.Context, q querier, id string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err = q.Query(ctx, "SELECT l.code FROM restock_lots x JOIN lots l ON l.id = x.lot_id WHERE x.request_id = $1 ORDER BY l.code", id)
+	rows, err = q.Query(ctx, "SELECT l.code FROM restock_lots x JOIN lots l ON l.id = x.lot_id WHERE x.request_id = $1 AND x.released_at IS NULL ORDER BY l.code", id)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +312,9 @@ func (sim *Simulator) Run(ctx context.Context, every time.Duration) {
 				}
 				if _, err := sim.Step(ctx, now); err != nil && ctx.Err() == nil {
 					sim.Service.Log.Error("restock: simulator failed", "error", err.Error())
+				}
+				if err := sim.expireUncollected(ctx, now); err != nil && ctx.Err() == nil {
+					sim.Service.Log.Error("restock: expiring cassettes failed", "error", err.Error())
 				}
 			}()
 		}

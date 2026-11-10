@@ -21,6 +21,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 )
 
 var idPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -411,11 +412,26 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 		var loaded bool
 		// A lot still at a hub is picked up only from this rider's own cassette, once it is packed.
 		var atHub, mine bool
-		if err := tx.QueryRow(ctx, `SELECT l.hub_id IS NOT NULL, EXISTS (SELECT 1 FROM restock_lots x JOIN restock_requests q ON q.id = x.request_id
-				WHERE x.lot_id = l.id AND x.released_at IS NULL AND q.rider_id = $2 AND q.state IN ('ready', 'partial'))
-			FROM lots l WHERE l.id = $1`, u.LotID, riderID).Scan(&atHub, &mine); err != nil {
+		var cassette *string
+		if err := tx.QueryRow(ctx, `SELECT l.hub_id IS NOT NULL, (SELECT q.id::text FROM restock_lots x JOIN restock_requests q ON q.id = x.request_id
+				WHERE x.lot_id = l.id AND x.released_at IS NULL AND q.rider_id = $2 AND q.state IN ('ready', 'partial', 'picked_up'))
+			FROM lots l WHERE l.id = $1`, u.LotID, riderID).Scan(&atHub, &cassette); err != nil {
 			return err
 		}
+		if cassette != nil {
+			// Lock the request, then check again: a shortfall answer or an expiry may have ended it,
+			// and released this lot, while this scan waited.
+			var open bool
+			if err := tx.QueryRow(ctx, `SELECT q.state IN ('ready', 'partial', 'picked_up') AND EXISTS (SELECT 1 FROM restock_lots x
+					WHERE x.request_id = q.id AND x.lot_id = $2 AND x.released_at IS NULL)
+				FROM restock_requests q WHERE q.id = $1 FOR UPDATE`, *cassette, u.LotID).Scan(&open); err != nil {
+				return err
+			}
+			if !open {
+				cassette = nil
+			}
+		}
+		mine = cassette != nil
 		if atHub && !mine {
 			return refuse("bad_scan", "That lot is at a hub and is not in your cassette.")
 		}
@@ -436,6 +452,11 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 		if _, err := tx.Exec(ctx, `INSERT INTO stock_ledger (scooter_id, lot_id, delta_on_hand, reason, actor_type, actor_id)
 			VALUES ($1, $2, $3, 'scan', 'rider', $4)`, scooter, u.LotID, qty, riderID); err != nil {
 			return err
+		}
+		if atHub {
+			if err := pickUp(ctx, tx, riderID, *cassette); err != nil {
+				return err
+			}
 		}
 		if err := bump(ctx, tx, riderID); err != nil {
 			return err
@@ -535,4 +556,24 @@ func handBack(ctx context.Context, tx pgx.Tx, rider string) error {
 			VALUES ($1, 'OFFERED', 'PAYMENT_SECURED', 'rider', $2, 'shift ended')`, order, rider)
 	}
 	return err
+}
+
+// pickUp moves a cassette on after one of its lots is scanned: picked_up, then received once every
+// packed lot is on the scooter. Taking a short cassette settles its shortfall: the partial fill is
+// accepted, and another hub is refused. The caller holds the request's row lock.
+func pickUp(ctx context.Context, tx pgx.Tx, rider, request string) error {
+	if _, err := tx.Exec(ctx, `UPDATE shortfalls SET status = CASE WHEN action = 'other_hub' THEN 'refused' ELSE 'accepted' END, decided_at = now()
+		WHERE request_id = $1 AND status = 'open'`, request); err != nil {
+		return err
+	}
+	var state string
+	if err := tx.QueryRow(ctx, `UPDATE restock_requests q SET state = CASE WHEN EXISTS (SELECT 1 FROM restock_lots x WHERE x.request_id = q.id
+			AND x.released_at IS NULL AND NOT EXISTS (SELECT 1 FROM scooter_stock ss WHERE ss.lot_id = x.lot_id)) THEN 'picked_up' ELSE 'received' END,
+		state_changed_at = now(), updated_at = now() WHERE q.id = $1 AND q.state IN ('ready', 'partial', 'picked_up') RETURNING state`, request).Scan(&state); err != nil {
+		return err
+	}
+	if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: rider, Action: "restock." + state, EntityType: "restock_request", EntityID: request}); err != nil {
+		return err
+	}
+	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
 }

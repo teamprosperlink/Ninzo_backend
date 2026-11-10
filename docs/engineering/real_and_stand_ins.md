@@ -57,3 +57,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Hubs, earning rates, menu, prices, zones and gates | Test data | Entered by the admin in the console from v0.9.0 (decision 0014) | The console | v0.9.0 |
 | **Hub staff** | Stand-in | Built (#105): a simulator accepts, packs and readies a confirmed restock, packing whole lots from the hub's own stock, and records a shortfall when it cannot fill | The partner APIs, v0.8.0 | v0.7.0 |
 | Restock suggestions: the stock check, confirm with edits, decline, expiry | Real | Built (#106). Low level, target, lifetime and check interval are settings | | v0.7.0 |
+| Manual restock, shortfall answers, the cassette pickup and expiry of uncollected cassettes | Real | Built (#107). A substitute shortfall is answered, but only real hub staff (v0.8.0) offer one | | v0.7.0 |

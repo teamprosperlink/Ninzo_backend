@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Manual restock and the pickup (#107)
+- Added: `createRestock` (merges into a confirmed request at the same hub, replaces a suggestion) and `respondToShortfall` (a partial fill or another hub, which opens a follow-up request there).
+- Added: scanning cassette lots moves a request to `picked_up`, then `received`, and settles an open shortfall. A cassette nobody collects 30 minutes after `arrive_by` expires and its lots go back on the shelf.
+- Added: migration 0027, `restock_requests.follow_of`. Not applied to Supabase.
+- Evidence: docs/testing/reports/107.md
+
 ### Restock suggestions (#106)
 - Added: a stock check that drafts one suggestion when a scooter runs low, from the nearest hub; `listRestockSuggestions`, `confirmRestock` (with changed quantities) and `declineRestock`; suggestions expire.
 - Added: settings `restock_low_qty` (3), `restock_target_qty` (10), `restock_suggestion_ttl_s` (600) and `restock_check_s` (300). Migration 0026, not applied to Supabase.
