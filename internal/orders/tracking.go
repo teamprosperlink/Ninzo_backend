@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
+	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
@@ -541,6 +542,9 @@ func (s *Service) handOverTx(ctx context.Context, tx pgx.Tx, riderID, id, otpSen
 			return err
 		}
 		if err := bumpRider(ctx, tx, riderID); err != nil {
+			return err
+		}
+		if err := earnings.RecordOrder(ctx, tx, riderID, id, now); err != nil {
 			return err
 		}
 		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: riderID, Action: "order.handed_over", EntityType: "order", EntityID: id,

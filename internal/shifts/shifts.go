@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
+	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
@@ -253,9 +254,19 @@ func (s *Service) endShift(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		// A move is for this shift. Paid time of an accepted move ends with it.
-		if _, err := tx.Exec(r.Context(), "UPDATE relocations SET state = 'cancelled', state_changed_at = now() WHERE rider_id = $1 AND state IN ('suggested', 'accepted')",
-			actor.ID); err != nil {
+		rows, err := tx.Query(r.Context(), "UPDATE relocations SET state = 'cancelled', state_changed_at = now() WHERE rider_id = $1 AND state IN ('suggested', 'accepted') RETURNING id::text",
+			actor.ID)
+		if err != nil {
 			return err
+		}
+		moves, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		for _, m := range moves {
+			if err := earnings.RecordRelocation(r.Context(), tx, m); err != nil {
+				return err
+			}
 		}
 		// A suggestion is for the scooter on shift; the next rider gets their own.
 		if _, err := tx.Exec(r.Context(), "UPDATE restock_requests SET state = 'cancelled', state_changed_at = now(), updated_at = now() WHERE rider_id = $1 AND state = 'suggested'",

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
+	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
@@ -306,6 +307,9 @@ func (s *Service) settle(ctx context.Context, now time.Time) error {
 			ended = append(ended, moved{m.id, m.rider})
 		}
 		for _, m := range ended {
+			if err := earnings.RecordRelocation(ctx, tx, m.id); err != nil {
+				return err
+			}
 			if err := bump(ctx, tx, m.rider, m.id); err != nil {
 				return err
 			}

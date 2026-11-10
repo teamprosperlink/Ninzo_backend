@@ -2077,7 +2077,7 @@ paths:
                 - profile
     /riders/me/earnings:
         get:
-            description: Orders, incentives and paid repositioning time.
+            description: Orders, incentives and paid repositioning time. Each order handed over earns the zone's rate at the time; the day's incentive comes once the day's orders reach the zone's level; an accepted move is paid by the started minute until it ends, up to a cap. A suspended rider can still see this.
             operationId: getEarnings
             parameters:
                 - description: The day, in the zone's local time.
@@ -2098,6 +2098,10 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get earnings for a day

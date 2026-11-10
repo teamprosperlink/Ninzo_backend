@@ -423,3 +423,19 @@ func TestOnlyAnAccurateNewPingMarksArrival(t *testing.T) {
 		t.Errorf("a rider who reached the node was missed: %s", f.state(id))
 	}
 }
+
+func TestAnArrivedMoveIsPaid(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, token := f.rider(f.b)
+	f.rider(f.b)
+	f.orders(2, 12.9425, 77.6365, 5*time.Minute)
+	f.svc.Check(ctx, time.Now())
+	id := f.suggestion(rider)
+	f.post("/riders/me/relocations/"+id+"/accept", token)
+	f.exec(`INSERT INTO location_pings (rider_id, lat, lng, speed_mps, accuracy_m, device_time, applied) VALUES ($1, 12.9423, 77.6362, 4, 5, now(), true)`, rider)
+	f.svc.Check(ctx, time.Now().Add(time.Second))
+	if f.state(id) != "arrived" || f.count("SELECT count(*) FROM earnings WHERE relocation_id = $1 AND kind = 'relocation'", id) != 1 {
+		t.Error("an arrived move was not paid")
+	}
+}
