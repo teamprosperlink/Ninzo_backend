@@ -30,7 +30,7 @@ func run() error {
 	if err := os.RemoveAll(filepath.Join("contracts", "bruno")); err != nil {
 		return err
 	}
-	for app, file := range map[string]string{"customer": "customer.openapi.yaml", "rider": "rider.openapi.yaml"} {
+	for app, file := range map[string]string{"customer": "customer.openapi.yaml", "rider": "rider.openapi.yaml", "partner": "partner.openapi.yaml"} {
 		files, err := contractbundle.Bruno(app, bundles[file])
 		if err != nil {
 			return err

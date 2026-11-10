@@ -1,0 +1,32 @@
+meta {
+  name: sendEventBatch
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/hub/events
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-sendEventBatch-0001
+}
+
+body:json {
+  {
+    "events": [
+      {
+        "device_time": "2026-11-04T10:00:00Z",
+        "event_id": "mock_value",
+        "payload": {
+          "request_id": null
+        },
+        "type": "accept"
+      }
+    ]
+  }
+}

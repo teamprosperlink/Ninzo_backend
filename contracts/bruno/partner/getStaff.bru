@@ -1,0 +1,16 @@
+meta {
+  name: getStaff
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/hub/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

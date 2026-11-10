@@ -1,0 +1,29 @@
+meta {
+  name: recordShortfall
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/hub/restock/mock_id/shortfall
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-recordShortfall-0001
+}
+
+body:json {
+  {
+    "action": "partial",
+    "lines": [
+      {
+        "item_id": "ord_01HZX3Q7",
+        "qty_missing": 1
+      }
+    ]
+  }
+}

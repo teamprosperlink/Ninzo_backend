@@ -1,0 +1,136 @@
+asyncapi: 2.6.0
+id: urn:ninzo:partner:stream
+info:
+  title: Ninzo hub stream
+  version: 0.1.0
+  description: >-
+    The live channel for one hub: new and changed restock requests. Sign-in, seq, heartbeat and close
+    code rules are in contracts/README.md. seq here is the hub's: it rises with every change to any of
+    the hub's requests. GET /v1/hub/restock stays the authority. The token must be renewed on the same
+    connection, because this channel stays open through a shift.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+defaultContentType: application/json
+servers:
+  placeholder:
+    url: partner-api.example.invalid
+    protocol: wss
+    description: Placeholder. Real URLs are published with the mock server.
+tags:
+  - name: hub
+    description: Following a hub's restock queue live.
+channels:
+  /v1/hub/stream:
+    description: The signed-in staff member's hub. Every device at the hub sees the same events.
+    publish:
+      operationId: sendHubStreamFrame
+      summary: Frames the app sends
+      description: The first frame must be auth, within 5 seconds. Send it again with a new token before the current one expires.
+      tags:
+        - name: hub
+      message:
+        $ref: '#/components/messages/Auth'
+    subscribe:
+      operationId: receiveHubStreamEvent
+      summary: Events the app receives
+      description: Apply events by the seq rules in contracts/README.md. Within one request, drop an event whose request seq is older than what you show.
+      tags:
+        - name: hub
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AuthOk'
+          - $ref: '#/components/messages/Heartbeat'
+          - $ref: '#/components/messages/RequestNew'
+          - $ref: '#/components/messages/RequestChanged'
+components:
+  messages:
+    Auth:
+      name: auth
+      title: Sign in to the channel
+      summary: Sends a current access token.
+      payload:
+        type: object
+        required: [type, token]
+        properties:
+          type:
+            type: string
+            const: auth
+          token:
+            type: string
+    AuthOk:
+      name: auth_ok
+      title: Signed in
+      summary: The first event. Fetch the queue next if the app has not already.
+      payload:
+        type: object
+        required: [type, server_time, data]
+        properties:
+          type:
+            type: string
+            const: auth_ok
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+    Heartbeat:
+      name: heartbeat
+      title: Heartbeat
+      summary: Sent every 15 seconds with the hub's current seq. If it is higher than the app has, fetch the queue.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: heartbeat
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            type: object
+    RequestNew:
+      name: request_new
+      title: New request
+      summary: A rider confirmed a restock at this hub.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: request_new
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            $ref: 'openapi.yaml#/components/schemas/HubRequest'
+    RequestChanged:
+      name: request_changed
+      title: Request changed
+      summary: >-
+        A request changed: accepted by someone, a scan, a shortfall or the rider's answer to it, ready,
+        picked up, the rider's arrival time, or withdrawn by the rider.
+      payload:
+        type: object
+        required: [type, seq, server_time, data]
+        properties:
+          type:
+            type: string
+            const: request_changed
+          seq:
+            type: integer
+            minimum: 1
+          server_time:
+            type: string
+            format: date-time
+          data:
+            $ref: 'openapi.yaml#/components/schemas/HubRequest'

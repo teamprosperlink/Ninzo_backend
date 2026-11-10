@@ -1,0 +1,16 @@
+meta {
+  name: listHubRequests
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/hub/restock
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

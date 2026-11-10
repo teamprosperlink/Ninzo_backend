@@ -1,0 +1,25 @@
+meta {
+  name: markHubRequestReady
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/hub/restock/mock_id/ready
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-markHubRequestReady-0001
+}
+
+body:json {
+  {
+    "lot_numbers": [
+      "mock_value"
+    ]
+  }
+}

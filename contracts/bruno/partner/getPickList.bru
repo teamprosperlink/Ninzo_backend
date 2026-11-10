@@ -1,0 +1,16 @@
+meta {
+  name: getPickList
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/hub/restock/mock_id/pick-list
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

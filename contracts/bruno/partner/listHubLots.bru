@@ -1,0 +1,16 @@
+meta {
+  name: listHubLots
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/hub/lots
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

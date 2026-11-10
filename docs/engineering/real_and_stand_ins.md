@@ -59,3 +59,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Manual restock, shortfall answers, the cassette pickup and expiry of uncollected cassettes | Real | Built (#107). A substitute shortfall is answered, but only real hub staff (v0.8.0) offer one | | v0.7.0 |
 | Relocation: suggested moves toward demand, accept, arrival from pings | Real, simple rule | Built (#108). Demand is recent paid orders counted at the node nearest each gate; distance is straight-line. The demand forecast and road times come in v1.0.0 | | v0.7.0 |
 | Earnings: pay per order, the day's incentive, paid moving time; `getEarnings` | Real; rates are test values | Built (#109). Test rates (40 rupees an order, 200 at 10 orders, 2 rupees a minute up to 20 minutes) until the admin sets them in the console (v0.9.0). No payouts | | v0.7.0 |
+| Partner (hub) API | Mock only | Contract and mock (#122). The real hub APIs come in parts B to F | | v0.8.0 |

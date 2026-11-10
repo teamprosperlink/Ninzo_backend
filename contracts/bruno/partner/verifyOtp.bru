@@ -1,0 +1,24 @@
+meta {
+  name: verifyOtp
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/auth/otp/verify
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-verifyOtp-0001
+}
+
+body:json {
+  {
+    "otp": "123456",
+    "request_id": "mock_value"
+  }
+}
