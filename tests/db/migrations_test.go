@@ -196,7 +196,7 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 
 // builtInV030 lists the v0.3.0 tables built so far, because v0.3.0 is built step by step. Add each
 // table here as it is built. When v0.3.0 is finished, compare with every v0.2.0 and v0.3.0 table.
-var builtInV080 = []string{"hub_staff", "hub_state", "shortfall_lines"}
+var builtInV080 = []string{"hub_staff", "hub_state", "shortfall_lines", "hub_events"}
 
 var builtInV070 = []string{"restock_requests", "restock_lines", "restock_lots", "shortfalls", "relocations", "earnings"}
 
