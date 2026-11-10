@@ -1,4 +1,4 @@
-// Package mockserver serves sample answers for the customer, rider and partner contracts,
+// Package mockserver serves sample answers for the customer, rider, partner and console contracts,
 // so the app developers can build before the real backend exists. It has no
 // database, and nothing here is used by the real services.
 package mockserver
@@ -116,6 +116,11 @@ func (s *Server) Handler() http.Handler {
 			sub.MethodFunc(rt.method, rt.path, s.wrap(rt))
 		}
 		sub.Get("/hub/stream", s.hubStream)
+	})
+	r.Route("/console/v1", func(sub chi.Router) {
+		for _, rt := range consoleRoutes() {
+			sub.MethodFunc(rt.method, rt.path, s.wrap(rt))
+		}
 	})
 	return r
 }
@@ -241,7 +246,7 @@ func (s *Server) contractFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) docs(w http.ResponseWriter, r *http.Request) {
 	app := chi.URLParam(r, "app")
-	if app != "customer" && app != "rider" && app != "partner" {
+	if app != "customer" && app != "rider" && app != "partner" && app != "console" {
 		http.NotFound(w, r)
 		return
 	}
@@ -261,6 +266,7 @@ func (s *Server) home(w http.ResponseWriter, _ *http.Request) {
 <li><a href="/docs/customer">Customer API docs</a> and <a href="/contracts/customer.openapi.yaml">contract file</a></li>
 <li><a href="/docs/rider">Rider API docs</a> and <a href="/contracts/rider.openapi.yaml">contract file</a></li>
 <li><a href="/docs/partner">Partner (hub) API docs</a> and <a href="/contracts/partner.openapi.yaml">contract file</a></li>
+<li><a href="/docs/console">Console API docs</a> and <a href="/contracts/console.openapi.yaml">contract file</a></li>
 <li><a href="/contracts/customer.stream.asyncapi.yaml">Customer stream</a>, <a href="/contracts/rider.stream.asyncapi.yaml">rider stream</a> and <a href="/contracts/partner.stream.asyncapi.yaml">hub stream</a></li>
 <li><a href="/scenarios">All scenarios</a></li>
 </ul>
@@ -276,5 +282,6 @@ func (s *Server) listScenarios(w http.ResponseWriter, _ *http.Request) {
 		"customer": customerScenarios,
 		"rider":    riderScenarios,
 		"partner":  partnerScenarios,
+		"console":  consoleScenarios,
 	})
 }

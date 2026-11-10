@@ -1,0 +1,16 @@
+meta {
+  name: listZones
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{baseUrl}}/admin/zones
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

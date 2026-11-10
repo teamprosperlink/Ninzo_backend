@@ -1,0 +1,24 @@
+meta {
+  name: createMenuItem
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/admin/menu/items
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-createMenuItem-0001
+}
+
+body:json {
+  {
+    "name": "mock_value",
+    "price_paise": 1
+  }
+}

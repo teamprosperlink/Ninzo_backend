@@ -1,0 +1,17 @@
+meta {
+  name: cancelChange
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/admin/approvals/mock_id/cancel
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-cancelChange-0001
+}

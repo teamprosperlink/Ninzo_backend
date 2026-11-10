@@ -1,0 +1,23 @@
+meta {
+  name: enrollTotp
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/auth/totp/enroll
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-enrollTotp-0001
+}
+
+body:json {
+  {
+    "challenge_id": "mock_value"
+  }
+}

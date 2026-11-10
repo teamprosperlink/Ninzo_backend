@@ -1,0 +1,17 @@
+meta {
+  name: signOut
+  type: http
+  seq: 36
+}
+
+post {
+  url: {{baseUrl}}/auth/signout
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-signOut-0001
+}

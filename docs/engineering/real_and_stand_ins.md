@@ -64,3 +64,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Shortfall lines, sealing the cassette, the label, the hub's lots, quarantine (hub lead), and substitutes | Real | Built (#125). A substitute accepted by the rider reopens packing with the substitute in place of what was short | | v0.8.0 |
 | Hub offline sync (`POST /hub/events`) | Real | Built (#126): queued accept, scan, unscan, shortfall, ready and quarantine, applied in order, each once by event_id | | v0.8.0 |
 | Hub staff | Real | Built (#127): hub actions come only from staff through the partner API. The simulator runs in tests only. A suggestion prefers a hub with staff; a confirmed request no hub accepts within `restock_accept_s` (15 minutes) expires and the rider is told. Only the first test zone's hub has test staff; the admin adds staff from v0.9.0 | | v0.8.0 |
+| Console API | Mock only | Contract and mock (#133). The real console APIs come in parts B to F | | v0.9.0 |

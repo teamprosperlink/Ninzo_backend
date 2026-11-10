@@ -1,0 +1,23 @@
+meta {
+  name: updateHubStaff
+  type: http
+  seq: 40
+}
+
+patch {
+  url: {{baseUrl}}/admin/hub-staff/mock_id
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-updateHubStaff-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

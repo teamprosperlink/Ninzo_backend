@@ -1,0 +1,16 @@
+meta {
+  name: listSupportAlerts
+  type: http
+  seq: 27
+}
+
+get {
+  url: {{baseUrl}}/admin/support-alerts
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

@@ -1,0 +1,16 @@
+meta {
+  name: getPriceHistory
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/admin/menu/items/mock_id/prices
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

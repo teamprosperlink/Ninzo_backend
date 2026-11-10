@@ -1,0 +1,23 @@
+meta {
+  name: updateHub
+  type: http
+  seq: 39
+}
+
+patch {
+  url: {{baseUrl}}/admin/hubs/mock_id
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-updateHub-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

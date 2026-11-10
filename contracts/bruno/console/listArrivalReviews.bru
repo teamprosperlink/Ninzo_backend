@@ -1,0 +1,16 @@
+meta {
+  name: listArrivalReviews
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/admin/arrival-reviews
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

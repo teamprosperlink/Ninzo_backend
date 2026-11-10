@@ -1,0 +1,24 @@
+meta {
+  name: decideRider
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/admin/riders/mock_id/decision
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-decideRider-0001
+}
+
+body:json {
+  {
+    "decision": "approve",
+    "reason": "mock_value"
+  }
+}

@@ -1,0 +1,16 @@
+meta {
+  name: listRiderReviews
+  type: http
+  seq: 26
+}
+
+get {
+  url: {{baseUrl}}/admin/riders/review
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

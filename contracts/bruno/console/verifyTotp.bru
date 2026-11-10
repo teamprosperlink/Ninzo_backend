@@ -1,0 +1,24 @@
+meta {
+  name: verifyTotp
+  type: http
+  seq: 42
+}
+
+post {
+  url: {{baseUrl}}/auth/totp/verify
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-verifyTotp-0001
+}
+
+body:json {
+  {
+    "challenge_id": "mock_value",
+    "code": "mock_value"
+  }
+}

@@ -1,0 +1,16 @@
+meta {
+  name: getZoneSettings
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/admin/zones/mock_id/settings
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

@@ -1,0 +1,16 @@
+meta {
+  name: getGateHistory
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/admin/gates/mock_id/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

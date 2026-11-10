@@ -1,0 +1,25 @@
+meta {
+  name: createConsoleUser
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/admin/users
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-createConsoleUser-0001
+}
+
+body:json {
+  {
+    "login_id": "mock_value",
+    "name": "mock_value",
+    "role": "admin"
+  }
+}

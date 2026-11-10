@@ -1,0 +1,16 @@
+meta {
+  name: listHubStaff
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{baseUrl}}/admin/hubs/mock_id/staff
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

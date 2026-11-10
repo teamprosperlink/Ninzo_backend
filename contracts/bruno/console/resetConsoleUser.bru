@@ -1,0 +1,23 @@
+meta {
+  name: resetConsoleUser
+  type: http
+  seq: 35
+}
+
+post {
+  url: {{baseUrl}}/admin/users/mock_id/reset
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-resetConsoleUser-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

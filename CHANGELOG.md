@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console contract and mock (#133)
+- Added: `contracts/console/openapi.yaml`, 40 operations: two-step sign-in (ID and password, then TOTP), users and roles, approvals, rider review, flags, zones, settings and the kill switch, menu and prices, gates and their history, hubs and hub staff, the audit log, arrival reviews and support alerts.
+- Added: the mock serves it at `/console/v1`; CI checks the mock against it. Decision 0015.
+- Evidence: docs/testing/reports/133.md
 ### The real hub flow (#127)
 - Changed: the customer API runs only restock's own jobs: the stock check, the expiry of uncollected cassettes, and, new, the expiry of a confirmed request no hub accepts within `restock_accept_s` (900). Suggestions prefer a hub with staff. Hub actions come from staff through the partner API; the simulator is for tests only.
 - Added: migration 0034, `restock_accept_s`. Not applied to Supabase.

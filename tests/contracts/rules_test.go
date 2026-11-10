@@ -30,6 +30,9 @@ var operationsWithoutIdempotency = map[string]bool{
 	"razorpayWebhook":    true,
 	"locationPing":       true,
 	"sendEventBatch":     true,
+	"consoleLogin":       true,
+	"enrollTotp":         true,
+	"verifyTotp":         true,
 }
 
 // operationsWithoutBearer are the only operations allowed to skip sign-in.
@@ -39,6 +42,9 @@ var operationsWithoutBearer = map[string]bool{
 	"signInWithGoogle": true,
 	"refreshToken":     true,
 	"razorpayWebhook":  true,
+	"consoleLogin":     true,
+	"enrollTotp":       true,
+	"verifyTotp":       true,
 }
 
 // hiddenCustomerFields would reveal that a rider is allotted during the wait.

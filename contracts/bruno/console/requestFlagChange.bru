@@ -1,0 +1,24 @@
+meta {
+  name: requestFlagChange
+  type: http
+  seq: 31
+}
+
+put {
+  url: {{baseUrl}}/admin/flags/mock_id
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-requestFlagChange-0001
+}
+
+body:json {
+  {
+    "enabled": true,
+    "reason": "mock_value"
+  }
+}

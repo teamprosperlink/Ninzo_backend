@@ -1,0 +1,23 @@
+meta {
+  name: updateConsoleUser
+  type: http
+  seq: 37
+}
+
+patch {
+  url: {{baseUrl}}/admin/users/mock_id
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-updateConsoleUser-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

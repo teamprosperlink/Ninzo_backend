@@ -1,0 +1,27 @@
+meta {
+  name: requestZoneSettingsChange
+  type: http
+  seq: 34
+}
+
+put {
+  url: {{baseUrl}}/admin/zones/mock_id/settings
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-requestZoneSettingsChange-0001
+}
+
+body:json {
+  {
+    "base_version": 1,
+    "changes": {
+      "timer_length_s": 120
+    },
+    "reason": "mock_value"
+  }
+}

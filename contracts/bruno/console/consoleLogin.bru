@@ -1,0 +1,24 @@
+meta {
+  name: consoleLogin
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-consoleLogin-0001
+}
+
+body:json {
+  {
+    "login_id": "mock_value",
+    "password": "mock_value"
+  }
+}

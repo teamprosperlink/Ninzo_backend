@@ -1,0 +1,26 @@
+meta {
+  name: createHub
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/admin/hubs
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-createHub-0001
+}
+
+body:json {
+  {
+    "lat": 1.5,
+    "lng": 1.5,
+    "name": "mock_value",
+    "zone_id": "ord_01HZX3Q7"
+  }
+}

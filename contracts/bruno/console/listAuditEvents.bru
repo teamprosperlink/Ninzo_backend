@@ -1,0 +1,16 @@
+meta {
+  name: listAuditEvents
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseUrl}}/admin/audit
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

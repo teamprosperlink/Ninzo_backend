@@ -1,0 +1,16 @@
+meta {
+  name: listAdminMenu
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{baseUrl}}/admin/menu/items
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

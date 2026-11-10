@@ -1,0 +1,2772 @@
+openapi: 3.1.0
+info:
+  title: Ninzo console API
+  version: 0.1.0
+  description: >-
+    The API behind the ops console (admin, ops, support and hub_manager; decision 0014). The shared rules
+    are in contracts/README.md. Sign-in is an ID and password, then an authenticator code. The server checks
+    the role on every call; a missing permission is 403 with missing_permission. A settings, kill-switch or
+    flag change, and a refund above the set amount, waits for a second person's approval. Support and live
+    ops screens come in v0.10.0.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+- url: https://console-api.example.invalid/v1
+  description: Placeholder. Real URLs are published with the mock server.
+security:
+- bearerAuth: []
+tags:
+- name: auth
+  description: Sign-in, the authenticator and passwords.
+- name: users
+  description: Console users and roles.
+- name: approvals
+  description: Changes waiting for a second person.
+- name: riders
+  description: Rider review.
+- name: flags
+  description: Feature flags.
+- name: zones
+  description: Zones, settings and the kill switch.
+- name: menu
+  description: Menu items and prices.
+- name: gates
+  description: Gates and their history.
+- name: hubs
+  description: Hubs and hub staff.
+- name: audit
+  description: The audit log.
+- name: reviews
+  description: Late-arrival reviews and support alerts.
+paths:
+  /auth/login:
+    post:
+      tags:
+      - auth
+      operationId: consoleLogin
+      summary: Sign in with an ID and password
+      description: >-
+        Step one of two. Returns a challenge for the authenticator code; a session starts only after it. A wrong ID or password is always invalid_credentials (401). After 5 failures in 15 minutes the account locks for 15 minutes; only the right password then learns account_locked (403). Errors also: rate_limited (429).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginChallenge'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /auth/totp/enroll:
+    post:
+      tags:
+      - auth
+      operationId: enrollTotp
+      summary: Set up the authenticator
+      description: >-
+        Only when the challenge says totp_enrolled is false: returns the secret once, to add to an authenticator app. Errors: totp_already_enrolled, challenge_expired (both 409).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRef'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpEnrollment'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /auth/totp/verify:
+    post:
+      tags:
+      - auth
+      operationId: verifyTotp
+      summary: Finish sign-in with the authenticator code
+      description: >-
+        Step two. Errors: invalid_totp (400), challenge_expired (409), totp_attempts_exceeded (429).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpCode'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleSession'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /auth/refresh:
+    post:
+      tags:
+      - auth
+      operationId: refreshToken
+      summary: Get a new token pair
+      description: >-
+        Send only one refresh at a time. See Sign-in in contracts/README.md.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /auth/signout:
+    post:
+      tags:
+      - auth
+      operationId: signOut
+      summary: Sign out on this device
+      description: >-
+        Ends this session.
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /me/password:
+    post:
+      tags:
+      - auth
+      operationId: changePassword
+      summary: Change your password
+      description: >-
+        Ends every other session. After a temporary password, this is the only call that works besides getConsoleUser, refreshToken and signOut; every other call is 403 password_change_required. Errors: invalid_credentials (401) for a wrong current password; weak_password (400).
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/me:
+    get:
+      tags:
+      - users
+      operationId: getConsoleUser
+      summary: Get the signed-in console user
+      description: >-
+        The user, their role and their permissions; the console builds its menus from them. The server checks the permission on every call.
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleUserResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/users:
+    get:
+      tags:
+      - users
+      operationId: listConsoleUsers
+      summary: List console users
+      description: >-
+        Admin only. Permission: users.manage.
+      x-permission: users.manage
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleUserList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    post:
+      tags:
+      - users
+      operationId: createConsoleUser
+      summary: Add a console user
+      description: >-
+        Admin only. Returns a temporary password once; the user changes it and sets up the authenticator at first sign-in. A hub_manager needs hub_id. Errors: login_id_taken (409). Permission: users.manage.
+      x-permission: users.manage
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsoleUserCreate'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleUserCreated'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/users/{user_id}:
+    patch:
+      tags:
+      - users
+      operationId: updateConsoleUser
+      summary: Change a user's role, hub or access
+      description: >-
+        Admin only, with a reason. Deactivating ends the user's sessions. An admin cannot deactivate or demote themselves. Errors: last_admin (409). Permission: users.manage.
+      x-permission: users.manage
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsoleUserUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleUserResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/users/{user_id}/reset:
+    post:
+      tags:
+      - users
+      operationId: resetConsoleUser
+      summary: Reset a user's password and authenticator
+      description: >-
+        Admin only, with a reason. Returns a new temporary password once and ends the user's sessions. Permission: users.manage.
+      x-permission: users.manage
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonBody'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleUserCreated'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/approvals:
+    get:
+      tags:
+      - approvals
+      operationId: listApprovals
+      summary: List approvals
+      description: >-
+        Pending first. A second person approves a settings change, a kill-switch change, a flag change and a refund above the set amount (decision 0014). Permission: approvals.read.
+      x-permission: approvals.read
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Only this status.
+        schema:
+          type: string
+          enum: [pending, approved, rejected, failed, cancelled, lapsed, open, arrived_in_time, late, timed_out]
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/approvals/{approval_id}/approve:
+    post:
+      tags:
+      - approvals
+      operationId: approveChange
+      summary: Approve a change
+      description: >-
+        Applies it. The person who asked cannot approve their own change. If the change no longer applies (the settings moved past its base version, or a zone would become invalid), the approval becomes failed with failure_code and nothing changes. Errors: own_change, not_pending (both 409). Permission: approvals.decide.
+      x-permission: approvals.decide
+      parameters:
+      - name: approval_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/approvals/{approval_id}/reject:
+    post:
+      tags:
+      - approvals
+      operationId: rejectChange
+      summary: Reject a change
+      description: >-
+        With a reason. Errors: not_pending (409). Permission: approvals.decide.
+      x-permission: approvals.decide
+      parameters:
+      - name: approval_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonBody'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/approvals/{approval_id}/cancel:
+    post:
+      tags:
+      - approvals
+      operationId: cancelChange
+      summary: Cancel your own pending change
+      description: >-
+        Only the person who asked. A pending approval also lapses after 24 hours. Errors: not_pending (409). Permission: approvals.read.
+      x-permission: approvals.read
+      parameters:
+      - name: approval_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/riders/review:
+    get:
+      tags:
+      - riders
+      operationId: listRiderReviews
+      summary: List riders waiting for a decision
+      description: >-
+        Applicants and riders whose verification failed or expired, oldest first. Admin and ops. Permission: riders.review.
+      x-permission: riders.review
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderReviewList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/riders/{rider_id}/decision:
+    post:
+      tags:
+      - riders
+      operationId: decideRider
+      summary: Approve, suspend or reinstate a rider
+      description: >-
+        With a reason. Approving needs zone_id and a verified rider. Suspending (also how an applicant is turned down) ends the rider's sessions and their shift. Errors: not_verified, not_allowed (both 409). Permission: riders.review.
+      x-permission: riders.review
+      parameters:
+      - name: rider_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RiderDecision'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderReviewResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/flags:
+    get:
+      tags:
+      - flags
+      operationId: listFlags
+      summary: List feature flags
+      description: >-
+        Admin. Permission: flags.manage.
+      x-permission: flags.manage
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlagList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/flags/{flag_key}:
+    put:
+      tags:
+      - flags
+      operationId: requestFlagChange
+      summary: Ask to change a feature flag
+      description: >-
+        Creates an approval; a second admin applies it. Errors: approval_pending (409) if one is already waiting. Permission: flags.manage.
+      x-permission: flags.manage
+      parameters:
+      - name: flag_key
+        in: path
+        required: true
+        description: The flag.
+        schema:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,60}$
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlagChange'
+      responses:
+        '202':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/zones:
+    get:
+      tags:
+      - zones
+      operationId: listZones
+      summary: List zones
+      description: >-
+        With each zone's kill switch. Permission: zones.read.
+      x-permission: zones.read
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/settings:
+    get:
+      tags:
+      - zones
+      operationId: getGlobalSettings
+      summary: Get the global settings
+      description: >-
+        Every setting with its value, version and limits. Permission: settings.read.
+      x-permission: settings.read
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsView'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    put:
+      tags:
+      - zones
+      operationId: requestGlobalSettingsChange
+      summary: Ask to change global settings
+      description: >-
+        Creates an approval. Send base_version, the version you read; every zone must stay valid with the change. Errors: invalid_setting (400), approval_pending, stale_version (both 409). Permission: settings.request.
+      x-permission: settings.request
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsChange'
+      responses:
+        '202':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/zones/{zone_id}/settings:
+    get:
+      tags:
+      - zones
+      operationId: getZoneSettings
+      summary: Get a zone's settings
+      description: >-
+        Its own values, and the effective values with the global ones beneath. Permission: settings.read.
+      x-permission: settings.read
+      parameters:
+      - name: zone_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsView'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    put:
+      tags:
+      - zones
+      operationId: requestZoneSettingsChange
+      summary: Ask to change a zone's settings
+      description: >-
+        Creates an approval. Send base_version, the zone version you read. A null value goes back to the global one. Errors: invalid_setting (400), approval_pending, stale_version (both 409). Permission: settings.request.
+      x-permission: settings.request
+      parameters:
+      - name: zone_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsChange'
+      responses:
+        '202':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/zones/{zone_id}/kill-switch:
+    post:
+      tags:
+      - zones
+      operationId: requestKillSwitch
+      summary: Ask to turn a zone's 90-second offer off or on
+      description: >-
+        Creates an approval. Turning it off stops new orders in the zone; orders in progress finish. Errors: approval_pending (409). Permission: zones.kill_switch.
+      x-permission: zones.kill_switch
+      parameters:
+      - name: zone_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KillSwitch'
+      responses:
+        '202':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/menu/items:
+    get:
+      tags:
+      - menu
+      operationId: listAdminMenu
+      summary: List every menu item
+      description: >-
+        Hidden ones too. Permission: menu.manage.
+      x-permission: menu.manage
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMenuList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    post:
+      tags:
+      - menu
+      operationId: createMenuItem
+      summary: Add a menu item
+      description: >-
+        Added hidden. Errors: name_taken (409). Permission: menu.manage.
+      x-permission: menu.manage
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MenuItemCreate'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMenuItemResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/menu/items/{item_id}:
+    patch:
+      tags:
+      - menu
+      operationId: updateMenuItem
+      summary: Change a menu item or its price
+      description: >-
+        A price change is kept in the price history; orders already placed keep their price. Errors: name_taken (409). Permission: menu.manage.
+      x-permission: menu.manage
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MenuItemUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMenuItemResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/menu/items/{item_id}/prices:
+    get:
+      tags:
+      - menu
+      operationId: getPriceHistory
+      summary: Get an item's prices over time
+      description: >-
+        Newest first. Permission: menu.manage.
+      x-permission: menu.manage
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHistory'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/gates:
+    get:
+      tags:
+      - gates
+      operationId: listAdminGates
+      summary: List gates
+      description: >-
+        Newest first, optionally in one zone. Customers add gates; the console edits and verifies them. Permission: gates.read.
+      x-permission: gates.read
+      parameters:
+      - name: zone_id
+        in: query
+        required: false
+        description: Only this zone.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminGateList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/gates/{gate_id}:
+    patch:
+      tags:
+      - gates
+      operationId: updateGate
+      summary: Change a gate
+      description: >-
+        Every change is a new version with who and why; orders keep the version they were placed with. Errors: outside_zone (409). Permission: gates.manage.
+      x-permission: gates.manage
+      parameters:
+      - name: gate_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GateUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminGateResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/gates/{gate_id}/history:
+    get:
+      tags:
+      - gates
+      operationId: getGateHistory
+      summary: Get a gate's versions
+      description: >-
+        Oldest first. Permission: gates.read.
+      x-permission: gates.read
+      parameters:
+      - name: gate_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateHistory'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/hubs:
+    get:
+      tags:
+      - hubs
+      operationId: listAdminHubs
+      summary: List hubs
+      description: >-
+        Optionally in one zone. Permission: hubs.read.
+      x-permission: hubs.read
+      parameters:
+      - name: zone_id
+        in: query
+        required: false
+        description: Only this zone.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHubList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    post:
+      tags:
+      - hubs
+      operationId: createHub
+      summary: Add a hub
+      description: >-
+        Errors: name_taken (409). Permission: hubs.manage.
+      x-permission: hubs.manage
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubCreate'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHubResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/hubs/{hub_id}:
+    patch:
+      tags:
+      - hubs
+      operationId: updateHub
+      summary: Change or pause a hub
+      description: >-
+        A paused hub accepts nothing new. Errors: name_taken (409). Permission: hubs.manage.
+      x-permission: hubs.manage
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHubResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/hubs/{hub_id}/staff:
+    get:
+      tags:
+      - hubs
+      operationId: listHubStaff
+      summary: List a hub's staff
+      description: >-
+        A hub_manager sees only their own hub. Permission: hubs.read.
+      x-permission: hubs.read
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubStaffList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    post:
+      tags:
+      - hubs
+      operationId: addHubStaff
+      summary: Add hub staff
+      description: >-
+        They sign in to the partner app with this phone. Errors: phone_taken (409). Permission: hub_staff.manage.
+      x-permission: hub_staff.manage
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubStaffCreate'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubStaffResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/hub-staff/{staff_id}:
+    patch:
+      tags:
+      - hubs
+      operationId: updateHubStaff
+      summary: Change hub staff
+      description: >-
+        Role, hub or status, with a reason. Suspending ends their sessions. Permission: hub_staff.manage.
+      x-permission: hub_staff.manage
+      parameters:
+      - name: staff_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubStaffUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubStaffResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/audit:
+    get:
+      tags:
+      - audit
+      operationId: listAuditEvents
+      summary: Search the audit log
+      description: >-
+        Newest first. Read-only. Password hashes, TOTP secrets and full phone numbers are never in before or after. Permission: audit.read.
+      x-permission: audit.read
+      parameters:
+      - name: from
+        in: query
+        required: false
+        description: From this time.
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        description: Before this time.
+        schema:
+          type: string
+          format: date-time
+      - name: actor_id
+        in: query
+        required: false
+        description: Only this actor.
+        schema:
+          type: string
+          maxLength: 64
+      - name: action
+        in: query
+        required: false
+        description: Only this action, such as order.handed_over.
+        schema:
+          type: string
+          maxLength: 80
+      - name: entity_type
+        in: query
+        required: false
+        description: Only this kind of thing, such as order, zone or lot.
+        schema:
+          type: string
+          maxLength: 40
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/arrival-reviews:
+    get:
+      tags:
+      - reviews
+      operationId: listArrivalReviews
+      summary: List late-arrival reviews
+      description: >-
+        Open ones first, with how long is left. Ops and support. Permission: reviews.read.
+      x-permission: reviews.read
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Only this status.
+        schema:
+          type: string
+          enum: [pending, approved, rejected, failed, cancelled, lapsed, open, arrived_in_time, late, timed_out]
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArrivalReviewList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/arrival-reviews/{review_id}/decision:
+    post:
+      tags:
+      - reviews
+      operationId: decideArrivalReview
+      summary: Decide a late-arrival review
+      description: >-
+        arrived_in_time stops the timer at the rider's evidence; late keeps the miss and its credit. Errors: review_closed (409). Permission: reviews.decide.
+      x-permission: reviews.decide
+      parameters:
+      - name: review_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArrivalDecision'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArrivalReviewResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/support-alerts:
+    get:
+      tags:
+      - reviews
+      operationId: listSupportAlerts
+      summary: List queued support alerts
+      description: >-
+        Alerts the system raised for a person to look at, such as a refused handover. Newest first. Permission: alerts.read.
+      x-permission: alerts.read
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportAlertList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token from the sign-in endpoints.
+  schemas:
+    Done:
+      type: object
+      required: [server_time]
+      properties:
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    Permission:
+      type: string
+      description: >-
+        What a call needs; each role's list is in decision 0015. admin has every one; ops has
+        approvals.read, riders.review, zones.read, settings.read, settings.request, zones.kill_switch,
+        menu.manage, gates.read, gates.manage, hubs.read, hubs.manage, hub_staff.manage, reviews.read,
+        reviews.decide, alerts.read; support has zones.read, gates.read, reviews.read, reviews.decide,
+        alerts.read; hub_manager has hubs.read and hub_staff.manage for their own hub.
+      enum: [users.manage, approvals.read, approvals.decide, riders.review, flags.manage, zones.read, settings.read,
+        settings.request, zones.kill_switch, menu.manage, gates.read, gates.manage, hubs.read, hubs.manage,
+        hub_staff.manage, audit.read, reviews.read, reviews.decide, alerts.read]
+    Role:
+      type: string
+      description: admin runs users, settings and approvals; ops runs zones, hubs, riders and reviews; support handles customers and reviews; hub_manager runs one hub.
+      enum: [admin, ops, support, hub_manager]
+    LoginRequest:
+      type: object
+      required: [login_id, password]
+      properties:
+        login_id:
+          type: string
+          minLength: 3
+          maxLength: 80
+        password:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LoginChallenge:
+      type: object
+      required: [challenge_id, totp_enrolled, must_change_password, expires_in_s, server_time]
+      properties:
+        challenge_id:
+          type: string
+        totp_enrolled:
+          type: boolean
+          description: False at first sign-in. Then call enrollTotp before verifyTotp.
+        must_change_password:
+          type: boolean
+          description: True with a temporary password. Change it with changePassword once signed in; until then only that call works.
+        expires_in_s:
+          type: integer
+          minimum: 1
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ChallengeRef:
+      type: object
+      required: [challenge_id]
+      properties:
+        challenge_id:
+          type: string
+          maxLength: 200
+    TotpEnrollment:
+      type: object
+      required: [secret, otpauth_uri, server_time]
+      properties:
+        secret:
+          type: string
+          description: Base32. Shown once.
+        otpauth_uri:
+          type: string
+          description: For a QR code in the console.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TotpCode:
+      type: object
+      required: [challenge_id, code]
+      properties:
+        challenge_id:
+          type: string
+          maxLength: 200
+        code:
+          type: string
+          pattern: ^[0-9]{6}$
+    ConsoleSession:
+      type: object
+      required: [access_token, refresh_token, expires_in_s, user_id, role, must_change_password, server_time]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+        user_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        role:
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, expires_in_s, server_time]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    PasswordChange:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          maxLength: 200
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 200
+          description: At least 12 characters.
+          example: a-new-long-password
+    ReasonBody:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    ConsoleUser:
+      type: object
+      required: [id, login_id, name, role, hub_id, active, totp_enrolled, locked_until, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        login_id:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        hub_id:
+          type: ['string', 'null']
+          description: A hub_manager's hub.
+        active:
+          type: boolean
+        totp_enrolled:
+          type: boolean
+        locked_until:
+          type: ['string', 'null']
+          format: date-time
+          description: Set while sign-in is locked after repeated failures; a reset clears it.
+        created_at:
+          type: string
+          format: date-time
+    ConsoleUserResponse:
+      type: object
+      required: [user, permissions, server_time]
+      properties:
+        user:
+          $ref: '#/components/schemas/ConsoleUser'
+        permissions:
+          type: array
+          description: What this user's role may do.
+          items:
+            $ref: '#/components/schemas/Permission'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ConsoleUserList:
+      type: object
+      required: [users, next_cursor, server_time]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsoleUser'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ConsoleUserCreate:
+      type: object
+      required: [login_id, name, role]
+      properties:
+        login_id:
+          type: string
+          pattern: ^[a-z0-9._-]{3,80}$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        role:
+          $ref: '#/components/schemas/Role'
+        hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+    ConsoleUserCreated:
+      type: object
+      required: [user, temporary_password, server_time]
+      properties:
+        user:
+          $ref: '#/components/schemas/ConsoleUser'
+        temporary_password:
+          type: string
+          description: Shown once. Give it to the user privately.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ConsoleUserUpdate:
+      type: object
+      required: [reason]
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+        hub_id:
+          oneOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
+          description: Null takes a user off a hub.
+        active:
+          type: boolean
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    Actor:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+    SettingDiff:
+      type: object
+      required: [key, before, after]
+      properties:
+        key:
+          type: string
+        before:
+          type: ['integer', 'null']
+        after:
+          type: ['integer', 'null']
+    SettingsApprovalChange:
+      type: object
+      required: [kind, zone_id, base_version, diffs]
+      properties:
+        kind:
+          type: string
+          const: settings
+        zone_id:
+          type: ['string', 'null']
+          description: Null for the global settings.
+        base_version:
+          type: integer
+          minimum: 0
+        diffs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettingDiff'
+    KillSwitchApprovalChange:
+      type: object
+      required: [kind, zone_id, offer_enabled_before, offer_enabled_after]
+      properties:
+        kind:
+          type: string
+          const: kill_switch
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        offer_enabled_before:
+          type: boolean
+        offer_enabled_after:
+          type: boolean
+    FlagApprovalChange:
+      type: object
+      required: [kind, key, enabled_before, enabled_after]
+      properties:
+        kind:
+          type: string
+          const: flag
+        key:
+          type: string
+        enabled_before:
+          type: boolean
+        enabled_after:
+          type: boolean
+    RefundApprovalChange:
+      type: object
+      required: [kind, order_id, amount]
+      properties:
+        kind:
+          type: string
+          const: refund
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        amount:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+    Approval:
+      type: object
+      required: [id, kind, status, summary, change, requested_by, requested_at, request_reason, decided_by, decided_at, decision_reason, failure_code, expires_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        kind:
+          type: string
+          enum: [settings, kill_switch, flag, refund]
+        status:
+          type: string
+          enum: [pending, approved, rejected, failed, cancelled, lapsed]
+        summary:
+          type: string
+          description: What would change, in words.
+        change:
+          oneOf:
+          - $ref: '#/components/schemas/SettingsApprovalChange'
+          - $ref: '#/components/schemas/KillSwitchApprovalChange'
+          - $ref: '#/components/schemas/FlagApprovalChange'
+          - $ref: '#/components/schemas/RefundApprovalChange'
+          discriminator:
+            propertyName: kind
+            mapping:
+              settings: '#/components/schemas/SettingsApprovalChange'
+              kill_switch: '#/components/schemas/KillSwitchApprovalChange'
+              flag: '#/components/schemas/FlagApprovalChange'
+              refund: '#/components/schemas/RefundApprovalChange'
+        requested_by:
+          $ref: '#/components/schemas/Actor'
+        requested_at:
+          type: string
+          format: date-time
+        request_reason:
+          type: string
+        decided_by:
+          oneOf:
+          - $ref: '#/components/schemas/Actor'
+          - type: 'null'
+        decided_at:
+          type: ['string', 'null']
+          format: date-time
+        decision_reason:
+          type: ['string', 'null']
+          description: Why it was rejected or cancelled.
+        failure_code:
+          type: ['string', 'null']
+          description: Why an approved change could not be applied, such as stale_version or invalid_setting.
+        expires_at:
+          type: string
+          format: date-time
+          description: A pending approval lapses then.
+    ApprovalResponse:
+      type: object
+      required: [approval, server_time]
+      properties:
+        approval:
+          $ref: '#/components/schemas/Approval'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ApprovalList:
+      type: object
+      required: [approvals, next_cursor, server_time]
+      properties:
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Approval'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderReview:
+      type: object
+      required: [rider_id, name, phone_last4, status, verification, zone_id, applied_at]
+      properties:
+        rider_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: ['string', 'null']
+        phone_last4:
+          type: string
+          description: The last four digits only.
+        status:
+          type: string
+          enum: [applicant, active, suspended]
+        verification:
+          type: string
+          enum: [none, pending, verified, failed, expired]
+        zone_id:
+          type: ['string', 'null']
+        applied_at:
+          type: string
+          format: date-time
+    RiderReviewList:
+      type: object
+      required: [riders, next_cursor, server_time]
+      properties:
+        riders:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiderReview'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderReviewResponse:
+      type: object
+      required: [rider, server_time]
+      properties:
+        rider:
+          $ref: '#/components/schemas/RiderReview'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderDecision:
+      type: object
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [approve, suspend, reinstate]
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    Flag:
+      type: object
+      required: [key, enabled, description, updated_at]
+      properties:
+        key:
+          type: string
+        enabled:
+          type: boolean
+        description:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    FlagList:
+      type: object
+      required: [flags, server_time]
+      properties:
+        flags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Flag'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    FlagChange:
+      type: object
+      required: [enabled, reason]
+      properties:
+        enabled:
+          type: boolean
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    Zone:
+      type: object
+      required: [id, name, city, offer_enabled, is_test]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        city:
+          type: string
+        offer_enabled:
+          type: boolean
+          description: The kill switch. False stops new orders in the zone.
+        is_test:
+          type: boolean
+    ZoneList:
+      type: object
+      required: [zones, server_time]
+      properties:
+        zones:
+          type: array
+          items:
+            $ref: '#/components/schemas/Zone'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    Setting:
+      type: object
+      required: [key, unit, min, max, value, effective, required, description]
+      properties:
+        key:
+          type: string
+        unit:
+          type: string
+        min:
+          type: integer
+        max:
+          type: integer
+        value:
+          type: ['integer', 'null']
+          description: This level's own value; null means it follows the global one.
+        effective:
+          type: ['integer', 'null']
+        required:
+          type: boolean
+        description:
+          type: string
+    SettingsView:
+      type: object
+      required: [zone_id, global_version, zone_version, settings, server_time]
+      properties:
+        zone_id:
+          type: ['string', 'null']
+          description: Null for the global settings.
+        global_version:
+          type: integer
+          minimum: 0
+        zone_version:
+          type: ['integer', 'null']
+          description: The zone's own version; null for the global settings, 0 for a zone with none yet.
+        settings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Setting'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    SettingsChange:
+      type: object
+      required: [changes, base_version, reason]
+      properties:
+        base_version:
+          type: integer
+          minimum: 0
+          description: The version you read (global_version, or zone_version for a zone).
+        changes:
+          type: object
+          minProperties: 1
+          maxProperties: 50
+          additionalProperties:
+            type: ['integer', 'null']
+          description: Setting key to its new value; null goes back to the global value.
+          example:
+            timer_length_s: 120
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    KillSwitch:
+      type: object
+      required: [offer_enabled, reason]
+      properties:
+        offer_enabled:
+          type: boolean
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AdminMenuItem:
+      type: object
+      required: [id, name, description, price, status, sort_order, allergens, photo_url, updated_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        description:
+          type: ['string', 'null']
+        price:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        status:
+          type: string
+          enum: [active, hidden]
+        sort_order:
+          type: integer
+        allergens:
+          type: array
+          items:
+            type: string
+        photo_url:
+          type: ['string', 'null']
+        updated_at:
+          type: string
+          format: date-time
+    AdminMenuList:
+      type: object
+      required: [items, server_time]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminMenuItem'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminMenuItemResponse:
+      type: object
+      required: [item, server_time]
+      properties:
+        item:
+          $ref: '#/components/schemas/AdminMenuItem'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    MenuItemCreate:
+      type: object
+      required: [name, price_paise]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Kept in the price history as why the first price was set.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 500
+        price_paise:
+          type: integer
+          minimum: 100
+          maximum: 1000000
+        sort_order:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        allergens:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 40
+        photo_url:
+          type: string
+          pattern: ^https://
+          maxLength: 1000
+    MenuItemUpdate:
+      type: object
+      required: [reason]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: ['string', 'null']
+          maxLength: 500
+        price_paise:
+          type: integer
+          minimum: 100
+          maximum: 1000000
+        status:
+          type: string
+          enum: [active, hidden]
+        sort_order:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        allergens:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 40
+        photo_url:
+          type: ['string', 'null']
+          pattern: ^https://
+          maxLength: 1000
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AdminGate:
+      type: object
+      required: [id, zone_id, label, lat, lng, entry_notes, verified, version, updated_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        label:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        entry_notes:
+          type: ['string', 'null']
+        verified:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+        updated_at:
+          type: string
+          format: date-time
+    AdminGateList:
+      type: object
+      required: [gates, next_cursor, server_time]
+      properties:
+        gates:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminGate'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminGateResponse:
+      type: object
+      required: [gate, server_time]
+      properties:
+        gate:
+          $ref: '#/components/schemas/AdminGate'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    GateUpdate:
+      type: object
+      required: [reason]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        entry_notes:
+          type: ['string', 'null']
+          maxLength: 500
+        verified:
+          type: boolean
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    GateVersion:
+      type: object
+      required: [version, label, lat, lng, entry_notes, verified, reason, changed_by, created_at]
+      properties:
+        version:
+          type: integer
+        label:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        entry_notes:
+          type: ['string', 'null']
+        verified:
+          type: boolean
+        reason:
+          type: string
+        changed_by:
+          type: ['string', 'null']
+          description: Who made this version; null for one the customer made.
+        created_at:
+          type: string
+          format: date-time
+    GateHistory:
+      type: object
+      required: [gate_id, versions, server_time]
+      properties:
+        gate_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GateVersion'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminHub:
+      type: object
+      required: [id, zone_id, name, lat, lng, status, staff_count, is_test]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        status:
+          type: string
+          enum: [active, paused]
+        staff_count:
+          type: integer
+          minimum: 0
+        is_test:
+          type: boolean
+    AdminHubList:
+      type: object
+      required: [hubs, server_time]
+      properties:
+        hubs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminHub'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminHubResponse:
+      type: object
+      required: [hub, server_time]
+      properties:
+        hub:
+          $ref: '#/components/schemas/AdminHub'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubCreate:
+      type: object
+      required: [zone_id, name, lat, lng]
+      properties:
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+    HubUpdate:
+      type: object
+      required: [reason]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        status:
+          type: string
+          enum: [active, paused]
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    HubStaffMember:
+      type: object
+      required: [id, hub_id, name, phone_last4, role, status]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: ['string', 'null']
+        phone_last4:
+          type: string
+        role:
+          type: string
+          enum: [hub_staff, hub_lead]
+        status:
+          type: string
+          enum: [active, suspended]
+    HubStaffList:
+      type: object
+      required: [staff, server_time]
+      properties:
+        staff:
+          type: array
+          items:
+            $ref: '#/components/schemas/HubStaffMember'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubStaffResponse:
+      type: object
+      required: [staff, server_time]
+      properties:
+        staff:
+          $ref: '#/components/schemas/HubStaffMember'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubStaffCreate:
+      type: object
+      required: [phone, name, role]
+      properties:
+        phone:
+          type: string
+          pattern: ^\+91[6-9][0-9]{9}$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        role:
+          type: string
+          enum: [hub_staff, hub_lead]
+    HubStaffUpdate:
+      type: object
+      required: [reason]
+      properties:
+        role:
+          type: string
+          enum: [hub_staff, hub_lead]
+        status:
+          type: string
+          enum: [active, suspended]
+        hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AuditEvent:
+      type: object
+      required: [id, actor_type, actor_id, action, entity_type, entity_id, before, after, reason, at]
+      properties:
+        id:
+          type: string
+        actor_type:
+          type: string
+        actor_id:
+          type: ['string', 'null']
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+        before:
+          type: ['object', 'null']
+        after:
+          type: ['object', 'null']
+        reason:
+          type: ['string', 'null']
+        at:
+          type: string
+          format: date-time
+    AuditList:
+      type: object
+      required: [events, next_cursor, server_time]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ArrivalReview:
+      type: object
+      required: [id, order_id, status, lat, lng, device_time, due_at, decided_at, decided_by, decision_reason]
+      properties:
+        decided_by:
+          type: ['string', 'null']
+        decision_reason:
+          type: ['string', 'null']
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        status:
+          type: string
+          enum: [open, arrived_in_time, late, timed_out]
+        lat:
+          type: number
+        lng:
+          type: number
+        device_time:
+          type: string
+          format: date-time
+          description: When the rider's phone says it reached the perimeter.
+        due_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: ['string', 'null']
+          format: date-time
+    ArrivalReviewList:
+      type: object
+      required: [reviews, next_cursor, server_time]
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArrivalReview'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ArrivalReviewResponse:
+      type: object
+      required: [review, server_time]
+      properties:
+        review:
+          $ref: '#/components/schemas/ArrivalReview'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ArrivalDecision:
+      type: object
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [arrived_in_time, late]
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    SupportAlert:
+      type: object
+      required: [id, kind, order_id, rider_id, created_at]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          description: Open list, such as handover_wrong_otp.
+        order_id:
+          type: ['string', 'null']
+        rider_id:
+          type: ['string', 'null']
+        created_at:
+          type: string
+          format: date-time
+    SupportAlertList:
+      type: object
+      required: [alerts, next_cursor, server_time]
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportAlert'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    PricePoint:
+      type: object
+      required: [price, reason, created_at]
+      properties:
+        price:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PriceHistory:
+      type: object
+      required: [item_id, prices, server_time]
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/PricePoint'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime

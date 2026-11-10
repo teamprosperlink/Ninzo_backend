@@ -1,4 +1,4 @@
-// Command mock-server serves sample answers for the customer, rider and partner contracts.
+// Command mock-server serves sample answers for the customer, rider, partner and console contracts.
 package main
 
 import (

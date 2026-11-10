@@ -1,0 +1,24 @@
+meta {
+  name: requestKillSwitch
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{baseUrl}}/admin/zones/mock_id/kill-switch
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-requestKillSwitch-0001
+}
+
+body:json {
+  {
+    "offer_enabled": true,
+    "reason": "mock_value"
+  }
+}

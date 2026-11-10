@@ -1,0 +1,23 @@
+meta {
+  name: refreshToken
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{baseUrl}}/auth/refresh
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-refreshToken-0001
+}
+
+body:json {
+  {
+    "refresh_token": "mock_value"
+  }
+}

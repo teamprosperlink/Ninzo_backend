@@ -46,7 +46,7 @@ func TestDataMapCoversEveryEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	sections := map[string]string{"customer": "## 3. Customer API", "rider": "## 4. Rider API", "partner": "## 4.1 Partner API"}
+	sections := map[string]string{"customer": "## 3. Customer API", "rider": "## 4. Rider API", "partner": "## 4.1 Partner API", "console": "## 4.2 Console API"}
 	for app, heading := range sections {
 		rows := map[string]bool{}
 		for _, cells := range mapRows(mapSection(t, text, heading)) {
@@ -100,7 +100,7 @@ func TestDataMapOnlyNamesKnownTables(t *testing.T) {
 		t.Fatal("no tables found, so this test proves nothing")
 	}
 	used := map[string]bool{}
-	for _, heading := range []string{"## 3. Customer API", "## 4. Rider API", "## 4.1 Partner API", "## 5. Background work"} {
+	for _, heading := range []string{"## 3. Customer API", "## 4. Rider API", "## 4.1 Partner API", "## 4.2 Console API", "## 5. Background work"} {
 		for _, cells := range mapRows(mapSection(t, text, heading)) {
 			if len(cells) < 3 {
 				t.Errorf("short row: %v", cells)

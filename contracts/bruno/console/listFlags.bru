@@ -1,0 +1,16 @@
+meta {
+  name: listFlags
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/admin/flags
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
