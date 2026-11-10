@@ -1,0 +1,23 @@
+meta {
+  name: unscanHubLot
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/hub/restock/mock_id/unscan
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-unscanHubLot-0001
+}
+
+body:json {
+  {
+    "lot_code": "mock_value"
+  }
+}

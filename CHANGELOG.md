@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Partner contract and mock (#122)
+- Added: `contracts/partner/openapi.yaml` and the hub live channel, for the partner (hub) app: staff sign-in by phone and OTP, the queue, accept, pick list, scan, unscan, shortfall, ready, label, lots, quarantine (hub lead only) and the offline event batch.
+- Added: the mock serves them at `/partner/v1` with 27 scenarios; CI checks the mock against the contract.
+- Evidence: docs/testing/reports/122.md
+
 ### Earnings (#109)
 - Added: a handover records the order's pay; the day's incentive comes once the rider's handed-over orders reach the level; an accepted move is paid by the started minute until it ends, up to a cap. `getEarnings` returns a local day.
 - Added: migration 0029, `earnings`, and test rates as settings: `pay_per_order_paise` (4000), `incentive_orders` (10), `incentive_paise` (20000), `relocation_paise_per_minute` (200), `relocation_max_paid_s` (1200). Not applied to Supabase.

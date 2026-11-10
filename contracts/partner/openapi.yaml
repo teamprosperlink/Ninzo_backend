@@ -1,0 +1,1260 @@
+openapi: 3.1.0
+info:
+  title: Ninzo partner (hub) API
+  version: 0.1.0
+  description: The API behind the partner app that hub staff use to pack restocks for riders. The shared rules
+    are in contracts/README.md. Each staff member belongs to one hub, and every hub path acts on that hub.
+    Field names are final only after the contract review.
+  contact:
+    name: Ninzo backend
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+- url: https://partner-api.example.invalid/v1
+  description: Placeholder. Real URLs are published with the mock server.
+security:
+- bearerAuth: []
+tags:
+- name: auth
+  description: Sign-in and tokens.
+- name: staff
+  description: The signed-in staff member and their hub.
+- name: restock
+  description: The hub's restock queue, packing and the cassette.
+- name: lots
+  description: Lots at the hub, and quarantine.
+- name: sync
+  description: Offline sync.
+paths:
+  /auth/otp/request:
+    post:
+      tags:
+      - auth
+      operationId: requestOtp
+      summary: Send a sign-in code
+      description: >-
+        Indian mobile numbers only for now. The reply is the same whether or not the staff account exists,
+        and no SMS is sent if it does not. Errors: invalid_request for a bad phone number, otp_resend_limit
+        (429) when the resend limit is reached.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - phone
+              properties:
+                phone:
+                  type: string
+                  description: In E.164 format.
+                  pattern: ^\+91[6-9][0-9]{9}$
+                  example: '+919876543210'
+      responses:
+        '200':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /auth/otp/verify:
+    post:
+      tags:
+      - auth
+      operationId: verifyOtp
+      summary: Sign in with the code
+      description: >-
+        Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). After a correct code,
+        a blocked person or a staff account that is not active gets account_blocked (403).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - request_id
+              - otp
+              properties:
+                request_id:
+                  type: string
+                otp:
+                  type: string
+                  pattern: ^[0-9]{4,8}$
+                  example: '123456'
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSession'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /auth/refresh:
+    post:
+      tags:
+      - auth
+      operationId: refreshToken
+      summary: Get a new token pair
+      description: Send only one refresh at a time. See Sign-in in contracts/README.md.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: A new pair. The old refresh token stops working.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /auth/signout:
+    post:
+      tags:
+      - auth
+      operationId: signOut
+      summary: Sign out on this device
+      description: Ends this session. A shared hub tablet should sign out at the end of each staff member's shift.
+      responses:
+        '200':
+          description: Signed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Done'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/me:
+    get:
+      tags:
+      - staff
+      operationId: getStaff
+      summary: Get the signed-in staff member and their hub
+      description: The role decides what the app shows. Only a hub lead can quarantine a lot.
+      responses:
+        '200':
+          description: The staff member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock:
+    get:
+      tags:
+      - restock
+      operationId: listHubRequests
+      summary: List the hub's restock requests
+      description: >-
+        Open requests first, soonest rider arrival first. With no state, the list holds every request
+        still in progress at the hub (confirmed, hub_accepted, packing, ready, partial, picked_up). The
+        live channel sends new and changed requests.
+      parameters:
+      - name: state
+        in: query
+        required: false
+        description: Only requests in this state.
+        schema:
+          $ref: '#/components/schemas/HubRequestState'
+      responses:
+        '200':
+          description: The queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubRequestList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock/{request_id}:
+    get:
+      tags:
+      - restock
+      operationId: getHubRequest
+      summary: Get one restock request
+      description: One request at the signed-in staff member's hub. A request at another hub is 404.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubRequestResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock/{request_id}/accept:
+    post:
+      tags:
+      - restock
+      operationId: acceptHubRequest
+      summary: Accept a request and start packing
+      description: >-
+        One acceptance only: a second staff member gets request_taken, and the same staff member
+        accepting again gets the request back. Sets slot_at and rider_arrival_at. Errors, all 409:
+        request_taken, request_withdrawn (the rider cancelled it), hub_closed.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubRequestResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /hub/restock/{request_id}/pick-list:
+    get:
+      tags:
+      - restock
+      operationId: getPickList
+      summary: Get what to pick, soonest expiry first
+      description: >-
+        One line per item still to pick. Each line lists the hub's lots for that item, soonest valid
+        expiry first. Expired, quarantined and temperature-failed lots are never listed. Lots are whole:
+        pick lots until picked_qty reaches qty.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The pick list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PickList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock/{request_id}/scan:
+    post:
+      tags:
+      - restock
+      operationId: scanHubLot
+      summary: Scan a lot into the cassette
+      description: >-
+        The whole lot goes into the cassette. A rejected scan leaves the request open. Scanning a lot
+        already in this cassette changes nothing and returns duplicate true. Errors, all 409: not_accepted,
+        wrong_lot (not at this hub, or not an item on the request), lot_expired, lot_quarantined,
+        lot_already_packed (in another cassette), temp_failed (returns temp_status so the app opens the
+        quarantine prompt), request_closed.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        '200':
+          description: Scanned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResult'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /hub/restock/{request_id}/unscan:
+    post:
+      tags:
+      - restock
+      operationId: unscanHubLot
+      summary: Take a lot back out of the cassette
+      description: >-
+        For a lot scanned by mistake, before the cassette is ready. Errors, all 409: not_in_cassette,
+        request_closed.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - lot_code
+              properties:
+                lot_code:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+      responses:
+        '200':
+          description: Taken out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubRequestResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock/{request_id}/shortfall:
+    post:
+      tags:
+      - restock
+      operationId: recordShortfall
+      summary: Record what the hub cannot fill
+      description: >-
+        Recorded once per request: partial (send what is packed), substitute (offer another item for the
+        missing units) or other_hub (another hub in the zone fills the whole request). The rider answers it;
+        the answer is shown on the request. Errors, all 409: shortfall_already_recorded, not_accepted,
+        request_closed, other_hub_unavailable.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShortfallRequest'
+      responses:
+        '200':
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubRequestResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock/{request_id}/ready:
+    post:
+      tags:
+      - restock
+      operationId: markHubRequestReady
+      summary: Seal the cassette as ready for the rider
+      description: >-
+        Send every lot number in the cassette; they must match the lots scanned. The request becomes ready,
+        or partial when a line is short and a shortfall is recorded. Sending ready again changes nothing and
+        returns the request. Errors, all 409: lots_mismatch, nothing_packed, shortfall_needed (a line is
+        short and no shortfall is recorded), request_closed.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - lot_numbers
+              properties:
+                lot_numbers:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 64
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubRequestResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/restock/{request_id}/label:
+    get:
+      tags:
+      - restock
+      operationId: getCassetteLabel
+      summary: Get the cassette label's fields
+      description: >-
+        Only what the printer needs. The printer itself is set up on the device. Errors: not_ready (409)
+        before the cassette is ready.
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The label.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelResponse'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/lots:
+    get:
+      tags:
+      - lots
+      operationId: listHubLots
+      summary: List the lots at the hub
+      description: Soonest expiry first. Includes quarantined and expired lots, marked by status, so staff can clear them.
+      parameters:
+      - name: item_id
+        in: query
+        required: false
+        description: Only lots of this item.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: The lots.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubLotList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/lots/{lot_id}/quarantine:
+    post:
+      tags:
+      - lots
+      operationId: quarantineLot
+      summary: Quarantine a lot
+      description: >-
+        Hub lead only; hub staff get 403 forbidden. The app shows the reason and asks to confirm first. A
+        quarantined lot can never be scanned again, and is taken out of any cassette not yet ready.
+        Quarantining again changes nothing. Errors, all 409: lot_on_scooter (it already left the hub).
+      parameters:
+      - name: lot_id
+        in: path
+        required: true
+        description: The lot.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - reason
+              properties:
+                reason:
+                  type: string
+                  enum:
+                  - temperature
+                  - damaged
+                  - expired
+                  - contamination
+                  - other
+                note:
+                  type: string
+                  maxLength: 500
+                  description: What was seen, such as the temperature reading.
+      responses:
+        '200':
+          description: Quarantined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubLotResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /hub/events:
+    post:
+      tags:
+      - sync
+      operationId: sendEventBatch
+      summary: Send queued scans and status changes
+      description: >-
+        Applied in the order sent, each once by event_id; a repeat returns the same result. One rejected
+        event never blocks the rest. A rejection is final unless retryable is true. See Offline sync in
+        contracts/README.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - events
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    $ref: '#/components/schemas/HubEvent'
+      responses:
+        '200':
+          description: What was applied and what was rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventBatchResult'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token from the sign-in endpoints.
+  parameters:
+    RequestId:
+      name: request_id
+      in: path
+      required: true
+      description: The restock request.
+      schema:
+        $ref: ../shared/common.yaml#/components/schemas/Id
+  schemas:
+    Done:
+      type: object
+      required:
+      - server_time
+      properties:
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    OtpRequestResult:
+      type: object
+      required:
+      - request_id
+      - expires_in_s
+      - resend_after_s
+      - server_time
+      properties:
+        request_id:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+        resend_after_s:
+          type: integer
+          minimum: 0
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TokenPair:
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - expires_in_s
+      - server_time
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    StaffRole:
+      type: string
+      description: hub_staff packs; hub_lead also quarantines lots.
+      enum:
+      - hub_staff
+      - hub_lead
+    StaffSession:
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - expires_in_s
+      - staff_id
+      - role
+      - hub_id
+      - server_time
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+          example: 900
+        staff_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        role:
+          $ref: '#/components/schemas/StaffRole'
+        hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubRef:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+    Staff:
+      type: object
+      required:
+      - id
+      - name
+      - role
+      - hub
+      - hub_open
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type:
+          - string
+          - 'null'
+        role:
+          $ref: '#/components/schemas/StaffRole'
+        hub:
+          $ref: '#/components/schemas/HubRef'
+        hub_open:
+          type: boolean
+          description: False while the hub is paused. Nothing new can be accepted then.
+    StaffResponse:
+      type: object
+      required:
+      - staff
+      - server_time
+      properties:
+        staff:
+          $ref: '#/components/schemas/Staff'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubRequestState:
+      type: string
+      description: >-
+        confirmed is new to the hub. hub_accepted is accepted, packing has a lot scanned, ready and partial
+        are sealed, picked_up and received mean the rider took it. closed, expired and cancelled are ended.
+      enum:
+      - confirmed
+      - hub_accepted
+      - packing
+      - ready
+      - partial
+      - picked_up
+      - received
+      - closed
+      - expired
+      - cancelled
+    HubLine:
+      type: object
+      required:
+      - item_id
+      - name
+      - qty
+      - picked_qty
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+          description: Units the rider asked for.
+        picked_qty:
+          type: integer
+          minimum: 0
+          description: Units in the lots scanned so far. Lots are whole, so this can pass qty.
+    HubShortfall:
+      type: object
+      required:
+      - action
+      - item_id
+      - qty_missing
+      - substitute_item_id
+      - other_hub
+      - status
+      properties:
+        action:
+          type: string
+          enum:
+          - partial
+          - substitute
+          - other_hub
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty_missing:
+          type: integer
+          minimum: 1
+        substitute_item_id:
+          oneOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
+        other_hub:
+          oneOf:
+          - $ref: '#/components/schemas/HubRef'
+          - type: 'null'
+        status:
+          type: string
+          description: The rider's answer.
+          enum:
+          - open
+          - accepted
+          - refused
+    HubRequest:
+      type: object
+      required:
+      - id
+      - state
+      - seq
+      - scooter_code
+      - items
+      - lot_numbers
+      - slot_at
+      - rider_arrival_at
+      - accepted_by
+      - shortfall
+      - created_at
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        state:
+          $ref: '#/components/schemas/HubRequestState'
+        seq:
+          type: integer
+          minimum: 1
+          description: Raised by every change; drop a live event older than what you show.
+        scooter_code:
+          type: string
+          description: The scooter the cassette goes to. No rider contact details are shown.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HubLine'
+        lot_numbers:
+          type: array
+          description: The lots in the cassette so far.
+          items:
+            type: string
+        slot_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When the cassette should be ready. Set on accept.
+        rider_arrival_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When the rider is expected. It can change; the live channel sends it.
+        accepted_by:
+          type:
+          - string
+          - 'null'
+          description: The staff member who accepted it, by name.
+        shortfall:
+          oneOf:
+          - $ref: '#/components/schemas/HubShortfall'
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    HubRequestList:
+      type: object
+      required:
+      - requests
+      - server_time
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/HubRequest'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubRequestResponse:
+      type: object
+      required:
+      - request
+      - server_time
+      properties:
+        request:
+          $ref: '#/components/schemas/HubRequest'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TempStatus:
+      type: string
+      enum:
+      - ok
+      - alert
+      - failed
+    PickLot:
+      type: object
+      required:
+      - lot_id
+      - lot_code
+      - qty
+      - expires_at
+      - temp_status
+      properties:
+        lot_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        lot_code:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+        expires_at:
+          type: string
+          format: date-time
+        temp_status:
+          $ref: '#/components/schemas/TempStatus'
+    PickLine:
+      type: object
+      required:
+      - item_id
+      - name
+      - qty
+      - picked_qty
+      - route_order
+      - lots
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+        picked_qty:
+          type: integer
+          minimum: 0
+        route_order:
+          type: integer
+          minimum: 0
+          description: The item's place on the shelf route, for lines with the same expiry.
+        lots:
+          type: array
+          description: Soonest valid expiry first. Empty when the hub has none, which is a shortfall.
+          items:
+            $ref: '#/components/schemas/PickLot'
+    PickList:
+      type: object
+      required:
+      - request_id
+      - lines
+      - server_time
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        lines:
+          type: array
+          description: Lines still to pick, the line with the soonest expiring lot first.
+          items:
+            $ref: '#/components/schemas/PickLine'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ScanRequest:
+      type: object
+      required:
+      - lot_code
+      - scanned_at
+      properties:
+        lot_code:
+          type: string
+          minLength: 1
+          maxLength: 64
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        scanned_at:
+          type: string
+          format: date-time
+          description: The device's time. The server's time is the official one.
+    ScanResult:
+      type: object
+      required:
+      - lot
+      - duplicate
+      - request
+      - server_time
+      properties:
+        lot:
+          $ref: '#/components/schemas/PickLot'
+        duplicate:
+          type: boolean
+          description: True when the lot was already in this cassette; nothing changed.
+        request:
+          $ref: '#/components/schemas/HubRequest'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ShortfallRequest:
+      type: object
+      required:
+      - item_id
+      - qty_missing
+      - action
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty_missing:
+          type: integer
+          minimum: 1
+          maximum: 500
+        action:
+          type: string
+          enum:
+          - partial
+          - substitute
+          - other_hub
+        substitute_item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        other_hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          maxLength: 200
+    Label:
+      type: object
+      required:
+      - request_code
+      - scooter_code
+      - hub_name
+      - lot_numbers
+      - items
+      - ready_at
+      properties:
+        request_code:
+          type: string
+          description: A short code printed large, for matching the cassette to the request.
+        scooter_code:
+          type: string
+        hub_name:
+          type: string
+        lot_numbers:
+          type: array
+          items:
+            type: string
+        items:
+          type: array
+          items:
+            type: object
+            required:
+            - name
+            - qty
+            properties:
+              name:
+                type: string
+              qty:
+                type: integer
+                minimum: 0
+        ready_at:
+          type: string
+          format: date-time
+    LabelResponse:
+      type: object
+      required:
+      - label
+      - server_time
+      properties:
+        label:
+          $ref: '#/components/schemas/Label'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubLot:
+      type: object
+      required:
+      - lot_id
+      - lot_code
+      - item_id
+      - qty
+      - expires_at
+      - temp_status
+      - status
+      - in_cassette
+      properties:
+        lot_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        lot_code:
+          type: string
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty:
+          type: integer
+          minimum: 0
+        expires_at:
+          type: string
+          format: date-time
+        temp_status:
+          $ref: '#/components/schemas/TempStatus'
+        status:
+          type: string
+          enum:
+          - ok
+          - quarantined
+          - expired
+        in_cassette:
+          type: boolean
+          description: True while the lot is packed in a cassette that is not yet collected.
+    HubLotList:
+      type: object
+      required:
+      - lots
+      - server_time
+      properties:
+        lots:
+          type: array
+          items:
+            $ref: '#/components/schemas/HubLot'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubLotResponse:
+      type: object
+      required:
+      - lot
+      - server_time
+      properties:
+        lot:
+          $ref: '#/components/schemas/HubLot'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HubEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Unique, and created when the event is queued.
+        type:
+          type: string
+          description: Each type takes the same body as its endpoint, plus request_id (lot_id for quarantine).
+          enum:
+          - accept
+          - scan
+          - unscan
+          - shortfall
+          - ready
+          - quarantine
+        payload:
+          type: object
+          description: >-
+            accept {request_id}; scan {request_id, lot_code, item_id?}; unscan {request_id, lot_code};
+            shortfall {request_id, item_id, qty_missing, action, substitute_item_id?, other_hub_id?, reason?};
+            ready {request_id, lot_numbers}; quarantine {lot_id, reason, note?}.
+        device_time:
+          type: string
+          format: date-time
+    RejectedEvent:
+      type: object
+      required:
+      - id
+      - code
+      - message
+      - retryable
+      properties:
+        id:
+          type: string
+          description: The event_id.
+        code:
+          type: string
+          description: The same codes as the endpoint, plus invalid_event and unknown_event_type.
+        message:
+          type: string
+        retryable:
+          type: boolean
+    EventBatchResult:
+      type: object
+      required:
+      - accepted_ids
+      - rejected
+      - server_time
+      properties:
+        accepted_ids:
+          type: array
+          items:
+            type: string
+        rejected:
+          type: array
+          items:
+            $ref: '#/components/schemas/RejectedEvent'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime

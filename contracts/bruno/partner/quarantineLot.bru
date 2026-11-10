@@ -1,0 +1,23 @@
+meta {
+  name: quarantineLot
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/hub/lots/mock_id/quarantine
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-quarantineLot-0001
+}
+
+body:json {
+  {
+    "reason": "temperature"
+  }
+}

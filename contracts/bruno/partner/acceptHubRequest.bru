@@ -1,0 +1,17 @@
+meta {
+  name: acceptHubRequest
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/hub/restock/mock_id/accept
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-acceptHubRequest-0001
+}

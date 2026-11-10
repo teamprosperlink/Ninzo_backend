@@ -1,0 +1,24 @@
+meta {
+  name: scanHubLot
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/hub/restock/mock_id/scan
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-scanHubLot-0001
+}
+
+body:json {
+  {
+    "lot_code": "mock_value",
+    "scanned_at": "2026-11-04T10:00:00Z"
+  }
+}

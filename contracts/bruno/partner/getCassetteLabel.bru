@@ -1,0 +1,16 @@
+meta {
+  name: getCassetteLabel
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/hub/restock/mock_id/label
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
