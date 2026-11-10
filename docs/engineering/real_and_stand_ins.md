@@ -52,3 +52,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 ## Related
 - Accepted downsides: `known_downsides.md`
 - Version plan: `docs/planning/milestones.md`
+| Hubs, earning rates, menu, prices, zones and gates | Test data | Entered by the admin in the console from v0.9.0 (decision 0014) | The console | v0.9.0 |

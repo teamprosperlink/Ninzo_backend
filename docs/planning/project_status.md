@@ -98,3 +98,5 @@ To resolve in the customer docs and contract.
 - Reservation TTL: stock is reserved before payment, so the planned timer order does not cover the payment window or a late webhook. Proposed: two-stage TTL and automatic refund. See EDD section 5.
 - Offline handover: the rider doc requires it, but an offline app cannot check the OTP. Proposed: a salted hash per order, re-checked on sync. See EDD 9.4.
 - No endpoints for: push token registration, menu list, customer profile, masked call, rough scooter position, longer-ETA consent, "notify me", payment retry, gate change before acceptance, Razorpay webhook.
+
+The plan for `v0.7.0` to `v0.10.0` is agreed (decision 0014, #103).
