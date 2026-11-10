@@ -13,6 +13,7 @@ import (
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/hub"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/orders"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
@@ -36,6 +37,9 @@ func main() {
 			identity.MountOTP(r, otps, identity.TypeStaff)
 			hubs := &hub.Service{Pool: d.DB, Log: d.Log}
 			hubs.MountStaff(r, identity.RequireActor(sessions.Signer, identity.TypeStaff), limits.BySession())
+			hubs.MountQueue(r, identity.RequireActor(sessions.Signer, identity.TypeStaff), limits.BySession())
+			streams := &orders.Service{Pool: d.DB, Log: d.Log}
+			streams.MountHubStream(r, &orders.Streams{Signer: sessions.Signer}, hubs.Feed())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "partner-api:", err)

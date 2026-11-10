@@ -248,9 +248,23 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 }
 
 // bumpRider raises the rider's seq and pushes, so the rider app sees the request moved.
+// BumpRider records a change the rider sees to a request, and the hub with it.
+func BumpRider(ctx context.Context, tx pgx.Tx, rider, request string) error {
+	return bumpRider(ctx, tx, rider, request)
+}
+
 func bumpRider(ctx context.Context, tx pgx.Tx, rider, request string) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO rider_state (rider_id, seq) VALUES ($1, 1)
 		ON CONFLICT (rider_id) DO UPDATE SET seq = rider_state.seq + 1, updated_at = now()`, rider); err != nil {
+		return err
+	}
+	// The hub sees every change to its requests too: the request's seq and the hub's rise with it.
+	var hub string
+	if err := tx.QueryRow(ctx, "UPDATE restock_requests SET seq = seq + 1, updated_at = now() WHERE id = $1 RETURNING hub_id::text", request).Scan(&hub); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO hub_state (hub_id, seq) VALUES ($1, 1)
+		ON CONFLICT (hub_id) DO UPDATE SET seq = hub_state.seq + 1, updated_at = now()`, hub); err != nil {
 		return err
 	}
 	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
@@ -264,7 +278,7 @@ func move(ctx context.Context, tx pgx.Tx, id, to string, now time.Time) (string,
 	return rider, err
 }
 
-// Simulator plays the hub staff until the partner APIs: it accepts a confirmed request, packs it,
+// Simulator plays the hub staff at a hub with no active staff: it accepts a confirmed request, packs it,
 // and marks it ready, packing whole lots from the hub's own stock, earliest expiry first. What the
 // hub cannot fill becomes a shortfall: another hub in the zone that has it, or a partial fill.
 type Simulator struct {
@@ -337,6 +351,7 @@ func (sim *Simulator) Step(ctx context.Context, now time.Time) (int, error) {
 			err := database.InTx(ctx, sim.Service.Pool, func(tx pgx.Tx) error {
 				err := tx.QueryRow(ctx, `SELECT id::text FROM restock_requests WHERE state = $1 AND state_changed_at <= $2
 					AND NOT (id::text = ANY($3::text[]))
+					AND NOT EXISTS (SELECT 1 FROM hub_staff s WHERE s.hub_id = restock_requests.hub_id AND s.status = 'active')
 					ORDER BY state_changed_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`, step.from, now.Add(-step.after), skip).Scan(&id)
 				if errors.Is(err, pgx.ErrNoRows) {
 					done = true

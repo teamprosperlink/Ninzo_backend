@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-10 | #124 | `v0.8.0` the hub queue, local only | See PR | PASS | [reports/124.md](reports/124.md) |
 | 2026-11-10 | #123 | `v0.8.0` hub staff sign-in, local only | See PR | PASS | [reports/123.md](reports/123.md) |
 | 2026-11-10 | #122 | `v0.8.0` partner contract and mock | See PR | PASS | [reports/122.md](reports/122.md) |
 | 2026-11-10 | #120 | `v0.7.0` on staging, test data only | 0ee6692 | PASS: a restock suggestion confirmed with a changed quantity; a second request merged into it; 500 units refused as hub_out_of_stock; the simulator moved it to hub_accepted (with a slot), packing and ready; scanning the cassette's lot made it received and loaded 10 units; a handed-over order earned 4000 paise, shown by getEarnings, and a bad date was 400; listNodes carries the relocation field and an unknown move is 404; no errors in the logs. Not run on staging: shortfall answers and relocation moves, which need a second hub and several riders (tested locally, #107 and #108) | — |
