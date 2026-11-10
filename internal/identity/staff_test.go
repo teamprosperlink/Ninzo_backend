@@ -88,3 +88,11 @@ func TestSuspendedStaffLearnOnlyAfterAProvenCode(t *testing.T) {
 		t.Errorf("blocked person: %v", err)
 	}
 }
+
+func TestARiderRefreshIsRefusedAsStaff(t *testing.T) {
+	f := newOTPFixture(t)
+	f.rider(phoneB)
+	v := f.signIn(TypeRider, phoneB)
+	f.refused(v.Pair.RefreshToken, TypeStaff)
+	f.mustRefresh(v.Pair.RefreshToken, TypeRider) // Refused as staff, it still works as a rider.
+}

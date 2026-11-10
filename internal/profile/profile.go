@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -293,9 +294,16 @@ func (s *Service) getRider(w http.ResponseWriter, r *http.Request) {
 
 // requireActive refuses a person who is blocked, or a rider who is suspended.
 func requireActive(ctx context.Context, tx pgx.Tx, a identity.Actor) error {
-	query := `SELECT p.status = 'active' FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`
-	if a.Type == identity.TypeRider {
+	var query string
+	switch a.Type {
+	case identity.TypeCustomer:
+		query = `SELECT p.status = 'active' FROM customers c JOIN people p ON p.id = c.person_id WHERE c.id = $1`
+	case identity.TypeRider:
 		query = `SELECT p.status = 'active' AND r.status <> 'suspended' FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`
+	case identity.TypeStaff:
+		query = `SELECT p.status = 'active' AND s.status = 'active' FROM hub_staff s JOIN people p ON p.id = s.person_id WHERE s.id = $1`
+	default:
+		return fmt.Errorf("profile: unknown user type %q", a.Type)
 	}
 	var active bool
 	err := tx.QueryRow(ctx, query, a.ID).Scan(&active)

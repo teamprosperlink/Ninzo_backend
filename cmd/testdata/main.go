@@ -369,8 +369,14 @@ func addStaff(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 			continue
 		case !errors.Is(err, pgx.ErrNoRows):
 			return errors.New(target.Safe(err))
-		case !isNew && !testPerson(ctx, tx, person):
-			return fmt.Errorf("%s belongs to a real person, so test data will not touch it", st.phone)
+		case !isNew:
+			real, err := realPerson(ctx, tx, person)
+			if err != nil {
+				return errors.New(target.Safe(err))
+			}
+			if real {
+				return fmt.Errorf("%s belongs to a real person, so test data will not touch it", st.phone)
+			}
 		}
 		var id string
 		if err := tx.QueryRow(ctx, "INSERT INTO hub_staff (person_id, hub_id, role, name, is_test) VALUES ($1, $2, $3, $4, true) RETURNING id::text",
@@ -385,9 +391,11 @@ func addStaff(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 	return nil
 }
 
-// testPerson is true when a person has nothing but test profiles, so test data may add to them.
-func testPerson(ctx context.Context, tx pgx.Tx, person string) bool {
+// realPerson is true when a person is used by anything but test data: a customer, a rider, or a
+// person who is not active.
+func realPerson(ctx context.Context, tx pgx.Tx, person string) (bool, error) {
 	var real bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM customers WHERE person_id = $1) OR EXISTS (SELECT 1 FROM riders WHERE person_id = $1)`, person).Scan(&real)
-	return err == nil && !real
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM customers WHERE person_id = $1) OR EXISTS (SELECT 1 FROM riders WHERE person_id = $1)
+		OR EXISTS (SELECT 1 FROM people WHERE id = $1 AND status <> 'active')`, person).Scan(&real)
+	return real, err
 }
