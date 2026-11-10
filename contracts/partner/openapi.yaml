@@ -658,7 +658,7 @@ paths:
       summary: Send queued scans and status changes
       description: >-
         Applied in the order sent, each once by event_id; a repeat returns the same result. One rejected
-        event never blocks the rest. A rejection is final unless retryable is true. See Offline sync in
+        event never blocks the rest. A rejection is final unless retryable is true. See Hub offline sync in
         contracts/README.md.
       requestBody:
         required: true

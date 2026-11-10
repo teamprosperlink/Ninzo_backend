@@ -146,3 +146,24 @@ func (q *queue) callKey(method, path, token, body, key string) (int, map[string]
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
 }
+
+func TestQueuedEventsAreCheckedLikeTheirEndpoints(t *testing.T) {
+	q := newQueue(t)
+	q.lot("CHAI-E9", q.chai, 8, 6*time.Hour)
+	q.accept()
+	r := `"request_id":"` + q.request + `"`
+	_, out := q.batch(q.staffTok,
+		ev("evt-noscanat1", "scan", `{`+r+`,"lot_code":"CHAI-E9"}`),
+		ev("evt-badscanat", "scan", `{`+r+`,"lot_code":"CHAI-E9","scanned_at":"yesterday"}`),
+		ev("evt-emptylot1", "ready", `{`+r+`,"lot_numbers":[""]}`),
+	)
+	_, rej := idsOf(out)
+	for _, id := range []string{"evt-noscanat1", "evt-badscanat", "evt-emptylot1"} {
+		if rej[id]["code"] != "invalid_event" {
+			t.Errorf("%s: %v", id, rej[id])
+		}
+	}
+	if q.state() != "hub_accepted" {
+		t.Errorf("a bad event changed the request: %s", q.state())
+	}
+}

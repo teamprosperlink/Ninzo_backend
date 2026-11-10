@@ -179,6 +179,7 @@ func (s *Service) effect(ctx context.Context, tx pgx.Tx, st Staff, e hubEvent) (
 	var p struct {
 		RequestID  string      `json:"request_id"`
 		LotCode    string      `json:"lot_code"`
+		ScannedAt  string      `json:"scanned_at"`
 		LotNumbers []string    `json:"lot_numbers"`
 		LotID      string      `json:"lot_id"`
 		Reason     string      `json:"reason"`
@@ -212,7 +213,7 @@ func (s *Service) effect(ctx context.Context, tx pgx.Tx, st Staff, e hubEvent) (
 	case "accept":
 		return outcomeOf(AcceptTx(ctx, tx, st, p.RequestID, state, now))
 	case "scan":
-		if code == "" || len(code) > 64 {
+		if _, err := time.Parse(time.RFC3339, p.ScannedAt); err != nil || code == "" || len(code) > 64 {
 			return bad, nil
 		}
 		_, _, err := ScanTx(ctx, tx, st, p.RequestID, state, code, now)
@@ -227,6 +228,11 @@ func (s *Service) effect(ctx context.Context, tx pgx.Tx, st Staff, e hubEvent) (
 	default: // ready
 		if p.LotNumbers == nil || len(p.LotNumbers) > 100 {
 			return bad, nil
+		}
+		for _, c := range p.LotNumbers {
+			if c = strings.TrimSpace(c); c == "" || len(c) > 64 {
+				return bad, nil
+			}
 		}
 		return outcomeOf(ReadyTx(ctx, tx, st, p.RequestID, state, p.LotNumbers, now))
 	}
