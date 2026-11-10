@@ -145,29 +145,23 @@ components:
                 - rejected
                 - server_time
             type: object
-        HubEvent:
+        EventId:
+            description: Unique, and created when the event is queued.
+            maxLength: 128
+            minLength: 8
+            pattern: ^[A-Za-z0-9_-]+$
+            type: string
+        HubAcceptEvent:
             properties:
                 device_time:
                     format: date-time
                     type: string
                 event_id:
-                    description: Unique, and created when the event is queued.
-                    maxLength: 128
-                    minLength: 8
-                    pattern: ^[A-Za-z0-9_-]+$
-                    type: string
+                    $ref: '#/components/schemas/EventId'
                 payload:
-                    description: accept {request_id}; scan {request_id, lot_code, item_id?}; unscan {request_id, lot_code}; shortfall {request_id, item_id, qty_missing, action, substitute_item_id?, other_hub_id?, reason?}; ready {request_id, lot_numbers}; quarantine {lot_id, reason, note?}.
-                    type: object
+                    $ref: '#/components/schemas/HubRequestPayload'
                 type:
-                    description: Each type takes the same body as its endpoint, plus request_id (lot_id for quarantine).
-                    enum:
-                        - accept
-                        - scan
-                        - unscan
-                        - shortfall
-                        - ready
-                        - quarantine
+                    const: accept
                     type: string
             required:
                 - event_id
@@ -175,6 +169,24 @@ components:
                 - payload
                 - device_time
             type: object
+        HubEvent:
+            description: One queued action. Each takes the same fields as its endpoint, plus the request or lot it acts on.
+            discriminator:
+                mapping:
+                    accept: '#/components/schemas/HubAcceptEvent'
+                    quarantine: '#/components/schemas/HubQuarantineEvent'
+                    ready: '#/components/schemas/HubReadyEvent'
+                    scan: '#/components/schemas/HubScanEvent'
+                    shortfall: '#/components/schemas/HubShortfallEvent'
+                    unscan: '#/components/schemas/HubUnscanEvent'
+                propertyName: type
+            oneOf:
+                - $ref: '#/components/schemas/HubAcceptEvent'
+                - $ref: '#/components/schemas/HubScanEvent'
+                - $ref: '#/components/schemas/HubUnscanEvent'
+                - $ref: '#/components/schemas/HubShortfallEvent'
+                - $ref: '#/components/schemas/HubReadyEvent'
+                - $ref: '#/components/schemas/HubQuarantineEvent'
         HubLine:
             properties:
                 item_id:
@@ -252,6 +264,76 @@ components:
                 - lot
                 - server_time
             type: object
+        HubQuarantineEvent:
+            properties:
+                device_time:
+                    format: date-time
+                    type: string
+                event_id:
+                    $ref: '#/components/schemas/EventId'
+                payload:
+                    $ref: '#/components/schemas/HubQuarantinePayload'
+                type:
+                    const: quarantine
+                    type: string
+            required:
+                - event_id
+                - type
+                - payload
+                - device_time
+            type: object
+        HubQuarantinePayload:
+            properties:
+                lot_id:
+                    $ref: '#/components/schemas/Id'
+                note:
+                    maxLength: 500
+                    type: string
+                reason:
+                    enum:
+                        - temperature
+                        - damaged
+                        - expired
+                        - contamination
+                        - other
+                    type: string
+            required:
+                - lot_id
+                - reason
+            type: object
+        HubReadyEvent:
+            properties:
+                device_time:
+                    format: date-time
+                    type: string
+                event_id:
+                    $ref: '#/components/schemas/EventId'
+                payload:
+                    $ref: '#/components/schemas/HubReadyPayload'
+                type:
+                    const: ready
+                    type: string
+            required:
+                - event_id
+                - type
+                - payload
+                - device_time
+            type: object
+        HubReadyPayload:
+            properties:
+                lot_numbers:
+                    items:
+                        maxLength: 64
+                        minLength: 1
+                        type: string
+                    maxItems: 100
+                    type: array
+                request_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - request_id
+                - lot_numbers
+            type: object
         HubRef:
             properties:
                 id:
@@ -327,11 +409,23 @@ components:
                     items:
                         $ref: '#/components/schemas/HubRequest'
                     type: array
+                seq:
+                    description: The hub's seq at this moment. Compare live events and heartbeats against it.
+                    minimum: 0
+                    type: integer
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
             required:
                 - requests
+                - seq
                 - server_time
+            type: object
+        HubRequestPayload:
+            properties:
+                request_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - request_id
             type: object
         HubRequestResponse:
             properties:
@@ -357,6 +451,42 @@ components:
                 - expired
                 - cancelled
             type: string
+        HubScanEvent:
+            properties:
+                device_time:
+                    format: date-time
+                    type: string
+                event_id:
+                    $ref: '#/components/schemas/EventId'
+                payload:
+                    $ref: '#/components/schemas/HubScanPayload'
+                type:
+                    const: scan
+                    type: string
+            required:
+                - event_id
+                - type
+                - payload
+                - device_time
+            type: object
+        HubScanPayload:
+            properties:
+                item_id:
+                    $ref: '#/components/schemas/Id'
+                lot_code:
+                    maxLength: 64
+                    minLength: 1
+                    type: string
+                request_id:
+                    $ref: '#/components/schemas/Id'
+                scanned_at:
+                    format: date-time
+                    type: string
+            required:
+                - request_id
+                - lot_code
+                - scanned_at
+            type: object
         HubShortfall:
             properties:
                 action:
@@ -365,17 +495,17 @@ components:
                         - substitute
                         - other_hub
                     type: string
-                item_id:
-                    $ref: '#/components/schemas/Id'
+                lines:
+                    items:
+                        $ref: '#/components/schemas/ShortLine'
+                    minItems: 1
+                    type: array
                 other_hub:
                     oneOf:
                         - $ref: '#/components/schemas/HubRef'
                         - type: "null"
-                qty_missing:
-                    minimum: 1
-                    type: integer
                 status:
-                    description: The rider's answer.
+                    description: The rider's answer. The rider sees and answers it once the cassette is sealed (partial).
                     enum:
                         - open
                         - accepted
@@ -387,11 +517,86 @@ components:
                         - type: "null"
             required:
                 - action
-                - item_id
-                - qty_missing
+                - lines
                 - substitute_item_id
                 - other_hub
                 - status
+            type: object
+        HubShortfallEvent:
+            properties:
+                device_time:
+                    format: date-time
+                    type: string
+                event_id:
+                    $ref: '#/components/schemas/EventId'
+                payload:
+                    $ref: '#/components/schemas/HubShortfallPayload'
+                type:
+                    const: shortfall
+                    type: string
+            required:
+                - event_id
+                - type
+                - payload
+                - device_time
+            type: object
+        HubShortfallPayload:
+            properties:
+                action:
+                    enum:
+                        - partial
+                        - substitute
+                        - other_hub
+                    type: string
+                lines:
+                    items:
+                        $ref: '#/components/schemas/ShortLine'
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                other_hub_id:
+                    $ref: '#/components/schemas/Id'
+                reason:
+                    maxLength: 200
+                    type: string
+                request_id:
+                    $ref: '#/components/schemas/Id'
+                substitute_item_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - request_id
+                - action
+                - lines
+            type: object
+        HubUnscanEvent:
+            properties:
+                device_time:
+                    format: date-time
+                    type: string
+                event_id:
+                    $ref: '#/components/schemas/EventId'
+                payload:
+                    $ref: '#/components/schemas/HubUnscanPayload'
+                type:
+                    const: unscan
+                    type: string
+            required:
+                - event_id
+                - type
+                - payload
+                - device_time
+            type: object
+        HubUnscanPayload:
+            properties:
+                lot_code:
+                    maxLength: 64
+                    minLength: 1
+                    type: string
+                request_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - request_id
+                - lot_code
             type: object
         Id:
             description: Opaque identifier. Do not parse it.
@@ -547,6 +752,28 @@ components:
                 - message
                 - retryable
             type: object
+        ScanRejection:
+            description: The shared error shape, plus the lot when it is known.
+            properties:
+                code:
+                    type: string
+                lot:
+                    description: The scanned lot, with lot_id for quarantine. Null when the code is not a lot at this hub, and absent on idempotency_in_progress.
+                    oneOf:
+                        - $ref: '#/components/schemas/PickLot'
+                        - type: "null"
+                message:
+                    type: string
+                retryable:
+                    type: boolean
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - code
+                - message
+                - retryable
+                - server_time
+            type: object
         ScanRequest:
             properties:
                 item_id:
@@ -585,6 +812,18 @@ components:
             example: "2026-11-04T10:15:30.250Z"
             format: date-time
             type: string
+        ShortLine:
+            properties:
+                item_id:
+                    $ref: '#/components/schemas/Id'
+                qty_missing:
+                    maximum: 500
+                    minimum: 1
+                    type: integer
+            required:
+                - item_id
+                - qty_missing
+            type: object
         ShortfallRequest:
             properties:
                 action:
@@ -593,23 +832,23 @@ components:
                         - substitute
                         - other_hub
                     type: string
-                item_id:
-                    $ref: '#/components/schemas/Id'
+                lines:
+                    description: Every short line, each item once.
+                    items:
+                        $ref: '#/components/schemas/ShortLine'
+                    maxItems: 20
+                    minItems: 1
+                    type: array
                 other_hub_id:
                     $ref: '#/components/schemas/Id'
-                qty_missing:
-                    maximum: 500
-                    minimum: 1
-                    type: integer
                 reason:
                     maxLength: 200
                     type: string
                 substitute_item_id:
                     $ref: '#/components/schemas/Id'
             required:
-                - item_id
-                - qty_missing
                 - action
+                - lines
             type: object
         Staff:
             properties:
@@ -677,10 +916,10 @@ components:
                 - server_time
             type: object
         TempStatus:
+            description: alert means the lot failed its temperature check. It cannot be picked or scanned; quarantine it.
             enum:
                 - ok
                 - alert
-                - failed
             type: string
         TokenPair:
             properties:
@@ -882,6 +1121,8 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Send queued scans and status changes
             tags:
                 - sync
@@ -972,6 +1213,8 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Quarantine a lot
             tags:
                 - lots
@@ -1091,7 +1334,7 @@ paths:
                 - restock
     /hub/restock/{request_id}/label:
         get:
-            description: 'Only what the printer needs. The printer itself is set up on the device. Errors: not_ready (409) before the cassette is ready.'
+            description: 'Only what the printer needs. The printer itself is set up on the device. Works once the cassette is sealed (ready or partial, and after). Errors: not_ready (409) before that.'
             operationId: getCassetteLabel
             parameters:
                 - $ref: '#/components/parameters/RequestId'
@@ -1119,7 +1362,7 @@ paths:
                 - restock
     /hub/restock/{request_id}/pick-list:
         get:
-            description: 'One line per item still to pick. Each line lists the hub''s lots for that item, soonest valid expiry first. Expired, quarantined and temperature-failed lots are never listed. Lots are whole: pick lots until picked_qty reaches qty.'
+            description: 'One line per item still to pick. Each line lists the hub''s lots for that item, soonest valid expiry first. Expired, quarantined and temperature-alert lots are never listed. Lots are whole: pick lots until picked_qty reaches qty; picked_qty may pass qty, and scanning past it is allowed. Errors, all 409: not_accepted, request_closed.'
             operationId: getPickList
             parameters:
                 - $ref: '#/components/parameters/RequestId'
@@ -1147,7 +1390,7 @@ paths:
                 - restock
     /hub/restock/{request_id}/ready:
         post:
-            description: 'Send every lot number in the cassette; they must match the lots scanned. The request becomes ready, or partial when a line is short and a shortfall is recorded. Sending ready again changes nothing and returns the request. Errors, all 409: lots_mismatch, nothing_packed, shortfall_needed (a line is short and no shortfall is recorded), request_closed.'
+            description: 'Send every lot number in the cassette; they must match the lots scanned. The request becomes ready, or partial when a shortfall is recorded, which the rider then answers. lot_numbers may be empty only when a shortfall is recorded. Sending ready again changes nothing and returns the request. Errors, all 409: lots_mismatch, nothing_packed (no lots and no shortfall), shortfall_needed (a line is short and no shortfall is recorded), request_closed.'
             operationId: markHubRequestReady
             parameters:
                 - $ref: '#/components/parameters/RequestId'
@@ -1163,7 +1406,7 @@ paths:
                                         minLength: 1
                                         type: string
                                     maxItems: 100
-                                    minItems: 1
+                                    minItems: 0
                                     type: array
                             required:
                                 - lot_numbers
@@ -1192,12 +1435,14 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Seal the cassette as ready for the rider
             tags:
                 - restock
     /hub/restock/{request_id}/scan:
         post:
-            description: 'The whole lot goes into the cassette. A rejected scan leaves the request open. Scanning a lot already in this cassette changes nothing and returns duplicate true. Errors, all 409: not_accepted, wrong_lot (not at this hub, or not an item on the request), lot_expired, lot_quarantined, lot_already_packed (in another cassette), temp_failed (returns temp_status so the app opens the quarantine prompt), request_closed.'
+            description: 'The whole lot goes into the cassette, and the request moves to packing. A rejected scan leaves the request open. Scanning a lot already in this cassette changes nothing and returns duplicate true. Errors, all 409, with the lot when it is known so the app can act on it: not_accepted, wrong_lot (not at this hub, or not an item on the request), lot_expired, lot_quarantined, lot_already_packed (in another cassette), temp_alert (the lot failed its temperature check: open the quarantine prompt with lot.lot_id), request_closed. A 503 is retryable: keep the scan queued.'
             operationId: scanHubLot
             parameters:
                 - $ref: '#/components/parameters/RequestId'
@@ -1224,7 +1469,11 @@ paths:
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
-                    $ref: '#/components/responses/Conflict'
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ScanRejection'
+                    description: The scan was refused. The request stays open.
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
                 "429":
@@ -1238,7 +1487,7 @@ paths:
                 - restock
     /hub/restock/{request_id}/shortfall:
         post:
-            description: 'Recorded once per request: partial (send what is packed), substitute (offer another item for the missing units) or other_hub (another hub in the zone fills the whole request). The rider answers it; the answer is shown on the request. Errors, all 409: shortfall_already_recorded, not_accepted, request_closed, other_hub_unavailable.'
+            description: 'Recorded once per request, for every short line: partial (send what is packed), substitute (offer substitute_item_id for the missing units) or other_hub (other_hub_id fills the whole request). substitute_item_id is required with substitute and other_hub_id with other_hub. Then send ready, even with nothing packed: the request becomes partial, and the rider answers it then. If the rider accepts a substitute, the request returns to packing with a new line for the substitute item: scan it and send ready again. If the rider accepts another hub, the request ends here and its lots go back on the shelf. Errors, all 409: shortfall_already_recorded, not_accepted, request_closed, other_hub_unavailable.'
             operationId: recordShortfall
             parameters:
                 - $ref: '#/components/parameters/RequestId'
@@ -1272,6 +1521,8 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Record what the hub cannot fill
             tags:
                 - restock
@@ -1318,6 +1569,8 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Take a lot back out of the cassette
             tags:
                 - restock

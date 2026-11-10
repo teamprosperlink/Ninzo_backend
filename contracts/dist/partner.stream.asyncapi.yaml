@@ -240,17 +240,17 @@ components:
                         - substitute
                         - other_hub
                     type: string
-                item_id:
-                    $ref: '#/components/schemas/Id'
+                lines:
+                    items:
+                        $ref: '#/components/schemas/ShortLine'
+                    minItems: 1
+                    type: array
                 other_hub:
                     oneOf:
                         - $ref: '#/components/schemas/HubRef'
                         - type: "null"
-                qty_missing:
-                    minimum: 1
-                    type: integer
                 status:
-                    description: The rider's answer.
+                    description: The rider's answer. The rider sees and answers it once the cassette is sealed (partial).
                     enum:
                         - open
                         - accepted
@@ -262,8 +262,7 @@ components:
                         - type: "null"
             required:
                 - action
-                - item_id
-                - qty_missing
+                - lines
                 - substitute_item_id
                 - other_hub
                 - status
@@ -273,6 +272,18 @@ components:
             example: ord_01HZX3Q7
             minLength: 1
             type: string
+        ShortLine:
+            properties:
+                item_id:
+                    $ref: '#/components/schemas/Id'
+                qty_missing:
+                    maximum: 500
+                    minimum: 1
+                    type: integer
+            required:
+                - item_id
+                - qty_missing
+            type: object
 defaultContentType: application/json
 id: urn:ninzo:partner:stream
 info:

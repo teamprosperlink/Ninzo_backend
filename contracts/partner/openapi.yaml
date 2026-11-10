@@ -290,8 +290,9 @@ paths:
       summary: Get what to pick, soonest expiry first
       description: >-
         One line per item still to pick. Each line lists the hub's lots for that item, soonest valid
-        expiry first. Expired, quarantined and temperature-failed lots are never listed. Lots are whole:
-        pick lots until picked_qty reaches qty.
+        expiry first. Expired, quarantined and temperature-alert lots are never listed. Lots are whole:
+        pick lots until picked_qty reaches qty; picked_qty may pass qty, and scanning past it is allowed.
+        Errors, all 409: not_accepted, request_closed.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       responses:
@@ -320,11 +321,12 @@ paths:
       operationId: scanHubLot
       summary: Scan a lot into the cassette
       description: >-
-        The whole lot goes into the cassette. A rejected scan leaves the request open. Scanning a lot
-        already in this cassette changes nothing and returns duplicate true. Errors, all 409: not_accepted,
-        wrong_lot (not at this hub, or not an item on the request), lot_expired, lot_quarantined,
-        lot_already_packed (in another cassette), temp_failed (returns temp_status so the app opens the
-        quarantine prompt), request_closed.
+        The whole lot goes into the cassette, and the request moves to packing. A rejected scan leaves the
+        request open. Scanning a lot already in this cassette changes nothing and returns duplicate true.
+        Errors, all 409, with the lot when it is known so the app can act on it: not_accepted, wrong_lot (not
+        at this hub, or not an item on the request), lot_expired, lot_quarantined, lot_already_packed (in
+        another cassette), temp_alert (the lot failed its temperature check: open the quarantine prompt with
+        lot.lot_id), request_closed. A 503 is retryable: keep the scan queued.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -350,7 +352,11 @@ paths:
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
         '409':
-          $ref: ../shared/common.yaml#/components/responses/Conflict
+          description: The scan was refused. The request stays open.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRejection'
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
         '429':
@@ -407,6 +413,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /hub/restock/{request_id}/shortfall:
     post:
       tags:
@@ -414,10 +422,14 @@ paths:
       operationId: recordShortfall
       summary: Record what the hub cannot fill
       description: >-
-        Recorded once per request: partial (send what is packed), substitute (offer another item for the
-        missing units) or other_hub (another hub in the zone fills the whole request). The rider answers it;
-        the answer is shown on the request. Errors, all 409: shortfall_already_recorded, not_accepted,
-        request_closed, other_hub_unavailable.
+        Recorded once per request, for every short line: partial (send what is packed), substitute (offer
+        substitute_item_id for the missing units) or other_hub (other_hub_id fills the whole request).
+        substitute_item_id is required with substitute and other_hub_id with other_hub. Then send ready, even
+        with nothing packed: the request becomes partial, and the rider answers it then. If the rider accepts
+        a substitute, the request returns to packing with a new line for the substitute item: scan it and send
+        ready again. If the rider accepts another hub, the request ends here and its lots go back on the
+        shelf. Errors, all 409: shortfall_already_recorded, not_accepted, request_closed,
+        other_hub_unavailable.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -450,6 +462,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /hub/restock/{request_id}/ready:
     post:
       tags:
@@ -458,9 +472,10 @@ paths:
       summary: Seal the cassette as ready for the rider
       description: >-
         Send every lot number in the cassette; they must match the lots scanned. The request becomes ready,
-        or partial when a line is short and a shortfall is recorded. Sending ready again changes nothing and
-        returns the request. Errors, all 409: lots_mismatch, nothing_packed, shortfall_needed (a line is
-        short and no shortfall is recorded), request_closed.
+        or partial when a shortfall is recorded, which the rider then answers. lot_numbers may be empty only
+        when a shortfall is recorded. Sending ready again changes nothing and returns the request. Errors, all
+        409: lots_mismatch, nothing_packed (no lots and no shortfall), shortfall_needed (a line is short and no
+        shortfall is recorded), request_closed.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -475,7 +490,7 @@ paths:
               properties:
                 lot_numbers:
                   type: array
-                  minItems: 1
+                  minItems: 0
                   maxItems: 100
                   items:
                     type: string
@@ -504,6 +519,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /hub/restock/{request_id}/label:
     get:
       tags:
@@ -511,8 +528,8 @@ paths:
       operationId: getCassetteLabel
       summary: Get the cassette label's fields
       description: >-
-        Only what the printer needs. The printer itself is set up on the device. Errors: not_ready (409)
-        before the cassette is ready.
+        Only what the printer needs. The printer itself is set up on the device. Works once the cassette is
+        sealed (ready or partial, and after). Errors: not_ready (409) before that.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       responses:
@@ -627,6 +644,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /hub/events:
     post:
       tags:
@@ -669,6 +688,8 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
 components:
   securitySchemes:
     bearerAuth:
@@ -838,12 +859,23 @@ components:
           type: integer
           minimum: 0
           description: Units in the lots scanned so far. Lots are whole, so this can pass qty.
+    ShortLine:
+      type: object
+      required:
+      - item_id
+      - qty_missing
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty_missing:
+          type: integer
+          minimum: 1
+          maximum: 500
     HubShortfall:
       type: object
       required:
       - action
-      - item_id
-      - qty_missing
+      - lines
       - substitute_item_id
       - other_hub
       - status
@@ -854,11 +886,11 @@ components:
           - partial
           - substitute
           - other_hub
-        item_id:
-          $ref: ../shared/common.yaml#/components/schemas/Id
-        qty_missing:
-          type: integer
-          minimum: 1
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ShortLine'
         substitute_item_id:
           oneOf:
           - $ref: ../shared/common.yaml#/components/schemas/Id
@@ -869,7 +901,7 @@ components:
           - type: 'null'
         status:
           type: string
-          description: The rider's answer.
+          description: The rider's answer. The rider sees and answers it once the cassette is sealed (partial).
           enum:
           - open
           - accepted
@@ -937,8 +969,13 @@ components:
       type: object
       required:
       - requests
+      - seq
       - server_time
       properties:
+        seq:
+          type: integer
+          minimum: 0
+          description: The hub's seq at this moment. Compare live events and heartbeats against it.
         requests:
           type: array
           items:
@@ -957,10 +994,10 @@ components:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
     TempStatus:
       type: string
+      description: alert means the lot failed its temperature check. It cannot be picked or scanned; quarantine it.
       enum:
       - ok
       - alert
-      - failed
     PickLot:
       type: object
       required:
@@ -1060,25 +1097,47 @@ components:
           $ref: '#/components/schemas/HubRequest'
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ScanRejection:
+      type: object
+      description: The shared error shape, plus the lot when it is known.
+      required:
+      - code
+      - message
+      - retryable
+      - server_time
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retryable:
+          type: boolean
+        lot:
+          oneOf:
+          - $ref: '#/components/schemas/PickLot'
+          - type: 'null'
+          description: The scanned lot, with lot_id for quarantine. Null when the code is not a lot at this hub, and absent on idempotency_in_progress.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
     ShortfallRequest:
       type: object
       required:
-      - item_id
-      - qty_missing
       - action
+      - lines
       properties:
-        item_id:
-          $ref: ../shared/common.yaml#/components/schemas/Id
-        qty_missing:
-          type: integer
-          minimum: 1
-          maximum: 500
         action:
           type: string
           enum:
           - partial
           - substitute
           - other_hub
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Every short line, each item once.
+          items:
+            $ref: '#/components/schemas/ShortLine'
         substitute_item_id:
           $ref: ../shared/common.yaml#/components/schemas/Id
         other_hub_id:
@@ -1191,6 +1250,24 @@ components:
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
     HubEvent:
+      description: One queued action. Each takes the same fields as its endpoint, plus the request or lot it acts on.
+      oneOf:
+      - $ref: '#/components/schemas/HubAcceptEvent'
+      - $ref: '#/components/schemas/HubScanEvent'
+      - $ref: '#/components/schemas/HubUnscanEvent'
+      - $ref: '#/components/schemas/HubShortfallEvent'
+      - $ref: '#/components/schemas/HubReadyEvent'
+      - $ref: '#/components/schemas/HubQuarantineEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          accept: '#/components/schemas/HubAcceptEvent'
+          scan: '#/components/schemas/HubScanEvent'
+          unscan: '#/components/schemas/HubUnscanEvent'
+          shortfall: '#/components/schemas/HubShortfallEvent'
+          ready: '#/components/schemas/HubReadyEvent'
+          quarantine: '#/components/schemas/HubQuarantineEvent'
+    HubAcceptEvent:
       type: object
       required:
       - event_id
@@ -1199,30 +1276,210 @@ components:
       - device_time
       properties:
         event_id:
-          type: string
-          minLength: 8
-          maxLength: 128
-          pattern: ^[A-Za-z0-9_-]+$
-          description: Unique, and created when the event is queued.
+          $ref: '#/components/schemas/EventId'
         type:
           type: string
-          description: Each type takes the same body as its endpoint, plus request_id (lot_id for quarantine).
-          enum:
-          - accept
-          - scan
-          - unscan
-          - shortfall
-          - ready
-          - quarantine
+          const: accept
         payload:
-          type: object
-          description: >-
-            accept {request_id}; scan {request_id, lot_code, item_id?}; unscan {request_id, lot_code};
-            shortfall {request_id, item_id, qty_missing, action, substitute_item_id?, other_hub_id?, reason?};
-            ready {request_id, lot_numbers}; quarantine {lot_id, reason, note?}.
+          $ref: '#/components/schemas/HubRequestPayload'
         device_time:
           type: string
           format: date-time
+    HubScanEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          type: string
+          const: scan
+        payload:
+          $ref: '#/components/schemas/HubScanPayload'
+        device_time:
+          type: string
+          format: date-time
+    HubUnscanEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          type: string
+          const: unscan
+        payload:
+          $ref: '#/components/schemas/HubUnscanPayload'
+        device_time:
+          type: string
+          format: date-time
+    HubShortfallEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          type: string
+          const: shortfall
+        payload:
+          $ref: '#/components/schemas/HubShortfallPayload'
+        device_time:
+          type: string
+          format: date-time
+    HubReadyEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          type: string
+          const: ready
+        payload:
+          $ref: '#/components/schemas/HubReadyPayload'
+        device_time:
+          type: string
+          format: date-time
+    HubQuarantineEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - payload
+      - device_time
+      properties:
+        event_id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          type: string
+          const: quarantine
+        payload:
+          $ref: '#/components/schemas/HubQuarantinePayload'
+        device_time:
+          type: string
+          format: date-time
+    EventId:
+      type: string
+      minLength: 8
+      maxLength: 128
+      pattern: ^[A-Za-z0-9_-]+$
+      description: Unique, and created when the event is queued.
+    HubRequestPayload:
+      type: object
+      required:
+      - request_id
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+    HubScanPayload:
+      type: object
+      required:
+      - request_id
+      - lot_code
+      - scanned_at
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        lot_code:
+          type: string
+          minLength: 1
+          maxLength: 64
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        scanned_at:
+          type: string
+          format: date-time
+    HubUnscanPayload:
+      type: object
+      required:
+      - request_id
+      - lot_code
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        lot_code:
+          type: string
+          minLength: 1
+          maxLength: 64
+    HubShortfallPayload:
+      type: object
+      required:
+      - request_id
+      - action
+      - lines
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        action:
+          type: string
+          enum:
+          - partial
+          - substitute
+          - other_hub
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ShortLine'
+        substitute_item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        other_hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          maxLength: 200
+    HubReadyPayload:
+      type: object
+      required:
+      - request_id
+      - lot_numbers
+      properties:
+        request_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        lot_numbers:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+    HubQuarantinePayload:
+      type: object
+      required:
+      - lot_id
+      - reason
+      properties:
+        lot_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        reason:
+          type: string
+          enum:
+          - temperature
+          - damaged
+          - expired
+          - contamination
+          - other
+        note:
+          type: string
+          maxLength: 500
     RejectedEvent:
       type: object
       required:

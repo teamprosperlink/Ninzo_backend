@@ -1,6 +1,7 @@
 package mockserver
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -17,9 +18,10 @@ var partnerScenarios = map[string]string{
 	"lot_expired":                "Scan fails with lot_expired",
 	"lot_quarantined":            "Scan fails with lot_quarantined",
 	"lot_already_packed":         "Scan fails with lot_already_packed",
-	"temp_failed":                "Scan fails with temp_failed, so the app opens the quarantine prompt",
+	"temp_alert":                 "Scan fails with temp_alert and the lot, so the app opens the quarantine prompt",
 	"duplicate_scan":             "Scan succeeds with duplicate true and no second count",
 	"partial_fill":               "The pick list has a line with no lots; ready fails with shortfall_needed until a shortfall is recorded",
+	"substitute_accepted":        "The rider accepted the substitute: the request is back at packing with a line for it, on the live channel too",
 	"substitute_offered":         "The request has a substitute shortfall waiting for the rider",
 	"substitute_refused":         "The rider refused the substitute, on the live channel too",
 	"shortfall_already_recorded": "Shortfall fails with shortfall_already_recorded",
@@ -70,7 +72,7 @@ func hubRequest(id, state string, seq int, now time.Time) map[string]any {
 }
 
 func sampleShortfall(action, status string) map[string]any {
-	s := map[string]any{"action": action, "item_id": "item_chai", "qty_missing": 6, "substitute_item_id": nil, "other_hub": nil, "status": status}
+	s := map[string]any{"action": action, "lines": []map[string]any{{"item_id": "item_chai", "qty_missing": 6}}, "substitute_item_id": nil, "other_hub": nil, "status": status}
 	switch action {
 	case "substitute":
 		s["substitute_item_id"] = "item_lemon_tea"
@@ -114,12 +116,19 @@ func hubStoryFor(scenario string, now time.Time) hubStory {
 		add("request_changed", taken)
 	case "request_withdrawn":
 		add("request_changed", hubRequest(newID, "cancelled", 1, now))
-	case "substitute_offered", "substitute_refused":
+	case "substitute_offered", "substitute_refused", "substitute_accepted":
 		short := hubRequest(packingID, "partial", 1, now)
 		short["items"] = []map[string]any{hubLine("item_burger", "Burger", 4, 5), hubLine("item_chai", "Masala chai", 6, 0)}
 		short["lot_numbers"] = []string{"LOT-B-0101"}
 		short["shortfall"] = sampleShortfall("substitute", "open")
 		add("request_changed", short)
+		if scenario == "substitute_accepted" {
+			back := hubRequest(packingID, "packing", 1, now)
+			back["items"] = []map[string]any{hubLine("item_burger", "Burger", 4, 5), hubLine("item_chai", "Masala chai", 6, 0), hubLine("item_lemon_tea", "Lemon tea", 6, 0)}
+			back["lot_numbers"] = short["lot_numbers"]
+			back["shortfall"] = sampleShortfall("substitute", "accepted")
+			add("request_changed", back)
+		}
 		if scenario == "substitute_refused" {
 			refused := hubRequest(packingID, "partial", 1, now)
 			refused["items"], refused["lot_numbers"] = short["items"], short["lot_numbers"]
@@ -244,7 +253,7 @@ func partnerRoutes() []route {
 					out = append(out, r)
 				}
 			}
-			c.json(200, map[string]any{"requests": out})
+			c.json(200, map[string]any{"requests": out, "seq": hubStoryFor(c.scenario, c.now).seq})
 		}},
 		{method: "GET", path: "/hub/restock/{request_id}", handle: func(c *call) {
 			if r, ok := request(c); ok {
@@ -276,11 +285,17 @@ func partnerRoutes() []route {
 				c.fail(503, "service_unavailable", "A sample outage. Keep the scan queued.", true)
 				return
 			}
-			if c.scenario == "temp_failed" {
-				c.json(409, map[string]any{"code": "temp_failed", "message": "This lot failed its temperature check. Quarantine it.", "retryable": false, "temp_status": "failed"})
+			sampleLot := map[string]any{"lot_id": "lot_LOT-C-0203", "lot_code": "LOT-C-0203", "qty": 10, "expires_at": stamp(c.now.Add(20 * time.Hour)), "temp_status": "ok"}
+			switch c.scenario {
+			case "temp_alert":
+				sampleLot["temp_status"] = "alert"
+				c.json(409, map[string]any{"code": "temp_alert", "message": "This lot failed its temperature check. Quarantine it.", "retryable": false, "lot": sampleLot})
 				return
-			}
-			if fail(c, "wrong_lot", "lot_expired", "lot_quarantined", "lot_already_packed") {
+			case "wrong_lot":
+				c.json(409, map[string]any{"code": "wrong_lot", "message": "That lot is not on this request.", "retryable": false, "lot": nil})
+				return
+			case "lot_expired", "lot_quarantined", "lot_already_packed":
+				c.json(409, map[string]any{"code": c.scenario, "message": "Sample rejection: " + c.scenario, "retryable": false, "lot": sampleLot})
 				return
 			}
 			body, ok := needsBody(c, "lot_code", "scanned_at")
@@ -293,8 +308,12 @@ func partnerRoutes() []route {
 			}
 			if r, ok := request(c); ok {
 				code, _ := body["lot_code"].(string)
-				packed := hubRequest(r["id"].(string), "packing", r["seq"].(int)+1, c.now)
-				packed["lot_numbers"] = []string{code}
+				packed := r
+				if c.scenario != "duplicate_scan" {
+					// A new lot in the cassette: a change, so the seq rises.
+					packed = hubRequest(r["id"].(string), "packing", r["seq"].(int)+1, c.now)
+					packed["lot_numbers"] = append(append([]string{}, r["lot_numbers"].([]string)...), code)
+				}
 				lot := map[string]any{"lot_id": "lot_" + code, "lot_code": code, "qty": 5, "expires_at": stamp(c.now.Add(6 * time.Hour)), "temp_status": "ok"}
 				c.json(200, map[string]any{"lot": lot, "duplicate": c.scenario == "duplicate_scan", "request": packed})
 			}
@@ -311,7 +330,7 @@ func partnerRoutes() []route {
 			if fail(c, "shortfall_already_recorded") {
 				return
 			}
-			body, ok := needsBody(c, "item_id", "qty_missing", "action")
+			body, ok := needsBody(c, "lines", "action")
 			if !ok {
 				return
 			}
@@ -403,7 +422,9 @@ func partnerRoutes() []route {
 				switch {
 				case c.scenario == "event_rejected":
 					rejected = append(rejected, map[string]any{"id": id, "code": "wrong_lot", "message": "Sample rejection: wrong_lot", "retryable": false})
-				case map[string]bool{"accept": true, "scan": true, "unscan": true, "shortfall": true, "ready": true, "quarantine": true}[e["type"].(string)]:
+				case id == "":
+					rejected = append(rejected, map[string]any{"id": "", "code": "invalid_event", "message": "Each event needs an event_id.", "retryable": false})
+				case map[string]bool{"accept": true, "scan": true, "unscan": true, "shortfall": true, "ready": true, "quarantine": true}[fmt.Sprint(e["type"])]:
 					accepted = append(accepted, id)
 				default:
 					rejected = append(rejected, map[string]any{"id": id, "code": "unknown_event_type", "message": "Unknown event type.", "retryable": false})

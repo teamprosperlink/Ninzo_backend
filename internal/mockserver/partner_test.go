@@ -23,7 +23,7 @@ func init() {
 	for id, body := range map[string]string{
 		"scanHubLot":          `{"lot_code":"LOT-B-0101","scanned_at":"2026-11-10T10:00:00Z"}`,
 		"unscanHubLot":        `{"lot_code":"LOT-B-0101"}`,
-		"recordShortfall":     `{"item_id":"item_chai","qty_missing":6,"action":"partial"}`,
+		"recordShortfall":     `{"action":"partial","lines":[{"item_id":"item_chai","qty_missing":6}]}`,
 		"markHubRequestReady": `{"lot_numbers":["LOT-B-0101","LOT-C-0201"]}`,
 		"quarantineLot":       `{"reason":"temperature","note":"9 C at the bench"}`,
 	} {
@@ -43,7 +43,7 @@ func partnerRequest(t *testing.T, srv *httptest.Server, c *apiContract, o op, sc
 	t.Helper()
 	if o.id == "sendEventBatch" {
 		saved := sampleBodies[o.id]
-		sampleBodies[o.id] = `{"events":[{"event_id":"evt-hub-0001","type":"scan","device_time":"2026-11-10T10:00:00Z","payload":{"request_id":"rst_mock01","lot_code":"LOT-B-0101"}}]}`
+		sampleBodies[o.id] = `{"events":[{"event_id":"evt-hub-0001","type":"scan","device_time":"2026-11-10T10:00:00Z","payload":{"request_id":"rst_mock01","lot_code":"LOT-B-0101","scanned_at":"2026-11-10T10:00:00Z"}}]}`
 		defer func() { sampleBodies[o.id] = saved }()
 	}
 	status, body, _ := doRequest(t, srv, c, o, scenario, key)
@@ -293,4 +293,56 @@ func TestReadyTwiceChangesNothing(t *testing.T) {
 		return
 	}
 	t.Fatal("no markHubRequestReady operation")
+}
+
+func TestAnEventWithNoTypeIsRejectedNotDropped(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/partner/v1/hub/events", strings.NewReader(`{"events":[{"event_id":"evt-no-type-1","payload":{}}]}`))
+	req.Header.Set("Authorization", "Bearer mock-access-token")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if resp.StatusCode != 200 || len(out["rejected"].([]any)) != 1 {
+		t.Errorf("%d %v", resp.StatusCode, out)
+	}
+}
+
+func TestADuplicateScanChangesNothing(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := partnerContract(t)
+	for _, o := range c.operations() {
+		if o.id != "scanHubLot" {
+			continue
+		}
+		_, body := partnerRequest(t, srv, c, o, "duplicate_scan", "duplicate-scan-1")
+		r, _ := hubRequestFor(&call{scenario: "duplicate_scan", now: time.Now()}, "mock_id")
+		if !bytes.Contains(body, []byte(fmt.Sprintf(`"seq":%d,`, r["seq"]))) || !bytes.Contains(body, []byte(`"duplicate":true`)) {
+			t.Errorf("a duplicate scan raised the seq or changed the request: %s", body)
+		}
+		return
+	}
+	t.Fatal("no scanHubLot operation")
+}
+
+func TestATempAlertNamesTheLot(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := partnerContract(t)
+	for _, o := range c.operations() {
+		if o.id != "scanHubLot" {
+			continue
+		}
+		status, body := partnerRequest(t, srv, c, o, "temp_alert", "temp-alert-1")
+		if status != 409 || !bytes.Contains(body, []byte(`"lot_id":"lot_LOT-C-0203"`)) {
+			t.Errorf("the app needs the lot_id to quarantine: %d %s", status, body)
+		}
+		return
+	}
+	t.Fatal("no scanHubLot operation")
 }
