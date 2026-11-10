@@ -43,6 +43,25 @@ Each version is a GitHub Milestone, each phase is an Issue, and each sub-phase i
 
 Status values: planned · in progress · released.
 
+## Parts for v0.7.0 to v0.10.0
+Owner, 2026-11-10 (decision 0014). Each part is one Issue and one PR.
+
+**v0.7.0, customer and rider APIs complete.** The rider contract already has these endpoints.
+
+| Part | What |
+|---|---|
+| A | Hubs and restock data: hubs per zone, restock requests and lines, shortfalls. A hub simulator stands in for hub staff |
+| B | Restock suggestions when a scooter runs low; the rider confirms, edits or declines. The low-stock level is a setting |
+| C | Manual restock requests, options, substitute answers and status; queued restock events in the offline batch |
+| D | Relocation: suggested moves toward demand, accepted with no penalty for refusing. A simple rule first |
+| E | Earnings: orders, incentives and paid relocation time per day. Rates are settings, with test values until the console |
+
+**v0.8.0, partner (hub) APIs.** A: contract and mock, shared through the Doc first. B: hub staff sign-in by phone and OTP. C: the restock queue: accept, pick, scan. D: shortfall with a substitute, quarantine, ready, labels. E: hub offline sync. F: the real hub flow replaces the simulator.
+
+**v0.9.0, admin console APIs.** A: contract and mock. B: staff sign-in with an ID, password and authenticator code; roles admin, ops, support and hub manager; approvals for a refund above a set amount and for changes to settings. C: users, rider review and flags. D: zones, every setting and the kill switch. E: menu, prices, gates, hubs and earning rates entered by the admin, replacing test data. F: the audit log, arrival reviews and the queued support events.
+
+**v0.10.0, ops and support console APIs.** A: the order timeline. B: support actions: tickets, refunds, replacements, credits, arrival reviews. C: incidents in one queue. D: hub operations across hubs. E: the live map and alerts.
+
 ## What this order means
 - Until v0.9.0, timer length, radius, gates and menu are seed data, with no screen or API to change them.
 - Until v0.8.0, rider stock and restock run on seeded lots, with a simulator for hub actions.
