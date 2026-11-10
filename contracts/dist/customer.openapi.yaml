@@ -1132,12 +1132,16 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Ask to be told when an item is in reach
@@ -1971,12 +1975,16 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Report a problem
@@ -2002,8 +2010,12 @@ paths:
                     description: The ticket.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get a ticket

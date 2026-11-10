@@ -45,6 +45,9 @@ func (s *Service) safeTick(ctx context.Context) {
 	if _, err := s.Dispatch(ctx, now); err != nil && ctx.Err() == nil {
 		s.Log.Error("orders: rider pass failed", "error", err.Error())
 	}
+	if _, err := s.Notify(ctx, now); err != nil && ctx.Err() == nil {
+		s.Log.Error("orders: notification pass failed", "error", err.Error())
+	}
 }
 
 // Tick ends unpaid orders whose hold is over, giving back their stock, and raises seq when an

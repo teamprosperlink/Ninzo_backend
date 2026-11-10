@@ -18,6 +18,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/orders"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
 	"github.com/teamprosperlink/Ninzo_backend/internal/profile"
@@ -58,6 +59,10 @@ func main() {
 			// Holds end and order clocks move in the background, inside this API for now (decision 0013).
 			go ordering.RunJobs(ctx, 5*time.Second)
 			ordering.MountCustomerStream(r, &orders.Streams{Signer: sessions.Signer})
+			ordering.MountSupport(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			// Pushes go through the outbox. The log pusher stands in until FCM is connected.
+			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(orders.LogPusher{Log: d.Log}), Log: d.Log, Topics: orders.PushTopics}
+			go pushes.Run(ctx)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)
