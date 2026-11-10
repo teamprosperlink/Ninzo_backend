@@ -283,15 +283,20 @@ func (s *Service) respond(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, reply)
 }
 
-// expireUncollected ends packed cassettes nobody came for, long after arrive_by, and puts their
+// expireUncollected is ExpireUncollected, kept on the simulator for its tests.
+func (sim *Simulator) expireUncollected(ctx context.Context, now time.Time) error {
+	return sim.Service.ExpireUncollected(ctx, now)
+}
+
+// ExpireUncollected ends packed cassettes nobody came for, long after arrive_by, and puts their
 // unscanned lots back on the shelf. A cassette the rider started on is received for what was taken.
 // Each cassette has its own transaction, so one failure never holds up the rest.
-func (sim *Simulator) expireUncollected(ctx context.Context, now time.Time) error {
+func (s *Service) ExpireUncollected(ctx context.Context, now time.Time) error {
 	skip := []string{}
 	for i := 0; i < 200; i++ {
 		done := false
 		var id string
-		err := database.InTx(ctx, sim.Service.Pool, func(tx pgx.Tx) error {
+		err := database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
 			var rider, state string
 			err := tx.QueryRow(ctx, `SELECT id::text, rider_id::text, state FROM restock_requests
 				WHERE state IN ('ready', 'partial', 'picked_up') AND arrive_by IS NOT NULL AND arrive_by + make_interval(secs => $2) <= $1
@@ -327,7 +332,7 @@ func (sim *Simulator) expireUncollected(ctx context.Context, now time.Time) erro
 			if id == "" || ctx.Err() != nil {
 				return err
 			}
-			sim.Service.Log.Error("restock: expiring a cassette failed", "request_id", id, "error", err.Error())
+			s.Log.Error("restock: expiring a cassette failed", "request_id", id, "error", err.Error())
 			skip = append(skip, id)
 			continue
 		}

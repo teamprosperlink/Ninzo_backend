@@ -65,9 +65,10 @@ func main() {
 			// Pushes go through the outbox. The log pusher stands in until FCM is connected.
 			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(orders.LogPusher{Log: d.Log}), Log: d.Log, Topics: orders.PushTopics}
 			go pushes.Run(ctx)
-			// The hub simulator stands in for hub staff until the partner APIs (v0.8.0).
-			hubs := &restock.Simulator{Service: &restock.Service{Pool: d.DB, Log: d.Log}}
-			go hubs.Run(ctx, 5*time.Second)
+			// Restock's own jobs: the stock check and the expiry of uncollected cassettes. Hub staff do
+			// the hub's part through the partner API; the simulator is for tests only.
+			restocks := &restock.Service{Pool: d.DB, Log: d.Log}
+			go restocks.RunJobs(ctx, 5*time.Second)
 			// Suggested moves toward demand (v0.7.0 part D), in this API with the other passes.
 			moves := &relocation.Service{Pool: d.DB, Log: d.Log}
 			go moves.Run(ctx, 30*time.Second)

@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The real hub flow (#127)
+- Changed: the customer API runs only restock's own jobs: the stock check, the expiry of uncollected cassettes, and, new, the expiry of a confirmed request no hub accepts within `restock_accept_s` (900). Suggestions prefer a hub with staff. Hub actions come from staff through the partner API; the simulator is for tests only.
+- Added: migration 0034, `restock_accept_s`. Not applied to Supabase.
+- Evidence: docs/testing/reports/127.md
+
 ### Hub offline sync (#126)
 - Added: `POST /hub/events` applies queued accept, scan, unscan, shortfall, ready and quarantine in order, each once by event_id, with the same rules as their endpoints. One rejected event never blocks the rest; a direct call and its queued copy count once.
 - Added: migration 0033, `hub_events`. Not applied to Supabase.
