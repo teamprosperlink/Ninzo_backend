@@ -18,7 +18,7 @@ Each version is a GitHub Milestone, each phase is an Issue, and each sub-phase i
 | v0.4.0 | An order holds stock | Orders; reservations; a test payment, refused in production; cancel and refund rules | Concurrency tests pass. Razorpay comes before v1.0.0 (owner, 2026-11-06) | on staging, 2026-11-09 |
 | v0.5.0 | One full order works | Location and GPS; offers, accept, Ready; zone timer; live streams; handover OTP | One order runs from payment to handover, with GPS starting and stopping the timer | on staging, 2026-11-09 |
 | v0.6.0 | Failures handled | Remedies; no-scooter options; rider problems; offline sync; notifications; history and help | Every failure test in the customer EDD passes | on staging, 2026-11-10 |
-| v0.7.0 | Customer and rider APIs complete | Restock suggestions and requests; relocation; earnings | All customer and rider P1 features meet "Done when". Hub actions come from a simulator | planned |
+| v0.7.0 | Customer and rider APIs complete | Restock suggestions and requests; relocation; earnings | All customer and rider P1 features meet "Done when". Hub actions come from a simulator | on staging (#120) |
 
 **Before `v0.3.0`:** location, availability and matching work waits for the answers in `v0.3.0_open_questions.md` (#34).
 
