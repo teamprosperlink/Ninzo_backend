@@ -16,6 +16,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 	"github.com/teamprosperlink/Ninzo_backend/internal/shifts"
 )
 
@@ -144,6 +145,12 @@ func (s *Service) applyEvent(ctx context.Context, actor identity.Actor, e queued
 		}
 		if result.retryable {
 			return nil // May succeed later, so it is checked again next time.
+		}
+		// A rejected handover may mean the food was already given, so support is told.
+		if e.Type == "handover" && !result.accepted && (result.code == "wrong_otp" || result.code == "order_cancelled" || result.code == "order_reassigned") {
+			if err := outbox.Add(ctx, tx, "support.alert", map[string]any{"rider_id": actor.ID, "event_id": e.ID, "reason": "handover_" + result.code}); err != nil {
+				return err
+			}
 		}
 		var codeValue, msgValue, deviceValue any
 		if !result.accepted {

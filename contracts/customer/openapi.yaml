@@ -761,12 +761,16 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
         '409':
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /orders:
@@ -1138,12 +1142,16 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/BadRequest'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
         '409':
           $ref: '../shared/common.yaml#/components/responses/Conflict'
         '422':
           $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /support/tickets/{ticket_id}:
@@ -1168,8 +1176,12 @@ paths:
                 $ref: '#/components/schemas/TicketResponse'
         '401':
           $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
         '404':
           $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
   /test/payments/{order_id}:

@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Support and notifications (#101)
+- Added: `createTicket`, `getTicket` and `notifyWhenAvailable`.
+- Added: a push per customer stage change, following `customer_stage` only, and per new offer for the rider; a support alert for a rejected queued handover. Pushes go through the outbox to a pusher that only logs until FCM is connected.
+- Migration 0024, not applied to Supabase.
+- Evidence: docs/testing/reports/101.md
+
 ### The offline event batch (#98)
 - Added: `sendEventBatch`. Queued location, handover, problem and stock scan events apply in order, each on its own, with the same rules as the direct requests. A repeated `event_id` returns its first final result; a direct request sent first with the same key counts once.
 - Added: `rider_events`, migration 0023, not applied to Supabase.

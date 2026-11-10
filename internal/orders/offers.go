@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/availability"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 )
 
 var settingName = regexp.MustCompile(`^[a-z_]+$`)
@@ -198,6 +199,9 @@ func dispatch(ctx context.Context, tx pgx.Tx, orderID string, now time.Time) err
 		return err
 	}
 	if err := event(ctx, tx, orderID, "PAYMENT_SECURED", "OFFERED", "system", nil, "offered"); err != nil {
+		return err
+	}
+	if err := outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "offer"}); err != nil {
 		return err
 	}
 	return bumpRider(ctx, tx, rider)

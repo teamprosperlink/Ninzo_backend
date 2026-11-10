@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-10 | #101 | `v0.6.0` support and notifications, local only | See PR | PASS | [reports/101.md](reports/101.md) |
 | 2026-11-09 | #98 | `v0.6.0` the offline event batch, local only | See PR | PASS | [reports/98.md](reports/98.md) |
 | 2026-11-09 | #96 | `v0.6.0` rider problems and reassignment, local only | See PR | PASS | [reports/96.md](reports/96.md) |
 | 2026-11-09 | #94 | `v0.6.0` remedies and the longer ETA, local only | See PR | PASS | [reports/94.md](reports/94.md) |
