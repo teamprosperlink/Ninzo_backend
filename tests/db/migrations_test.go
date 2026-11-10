@@ -196,6 +196,8 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 
 // builtInV030 lists the v0.3.0 tables built so far, because v0.3.0 is built step by step. Add each
 // table here as it is built. When v0.3.0 is finished, compare with every v0.2.0 and v0.3.0 table.
+var builtInV090 = []string{"console_users", "console_challenges", "approvals", "feature_flags"}
+
 var builtInV080 = []string{"hub_staff", "hub_state", "shortfall_lines", "hub_events"}
 
 var builtInV070 = []string{"restock_requests", "restock_lines", "restock_lots", "shortfalls", "relocations", "earnings"}
@@ -252,6 +254,13 @@ func TestSchemaMatchesTheDataMap(t *testing.T) {
 	for _, table := range builtInV080 {
 		if !slices.Contains(planned, table) {
 			t.Errorf("%s is listed as built in v0.8.0, but the data map does not plan it for v0.8.0", table)
+		}
+		built = append(built, table)
+	}
+	planned = plannedTables(t, "v0.9.0")
+	for _, table := range builtInV090 {
+		if !slices.Contains(planned, table) {
+			t.Errorf("%s is listed as built in v0.9.0, but the data map does not plan it for v0.9.0", table)
 		}
 		built = append(built, table)
 	}

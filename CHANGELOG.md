@@ -5,6 +5,13 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console sign-in, users, approvals and flags (#134)
+- Added: `apps/console-api`. Sign-in is an ID and password (PBKDF2), then a TOTP code (RFC 6238) set up at first sign-in; a temporary password must be changed first; 5 failures in 15 minutes lock the account for 15 minutes.
+- Added: console users and roles, a permission check on every call (403 names it), approvals (request, approve by a second admin, reject, cancel, lapse after 24 hours, fail if stale), and feature flags through approvals.
+- Added: `cmd/console` (`task console`, `task staging:console`) makes the first admin and resets a user.
+- Added: migration 0035, `console_users`, `console_challenges`, `approvals`, `feature_flags`. Not applied to Supabase.
+- Evidence: docs/testing/reports/134.md
+
 ### Console contract and mock (#133)
 - Added: `contracts/console/openapi.yaml`, 40 operations: two-step sign-in (ID and password, then TOTP), users and roles, approvals, rider review, flags, zones, settings and the kill switch, menu and prices, gates and their history, hubs and hub staff, the audit log, arrival reviews and support alerts.
 - Added: the mock serves it at `/console/v1`; CI checks the mock against it. Decision 0015.

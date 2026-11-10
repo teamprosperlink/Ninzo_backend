@@ -10,12 +10,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// The user types with a session. Console staff follow in v0.9.0, which also widens the actor_type
-// checks on refresh_tokens, otp_requests and devices again (migration 0030 added staff).
+// The user types with a session. Migration 0030 added staff and 0035 console to the actor_type checks.
 const (
 	TypeCustomer = "customer"
 	TypeRider    = "rider"
-	TypeStaff    = "staff" // Hub staff and hub leads.
+	TypeStaff    = "staff"   // Hub staff and hub leads.
+	TypeConsole  = "console" // Console staff (decision 0015).
 )
 
 const issuer = "ninzo"
