@@ -22,6 +22,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
+	"github.com/teamprosperlink/Ninzo_backend/internal/relocation"
 )
 
 var idPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -251,6 +252,11 @@ func (s *Service) endShift(w http.ResponseWriter, r *http.Request) {
 		if err := handBack(r.Context(), tx, actor.ID); err != nil {
 			return err
 		}
+		// A move is for this shift. Paid time of an accepted move ends with it.
+		if _, err := tx.Exec(r.Context(), "UPDATE relocations SET state = 'cancelled', state_changed_at = now() WHERE rider_id = $1 AND state IN ('suggested', 'accepted')",
+			actor.ID); err != nil {
+			return err
+		}
 		// A suggestion is for the scooter on shift; the next rider gets their own.
 		if _, err := tx.Exec(r.Context(), "UPDATE restock_requests SET state = 'cancelled', state_changed_at = now(), updated_at = now() WHERE rider_id = $1 AND state = 'suggested'",
 			actor.ID); err != nil {
@@ -333,7 +339,12 @@ func (s *Service) listNodes(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"nodes": nodes, "assigned_node_id": assigned, "relocation": nil, "server_time": serverTime()})
+	move, err := relocation.Current(r.Context(), s.Pool, actor.ID, time.Now())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"nodes": nodes, "assigned_node_id": assigned, "relocation": move, "server_time": serverTime()})
 }
 
 type unit struct {
