@@ -44,7 +44,6 @@ Update this page in the same PR as any change to a row. The shared Doc points ap
 | Background jobs | Being built | Run inside the customer API, one replica | A separate worker | With two replicas, or after the pilot |
 | Live streams, timer, handover, offers | Not built | Mock only | | v0.5.0 |
 | Failures, remedies, notifications, support tickets | Not built | Mock only | | v0.6.0 |
-| Restock, relocation, earnings | Not built | Mock only | | v0.7.0 |
 | Partner and hub APIs | Not built | | | v0.8.0 |
 | Admin, ops and support APIs | Not built | | | v0.9.0 to v0.10.0 |
 
