@@ -404,6 +404,21 @@ func ScanTx(ctx context.Context, tx pgx.Tx, riderID, code string, save bool) (re
 			return refuse("lot_expired", "This lot has expired.")
 		}
 		var loaded bool
+		// A lot still at a hub is picked up only from this rider's own cassette, once it is packed.
+		var atHub, mine bool
+		if err := tx.QueryRow(ctx, `SELECT l.hub_id IS NOT NULL, EXISTS (SELECT 1 FROM restock_lots x JOIN restock_requests q ON q.id = x.request_id
+				WHERE x.lot_id = l.id AND x.released_at IS NULL AND q.rider_id = $2 AND q.state IN ('ready', 'partial'))
+			FROM lots l WHERE l.id = $1`, u.LotID, riderID).Scan(&atHub, &mine); err != nil {
+			return err
+		}
+		if atHub && !mine {
+			return refuse("bad_scan", "That lot is at a hub and is not in your cassette.")
+		}
+		if atHub {
+			if _, err := tx.Exec(ctx, "UPDATE lots SET hub_id = NULL WHERE id = $1", u.LotID); err != nil {
+				return err
+			}
+		}
 		if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM scooter_stock WHERE lot_id = $1)", u.LotID).Scan(&loaded); err != nil {
 			return err
 		}

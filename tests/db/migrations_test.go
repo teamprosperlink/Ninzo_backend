@@ -196,13 +196,15 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 
 // builtInV030 lists the v0.3.0 tables built so far, because v0.3.0 is built step by step. Add each
 // table here as it is built. When v0.3.0 is finished, compare with every v0.2.0 and v0.3.0 table.
+var builtInV070 = []string{"restock_requests", "restock_lines", "restock_lots", "shortfalls"}
+
 var builtInV060 = []string{"remedies", "arrival_reviews", "eta_offers", "problem_reports", "support_tickets", "ticket_messages", "availability_notifications"}
 
 var builtInV050 = []string{"offers", "location_pings"}
 
 var builtInV040 = []string{"orders", "order_items", "order_events", "reservations", "payments", "refunds"}
 
-var builtInV030 = []string{"zones", "zone_settings", "gates", "gate_history", "menu_items", "price_history", "staging_nodes", "scooters", "lots", "scooter_stock", "stock_ledger", "shifts", "rider_state", "availability_rules", "rider_events"}
+var builtInV030 = []string{"zones", "zone_settings", "gates", "gate_history", "menu_items", "price_history", "staging_nodes", "scooters", "lots", "scooter_stock", "stock_ledger", "shifts", "rider_state", "availability_rules", "rider_events", "hubs"}
 
 func TestSchemaMatchesTheDataMap(t *testing.T) {
 	db, p := freshDB(t)
@@ -234,6 +236,13 @@ func TestSchemaMatchesTheDataMap(t *testing.T) {
 	for _, table := range builtInV060 {
 		if !slices.Contains(planned, table) {
 			t.Errorf("%s is listed as built in v0.6.0, but the data map does not plan it for v0.6.0", table)
+		}
+		built = append(built, table)
+	}
+	planned = plannedTables(t, "v0.7.0")
+	for _, table := range builtInV070 {
+		if !slices.Contains(planned, table) {
+			t.Errorf("%s is listed as built in v0.7.0, but the data map does not plan it for v0.7.0", table)
 		}
 		built = append(built, table)
 	}

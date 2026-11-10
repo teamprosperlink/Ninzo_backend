@@ -22,6 +22,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/ratelimit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/service"
 	"github.com/teamprosperlink/Ninzo_backend/internal/profile"
+	"github.com/teamprosperlink/Ninzo_backend/internal/restock"
 )
 
 func main() {
@@ -63,6 +64,9 @@ func main() {
 			// Pushes go through the outbox. The log pusher stands in until FCM is connected.
 			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(orders.LogPusher{Log: d.Log}), Log: d.Log, Topics: orders.PushTopics}
 			go pushes.Run(ctx)
+			// The hub simulator stands in for hub staff until the partner APIs (v0.8.0).
+			hubs := &restock.Simulator{Service: &restock.Service{Pool: d.DB, Log: d.Log}}
+			go hubs.Run(ctx, 5*time.Second)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

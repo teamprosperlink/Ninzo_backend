@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-10 | #105 | `v0.7.0` hubs, restock data and the simulator, local only | See PR | PASS | [reports/105.md](reports/105.md) |
 | 2026-11-10 | #112 | `v0.6.0` on staging, test data only | 7b652d8 | PASS: missed timer owed a credit; problem report recorded; queued pings and a queued handover of one of two accepted, repeat answered the same; missing item refunded (missing_food, 14900), payment still paid; ticket created and read back; notify me saved; 3 pushes logged by the stand-in | This row |
 | 2026-11-10 | #101 | `v0.6.0` support and notifications, local only | See PR | PASS | [reports/101.md](reports/101.md) |
 | 2026-11-09 | #98 | `v0.6.0` the offline event batch, local only | See PR | PASS | [reports/98.md](reports/98.md) |
