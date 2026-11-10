@@ -319,3 +319,47 @@ func TestEarningsRequests(t *testing.T) {
 		t.Errorf("a blocked person: %d", code)
 	}
 }
+
+// TestTwoHandoversAtOnceEarnOneIncentive runs two handovers for one rider in two transactions at
+// once, at a level of two. The second must wait and count the first.
+func TestTwoHandoversAtOnceEarnOneIncentive(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, _ := f.rider()
+	f.exec("INSERT INTO zone_settings (zone_id, version, incentive_orders, reason, created_by) VALUES ($1, 1, 2, 'test', 'test')", f.zone)
+	first, second := f.order(), f.order()
+	tx1, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx1.Rollback(ctx)
+	if err := RecordOrder(ctx, tx1, rider, first, noon); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- database.InTx(ctx, f.pool, func(tx pgx.Tx) error { return RecordOrder(ctx, tx, rider, second, noon.Add(time.Minute)) })
+	}()
+	time.Sleep(500 * time.Millisecond)
+	if err := tx1.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SELECT count(*) FROM earnings WHERE kind = 'incentive'") != 1 {
+		t.Error("two handovers at once missed the incentive")
+	}
+}
+
+func TestRepositioningPayIsShown(t *testing.T) {
+	f := newFixture(t)
+	rider, token := f.rider()
+	id := f.move(rider, "arrived", 0, 5*time.Minute)
+	f.tx(func(tx pgx.Tx) error { return RecordRelocation(context.Background(), tx, id) })
+	f.handed(rider, f.order(), noon)
+	_, out := f.get(token, "2026-11-10")
+	if out["repositioning"].(map[string]any)["amount_minor"] != float64(1000) || out["total"].(map[string]any)["amount_minor"] != float64(5000) {
+		t.Errorf("%v", out)
+	}
+}

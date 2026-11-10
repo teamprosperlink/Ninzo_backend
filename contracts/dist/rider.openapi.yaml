@@ -136,6 +136,9 @@ components:
                     description: How many orders.
                     minimum: 0
                     type: integer
+                repositioning:
+                    $ref: '#/components/schemas/Money'
+                    description: Pay for repositioning time. total is the order earnings, incentives and this.
                 repositioning_seconds:
                     description: Repositioning is paid time.
                     minimum: 0
@@ -150,6 +153,7 @@ components:
                 - order_earnings
                 - incentives
                 - total
+                - repositioning
                 - repositioning_seconds
                 - server_time
             type: object

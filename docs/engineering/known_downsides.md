@@ -77,3 +77,10 @@ What is real and what is a stand-in is in `real_and_stand_ins.md`. Every downsid
 |---|---|---|---|---|
 | GitHub does not block direct pushes to `main` on the free plan | Everyone | Our process only: PRs with passing checks | Accepted | [0008](../decisions/0008-branch-and-release-setup.md) |
 | A real login on Android is unproven until the app reaches staging | The customer app | A real Google login was tested on a local web page | Until staging | #25 |
+
+## Earnings
+| Downside | Who it affects | What limits it today | Status | Source |
+|---|---|---|---|---|
+| A handover queued offline before midnight and synced after it counts on the next day, as pay uses the server's time | Riders | Only near midnight; the order is still paid | Accepted | #109 |
+| A handover with nothing handed (the customer fully refunded) still pays the rider the order rate, and a later refund never takes pay back | Riders, ops | Rates are test values until the console | Owner decision | #118 |
+| Rates are test values, and there are no payouts | Riders | The admin sets rates in the console (v0.9.0) | Until v0.9.0 | #109 |

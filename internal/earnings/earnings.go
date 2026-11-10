@@ -45,8 +45,10 @@ func RecordOrder(ctx context.Context, tx pgx.Tx, rider, order string, at time.Ti
 	if err != nil || tag.RowsAffected() == 0 {
 		return err
 	}
-	// The caller has bumped the rider's rider_state row in this transaction, so one rider's
-	// handovers are counted one at a time and the count below is exact.
+	// One rider's handovers are counted one at a time, so the count below is exact.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('earnings:' || $1, 0))", rider); err != nil {
+		return err
+	}
 	var done int
 	if err := tx.QueryRow(ctx, "SELECT count(*) FROM earnings WHERE rider_id = $1 AND day = $2 AND kind = 'order'", rider, day).Scan(&done); err != nil {
 		return err
@@ -144,7 +146,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orders := []map[string]any{}
-	var total, incentives, seconds int64
+	var total, incentives, seconds, moving int64
 	var kind string
 	var order *string
 	var amount, paid int64
@@ -157,6 +159,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 			incentives += amount
 		case "relocation":
 			seconds += paid
+			moving += amount
 		}
 		return nil
 	}); err != nil {
@@ -164,7 +167,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"date": date, "orders": len(orders), "order_earnings": orders, "incentives": money(incentives),
-		"total": money(total), "repositioning_seconds": seconds, "server_time": time.Now().UTC().Format(time.RFC3339Nano)})
+		"total": money(total), "repositioning": money(moving), "repositioning_seconds": seconds, "server_time": time.Now().UTC().Format(time.RFC3339Nano)})
 }
 
 func (s *Service) fail(w http.ResponseWriter, r *http.Request, err error) {
