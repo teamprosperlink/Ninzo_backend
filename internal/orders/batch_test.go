@@ -286,3 +286,20 @@ func TestQueuedRestockConfirmAndDecline(t *testing.T) {
 		t.Errorf("%v", out)
 	}
 }
+
+func TestAHandoverRecordsThePay(t *testing.T) {
+	tr := begin(t, nil)
+	start := tr.clock
+	tr.clock = start.Add(90 * time.Second)
+	otp := tr.otp()
+	if _, out := tr.batch(tr.handoverEvent("evt-pay-0001", otp, 2, start.Add(50*time.Second))); tr.state() != "HANDED_OVER" {
+		t.Fatalf("%v", out)
+	}
+	if tr.count("SELECT count(*) FROM earnings WHERE order_id = $1 AND kind = 'order' AND amount_paise = 4000", tr.order) != 1 {
+		t.Error("the handover did not record the pay")
+	}
+	tr.batch(tr.handoverEvent("evt-pay-0001", otp, 2, start.Add(50*time.Second)))
+	if tr.count("SELECT count(*) FROM earnings") != 1 {
+		t.Error("a repeat paid twice")
+	}
+}

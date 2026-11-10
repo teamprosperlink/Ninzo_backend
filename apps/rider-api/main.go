@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/orders"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/config"
@@ -52,6 +53,8 @@ func main() {
 			restocks.MountRequests(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 			moves := &relocation.Service{Pool: d.DB, Log: d.Log}
 			moves.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
+			pay := &earnings.Service{Pool: d.DB, Log: d.Log}
+			pay.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rider-api:", err)

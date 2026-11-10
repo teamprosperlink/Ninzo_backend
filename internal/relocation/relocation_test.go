@@ -423,3 +423,55 @@ func TestOnlyAnAccurateNewPingMarksArrival(t *testing.T) {
 		t.Errorf("a rider who reached the node was missed: %s", f.state(id))
 	}
 }
+
+func TestAnArrivedMoveIsPaid(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, token := f.rider(f.b)
+	f.rider(f.b)
+	f.orders(2, 12.9425, 77.6365, 5*time.Minute)
+	f.svc.Check(ctx, time.Now())
+	id := f.suggestion(rider)
+	f.post("/riders/me/relocations/"+id+"/accept", token)
+	f.exec(`INSERT INTO location_pings (rider_id, lat, lng, speed_mps, accuracy_m, device_time, applied) VALUES ($1, 12.9423, 77.6362, 4, 5, now(), true)`, rider)
+	f.svc.Check(ctx, time.Now().Add(time.Second))
+	if f.state(id) != "arrived" || f.count("SELECT count(*) FROM earnings WHERE relocation_id = $1 AND kind = 'relocation'", id) != 1 {
+		t.Error("an arrived move was not paid")
+	}
+}
+
+func TestAnOfferEndsPaidTimeWhenItWasMade(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, token := f.rider(f.b)
+	f.rider(f.b)
+	order := f.orders(2, 12.9425, 77.6365, 5*time.Minute)[0]
+	f.svc.Check(ctx, time.Now())
+	id := f.suggestion(rider)
+	f.post("/riders/me/relocations/"+id+"/accept", token)
+	f.exec("UPDATE relocations SET accepted_at = now() - interval '4 minutes' WHERE id = $1", id)
+	f.exec(`INSERT INTO offers (order_id, rider_id, scooter_id, fencing_token, expires_at, created_at)
+		VALUES ($1, $2, (SELECT scooter_id FROM shifts WHERE rider_id = $2 AND ended_at IS NULL), 'fence-3', now() + interval '1 minute', now() - interval '1 minute')`, order, rider)
+	f.svc.Check(ctx, time.Now().Add(10*time.Minute)) // Checked long after the offer.
+	if paid := f.count("SELECT paid_seconds FROM earnings WHERE relocation_id = $1", id); paid < 170 || paid > 190 {
+		t.Errorf("paid %d seconds, want about 180: until the offer, not the check", paid)
+	}
+}
+
+func TestAnArrivalBeforeAnOfferIsKept(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, token := f.rider(f.b)
+	f.rider(f.b)
+	order := f.orders(2, 12.9425, 77.6365, 5*time.Minute)[0]
+	f.svc.Check(ctx, time.Now())
+	id := f.suggestion(rider)
+	f.post("/riders/me/relocations/"+id+"/accept", token)
+	f.exec(`INSERT INTO location_pings (rider_id, lat, lng, speed_mps, accuracy_m, device_time, applied) VALUES ($1, 12.9423, 77.6362, 4, 5, now(), true)`, rider)
+	f.exec(`INSERT INTO offers (order_id, rider_id, scooter_id, fencing_token, expires_at)
+		VALUES ($1, $2, (SELECT scooter_id FROM shifts WHERE rider_id = $2 AND ended_at IS NULL), 'fence-4', now() + interval '1 minute')`, order, rider)
+	f.svc.Check(ctx, time.Now().Add(time.Second))
+	if f.state(id) != "arrived" {
+		t.Errorf("an arrival before the offer was lost: %s", f.state(id))
+	}
+}

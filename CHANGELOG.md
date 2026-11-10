@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Earnings (#109)
+- Added: a handover records the order's pay; the day's incentive comes once the rider's handed-over orders reach the level; an accepted move is paid by the started minute until it ends, up to a cap. `getEarnings` returns a local day.
+- Added: migration 0029, `earnings`, and test rates as settings: `pay_per_order_paise` (4000), `incentive_orders` (10), `incentive_paise` (20000), `relocation_paise_per_minute` (200), `relocation_max_paid_s` (1200). Not applied to Supabase.
+- Evidence: docs/testing/reports/109.md
+
 ### Relocation (#108)
 - Added: a check every 30 seconds that asks a spare rider (from a node with two or more waiting) to move to the nearest node with recent orders and nobody waiting. `listNodes` shows the suggestion; `acceptRelocation` moves the rider's node and scooter and starts paid time; a ping near the node marks arrival. Ignoring or refusing has no penalty.
 - Added: migration 0028, `relocations` and five settings: `relocation_window_s` (1800), `relocation_min_orders` (2), `relocation_ttl_s` (300), `relocation_rest_s` (900), `relocation_arrive_m` (100). Not applied to Supabase.

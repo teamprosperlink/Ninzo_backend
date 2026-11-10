@@ -403,7 +403,7 @@ func riderRoutes() []route {
 				return
 			}
 			c.json(200, map[string]any{"date": date, "orders": 1, "order_earnings": []map[string]any{{"order_id": orderID, "amount": money(4000)}},
-				"incentives": money(1000), "total": money(5000), "repositioning_seconds": 600})
+				"incentives": money(1000), "total": money(7000), "repositioning": money(2000), "repositioning_seconds": 600})
 		}},
 	}
 }

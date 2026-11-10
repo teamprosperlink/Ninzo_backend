@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-10 | #109 | `v0.7.0` earnings, local only | See PR | PASS | [reports/109.md](reports/109.md) |
 | 2026-11-10 | #108 | `v0.7.0` relocation, local only | See PR | PASS | [reports/108.md](reports/108.md) |
 | 2026-11-10 | #107 | `v0.7.0` manual restock and the pickup, local only | See PR | PASS | [reports/107.md](reports/107.md) |
 | 2026-11-10 | #106 | `v0.7.0` restock suggestions, local only | See PR | PASS | [reports/106.md](reports/106.md) |

@@ -504,3 +504,19 @@ func TestNodesShowAMoveAndEndingTheShiftCancelsIt(t *testing.T) {
 		t.Error("ending the shift must cancel the move")
 	}
 }
+
+func TestEndingAShiftPaysTheMoveSoFar(t *testing.T) {
+	f := newFixture(t)
+	f.scooter("SC-1")
+	rider, token := f.rider()
+	f.start(token)
+	to := f.id("INSERT INTO staging_nodes (zone_id, name, lat, lng, capacity) VALUES ($1, 'Node B', 12.94, 77.63, 4) RETURNING id::text", f.zone)
+	move := f.id(`INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, state, expires_at, accepted_at)
+		SELECT $1, id, node_id, $2, 'test', 'accepted', now() + interval '5 minutes', now() - interval '4 minutes' FROM shifts WHERE rider_id = $1 AND ended_at IS NULL RETURNING id::text`, rider, to)
+	if code, out := f.send("POST", "/riders/me/shifts/end", token, `{}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	if f.count("SELECT paid_seconds FROM earnings WHERE relocation_id = $1", move) < 240 {
+		t.Error("the move so far was not paid when the shift ended")
+	}
+}

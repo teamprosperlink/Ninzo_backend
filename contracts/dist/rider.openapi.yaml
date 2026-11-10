@@ -136,6 +136,9 @@ components:
                     description: How many orders.
                     minimum: 0
                     type: integer
+                repositioning:
+                    $ref: '#/components/schemas/Money'
+                    description: Pay for repositioning time. total is the order earnings, incentives and this.
                 repositioning_seconds:
                     description: Repositioning is paid time.
                     minimum: 0
@@ -150,6 +153,7 @@ components:
                 - order_earnings
                 - incentives
                 - total
+                - repositioning
                 - repositioning_seconds
                 - server_time
             type: object
@@ -2077,7 +2081,7 @@ paths:
                 - profile
     /riders/me/earnings:
         get:
-            description: Orders, incentives and paid repositioning time.
+            description: Orders, incentives and paid repositioning time. Each order handed over earns the zone's rate at the time; the day's incentive comes once the day's orders reach the zone's level; an accepted move is paid by the started minute until it ends, up to a cap. A suspended rider can still see this.
             operationId: getEarnings
             parameters:
                 - description: The day, in the zone's local time.
@@ -2098,6 +2102,10 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get earnings for a day

@@ -1317,7 +1317,9 @@ paths:
       - support
       operationId: getEarnings
       summary: Get earnings for a day
-      description: Orders, incentives and paid repositioning time.
+      description: Orders, incentives and paid repositioning time. Each order handed over earns the zone's
+        rate at the time; the day's incentive comes once the day's orders reach the zone's level; an accepted
+        move is paid by the started minute until it ends, up to a cap. A suspended rider can still see this.
       parameters:
       - name: date
         in: query
@@ -1337,6 +1339,10 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
 components:
@@ -2412,6 +2418,7 @@ components:
       - order_earnings
       - incentives
       - total
+      - repositioning
       - repositioning_seconds
       - server_time
       properties:
@@ -2430,6 +2437,9 @@ components:
           $ref: ../shared/common.yaml#/components/schemas/Money
         incentives:
           $ref: ../shared/common.yaml#/components/schemas/Money
+        repositioning:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+          description: Pay for repositioning time. total is the order earnings, incentives and this.
         repositioning_seconds:
           type: integer
           minimum: 0

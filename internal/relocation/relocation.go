@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
+	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
@@ -241,27 +242,10 @@ const maxAccuracyM = 100
 // the rider's pings.
 func (s *Service) settle(ctx context.Context, now time.Time) error {
 	return database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `UPDATE relocations v SET state = CASE WHEN v.state = 'suggested' AND v.expires_at > $1 THEN 'cancelled'
-					WHEN v.state = 'accepted' AND v.accepted_at > $1 - make_interval(secs => $2) THEN 'cancelled' ELSE 'expired' END,
-				state_changed_at = $1
-			WHERE (v.state = 'suggested' AND (v.expires_at <= $1
-					OR NOT EXISTS (SELECT 1 FROM shifts sh WHERE sh.id = v.shift_id AND sh.ended_at IS NULL)
-					OR EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL)))
-				OR (v.state = 'accepted' AND (v.accepted_at <= $1 - make_interval(secs => $2)
-					OR EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL AND f.created_at > v.accepted_at)))
-			RETURNING v.id::text, v.rider_id::text`, now, arriveWithin.Seconds())
-		if err != nil {
-			return err
-		}
 		type moved struct{ id, rider string }
-		ended, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (moved, error) {
-			var m moved
-			return m, r.Scan(&m.id, &m.rider)
-		})
-		if err != nil {
-			return err
-		}
-		rows, err = tx.Query(ctx, `SELECT v.id::text, v.rider_id::text, n.zone_id::text FROM relocations v JOIN staging_nodes n ON n.id = v.to_node_id
+		ended := []moved{}
+		// Arrivals first, so a rider who reached the node before an offer is marked arrived.
+		rows, err := tx.Query(ctx, `SELECT v.id::text, v.rider_id::text, n.zone_id::text FROM relocations v JOIN staging_nodes n ON n.id = v.to_node_id
 			WHERE v.state = 'accepted' ORDER BY v.id FOR UPDATE OF v SKIP LOCKED`)
 		if err != nil {
 			return err
@@ -305,7 +289,32 @@ func (s *Service) settle(ctx context.Context, now time.Time) error {
 			}
 			ended = append(ended, moved{m.id, m.rider})
 		}
+		rows, err = tx.Query(ctx, `UPDATE relocations v SET state = CASE WHEN v.state = 'suggested' AND v.expires_at > $1 THEN 'cancelled'
+					WHEN v.state = 'accepted' AND v.accepted_at > $1 - make_interval(secs => $2) THEN 'cancelled' ELSE 'expired' END,
+				-- An offer ends an accepted move when it was made, so paid time stops there.
+				state_changed_at = CASE WHEN v.state = 'accepted' THEN greatest(v.accepted_at, least($1, coalesce((SELECT min(f.created_at) FROM offers f
+					WHERE f.rider_id = v.rider_id AND f.released_at IS NULL AND f.created_at > v.accepted_at), $1))) ELSE $1 END
+			WHERE (v.state = 'suggested' AND (v.expires_at <= $1
+					OR NOT EXISTS (SELECT 1 FROM shifts sh WHERE sh.id = v.shift_id AND sh.ended_at IS NULL)
+					OR EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL)))
+				OR (v.state = 'accepted' AND (v.accepted_at <= $1 - make_interval(secs => $2)
+					OR EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL AND f.created_at > v.accepted_at)))
+			RETURNING v.id::text, v.rider_id::text`, now, arriveWithin.Seconds())
+		if err != nil {
+			return err
+		}
+		stopped, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (moved, error) {
+			var m moved
+			return m, r.Scan(&m.id, &m.rider)
+		})
+		if err != nil {
+			return err
+		}
+		ended = append(ended, stopped...)
 		for _, m := range ended {
+			if err := earnings.RecordRelocation(ctx, tx, m.id); err != nil {
+				return err
+			}
 			if err := bump(ctx, tx, m.rider, m.id); err != nil {
 				return err
 			}
