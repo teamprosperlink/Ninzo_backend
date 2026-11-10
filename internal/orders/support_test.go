@@ -114,11 +114,16 @@ func TestNotifyMeWhenAvailable(t *testing.T) {
 func TestARequestExpiresUnsent(t *testing.T) {
 	f := newFixture(t)
 	withSupport(f)
-	// The chai is in reach now, but the request is more than a day old.
+	// The chai is in reach now. A request in date is sent, and one more than a day old is not.
 	f.exec("INSERT INTO availability_notifications (customer_id, gate_id, expires_at) VALUES ($1, $2, $3)", f.cust, f.gate, f.clock.Add(-time.Minute))
 	f.svc.Notify(context.Background(), f.clock)
 	if f.outbox("push.customer") != 0 {
 		t.Error("an expired request was sent")
+	}
+	f.exec("INSERT INTO availability_notifications (customer_id, gate_id, item_id, expires_at) VALUES ($1, $2, $3, $4)", f.cust, f.gate, f.chai, f.clock.Add(time.Hour))
+	f.svc.Notify(context.Background(), f.clock)
+	if f.outbox("push.customer") != 1 {
+		t.Error("a request in date was not sent")
 	}
 }
 
@@ -184,5 +189,62 @@ func TestARejectedQueuedHandoverAlertsSupport(t *testing.T) {
 	tr.batch(tr.handoverEvent("evt-alert-wrong", wrong, 2, tr.clock))
 	if tr.outbox("support.alert") != 1 {
 		t.Error("support was not alerted about a rejected handover")
+	}
+}
+
+func TestNoRiderPushDuringTheMinimumWait(t *testing.T) {
+	x := withRiders(newFixture(t))
+	ctx := context.Background()
+	start := x.clock
+	id := x.placed(x.chai, 1)
+	x.pay(id, "paid")
+	x.exec("UPDATE orders SET min_wait_until = $2 WHERE id = $1", id, start.Add(2*time.Minute))
+	_, tok := x.signIn(x.scooter)
+	x.dispatch(start.Add(6 * time.Second))
+	o := x.offer(tok)
+	x.clock = start.Add(10 * time.Second)
+	x.call("POST", "/offers/"+o["id"].(string)+"/accept", tok, `{"fencing_token":"`+o["fencing_token"].(string)+`"}`)
+	x.svc.Notify(ctx, x.clock)
+	if x.count("SELECT count(*) FROM outbox_events WHERE topic = 'push.customer' AND payload->>'stage' = 'rider_accepted'") != 0 {
+		t.Fatal("a push showed the rider during the minimum wait")
+	}
+	x.clock = start.Add(121 * time.Second)
+	x.dispatch(x.clock)
+	x.svc.Notify(ctx, x.clock)
+	if x.count("SELECT count(*) FROM outbox_events WHERE topic = 'push.customer' AND payload->>'stage' = 'rider_accepted' AND payload ? 'seq'") != 1 {
+		t.Error("one rider_accepted push, with its seq, once the wait is over")
+	}
+}
+
+func TestTheSameRequestIsKeptOnce(t *testing.T) {
+	f := newFixture(t)
+	withSupport(f)
+	for i := 0; i < 3; i++ {
+		if code, out := f.send("POST", "/availability/notify", f.token, `{"gate_id":"`+f.gate+`","item_id":"`+f.chai+`"}`); code != 201 {
+			t.Errorf("asking again: %d %v", code, out)
+		}
+	}
+	if n := f.count("SELECT count(*) FROM availability_notifications"); n != 1 {
+		t.Errorf("%d open requests for one gate and item", n)
+	}
+	f.exec("UPDATE menu_items SET status = 'hidden' WHERE id = $1", f.samosa)
+	if code, _ := f.send("POST", "/availability/notify", f.token, `{"gate_id":"`+f.gate+`","item_id":"`+f.samosa+`"}`); code != 404 {
+		t.Errorf("a hidden item: %d", code)
+	}
+	if code, _ := f.send("POST", "/support/tickets", f.token, `{"type":"other","text":"a\u0000b"}`); code != 400 {
+		t.Errorf("a NUL in the text: %d", code)
+	}
+}
+
+func TestThePushWorkerLeavesOtherEvents(t *testing.T) {
+	f := newFixture(t)
+	withSupport(f)
+	f.send("POST", "/support/tickets", f.token, `{"type":"other","text":"hello"}`)
+	w := &outbox.Worker{Pool: f.pool, Handle: f.svc.Deliver(&recorder{}), Log: quiet, Topics: PushTopics}
+	if _, err := w.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SELECT count(*) FROM outbox_events WHERE topic = 'support.ticket_created' AND delivered_at IS NULL AND attempts = 0") != 1 {
+		t.Error("the push worker took a support event")
 	}
 }

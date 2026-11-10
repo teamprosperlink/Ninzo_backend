@@ -61,7 +61,7 @@ func main() {
 			ordering.MountCustomerStream(r, &orders.Streams{Signer: sessions.Signer})
 			ordering.MountSupport(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Pushes go through the outbox. The log pusher stands in until FCM is connected.
-			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(orders.LogPusher{Log: d.Log}), Log: d.Log}
+			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(orders.LogPusher{Log: d.Log}), Log: d.Log, Topics: orders.PushTopics}
 			go pushes.Run(ctx)
 		},
 	}); err != nil {

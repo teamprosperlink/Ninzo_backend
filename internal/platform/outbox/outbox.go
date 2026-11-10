@@ -66,6 +66,8 @@ type Worker struct {
 	Log    *slog.Logger
 	Batch  int
 	Poll   time.Duration
+	// Topics, when set, limits the worker to these topics. Others wait for their own worker.
+	Topics []string
 }
 
 // Run delivers until ctx ends. A database error is logged and tried again, so a brief outage
@@ -120,11 +122,12 @@ func (w *Worker) claim(ctx context.Context) (Event, bool, error) {
 		WHERE id = (
 			SELECT id FROM outbox_events
 			WHERE delivered_at IS NULL AND next_attempt_at <= now()
+				AND (cardinality($2::text[]) = 0 OR topic = ANY($2::text[]))
 			ORDER BY next_attempt_at, id
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, topic, payload, attempts`, lease.Seconds()).Scan(&e.ID, &e.Topic, &e.Payload, &e.Attempts)
+		RETURNING id, topic, payload, attempts`, lease.Seconds(), topics(w.Topics)).Scan(&e.ID, &e.Topic, &e.Payload, &e.Attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Event{}, false, nil
 	}
@@ -132,6 +135,13 @@ func (w *Worker) claim(ctx context.Context) (Event, bool, error) {
 		return Event{}, false, err
 	}
 	return e, true, nil
+}
+
+func topics(t []string) []string {
+	if t == nil {
+		return []string{}
+	}
+	return t
 }
 
 func (w *Worker) deliver(ctx context.Context, e Event) {

@@ -34,10 +34,17 @@ CREATE TABLE availability_notifications (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX availability_notifications_open_idx ON availability_notifications (expires_at) WHERE sent_at IS NULL;
+-- One open request per customer, gate and item. A request with no item stands for any item.
+CREATE UNIQUE INDEX availability_notifications_one_open ON availability_notifications
+    (customer_id, gate_id, coalesce(item_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE sent_at IS NULL;
+ALTER TABLE availability_notifications ADD COLUMN checked_at timestamptz;
 ALTER TABLE availability_notifications ENABLE ROW LEVEL SECURITY;
 
 -- The last stage a push went out for, so each stage change is pushed once.
 ALTER TABLE orders ADD COLUMN notified_seq bigint NOT NULL DEFAULT 0, ADD COLUMN notified_stage text;
+-- Orders that exist now are taken as already told, so a deploy sends no burst of old stages.
+UPDATE orders SET notified_seq = seq;
+CREATE INDEX orders_to_notify_idx ON orders (updated_at) WHERE seq > notified_seq;
 
 -- +goose Down
 ALTER TABLE orders DROP COLUMN notified_seq, DROP COLUMN notified_stage;

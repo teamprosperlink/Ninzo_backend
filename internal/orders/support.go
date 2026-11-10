@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -70,6 +71,7 @@ func (s *Service) createTicket(w http.ResponseWriter, r *http.Request) {
 		Text    string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !ticketTypes[body.Type] || body.Text == "" || utf8.RuneCountInString(body.Text) > 2000 ||
+		strings.ContainsRune(body.Text, 0) ||
 		(body.OrderID != "" && !idPattern.MatchString(body.OrderID)) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a type and text of up to 2000 characters, and optionally order_id.", false)
 		return
@@ -173,7 +175,7 @@ func (s *Service) notifyWhenAvailable(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if found && body.ItemID != "" {
-			if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM menu_items WHERE id = $1)", body.ItemID).Scan(&found); err != nil {
+			if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM menu_items WHERE id = $1 AND status = 'active')", body.ItemID).Scan(&found); err != nil {
 				return err
 			}
 		}
@@ -184,8 +186,9 @@ func (s *Service) notifyWhenAvailable(w http.ResponseWriter, r *http.Request) {
 		if body.ItemID != "" {
 			item = body.ItemID
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO availability_notifications (customer_id, gate_id, item_id, expires_at) VALUES ($1, $2, $3, $4)",
-			actor.ID, body.GateID, item, s.clock().Add(notifyFor)); err != nil {
+		// Asking again for the same gate and item keeps the one open request.
+		if _, err := tx.Exec(ctx, `INSERT INTO availability_notifications (customer_id, gate_id, item_id, expires_at) VALUES ($1, $2, $3, $4)
+			ON CONFLICT DO NOTHING`, actor.ID, body.GateID, item, s.clock().Add(notifyFor)); err != nil {
 			return err
 		}
 		reply = map[string]any{"server_time": serverTime()}
@@ -219,7 +222,7 @@ func (s *Service) Notify(ctx context.Context, now time.Time) (int, error) {
 				return err
 			}
 			if pushed[stage] && (last == nil || *last != stage) {
-				if err := outbox.Add(ctx, tx, "push.customer", map[string]any{"customer_id": customerID, "order_id": id, "stage": stage}); err != nil {
+				if err := outbox.Add(ctx, tx, "push.customer", map[string]any{"customer_id": customerID, "order_id": id, "stage": stage, "seq": order["seq"]}); err != nil {
 					return err
 				}
 			}
@@ -230,7 +233,7 @@ func (s *Service) Notify(ctx context.Context, now time.Time) (int, error) {
 		return n, err
 	}
 	m, err := s.sweep(ctx, "checking a notify-me request", `SELECT id::text FROM availability_notifications WHERE sent_at IS NULL AND expires_at > $2
-		AND NOT (id::text = ANY($1::text[])) ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		AND NOT (id::text = ANY($1::text[])) ORDER BY coalesce(checked_at, '-infinity'), created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
 		now, func(ctx context.Context, tx pgx.Tx, id string) error {
 			var customerID, gateID string
 			var item *string
@@ -244,7 +247,9 @@ func (s *Service) Notify(ctx context.Context, now time.Time) (int, error) {
 				return err
 			}
 			if !offered(res, item) {
-				return errUnchanged
+				// Checked: it goes to the back, so every request takes its turn.
+				_, err := tx.Exec(ctx, "UPDATE availability_notifications SET checked_at = $2 WHERE id = $1", id, now)
+				return err
 			}
 			if err := outbox.Add(ctx, tx, "push.customer", map[string]any{"customer_id": customerID, "gate_id": gateID, "stage": "available"}); err != nil {
 				return err
@@ -254,6 +259,9 @@ func (s *Service) Notify(ctx context.Context, now time.Time) (int, error) {
 		})
 	return n + m, err
 }
+
+// PushTopics are the outbox topics the push worker takes. Support events wait for the console.
+var PushTopics = []string{"push.customer", "push.rider"}
 
 // Pusher sends a push to one device. The log pusher stands in until FCM is connected.
 type Pusher interface {
@@ -280,7 +288,7 @@ func (s *Service) Deliver(p Pusher) outbox.Handler {
 		case "push.rider":
 			actorType = identity.TypeRider
 		default:
-			return nil
+			return errors.New("orders: not a push topic: " + e.Topic) // Never consume another worker's events.
 		}
 		var payload map[string]any
 		if err := json.Unmarshal(e.Payload, &payload); err != nil {
