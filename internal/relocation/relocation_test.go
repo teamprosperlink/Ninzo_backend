@@ -362,3 +362,64 @@ func TestANodeWithARiderWaitingAsksForNobody(t *testing.T) {
 		t.Error("a node with a rider waiting asked for another")
 	}
 }
+
+func TestAnOfferEndsAMoveAndAnEndedShiftEndsASuggestion(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, token := f.rider(f.b)
+	other, _ := f.rider(f.b)
+	f.rider(f.b)
+	order := f.orders(2, 12.9425, 77.6365, 5*time.Minute)[0]
+	f.svc.Check(ctx, time.Now())
+	id := f.suggestion(rider)
+	f.post("/riders/me/relocations/"+id+"/accept", token)
+	f.exec(`INSERT INTO offers (order_id, rider_id, scooter_id, fencing_token, expires_at)
+		VALUES ($1, $2, (SELECT scooter_id FROM shifts WHERE rider_id = $2 AND ended_at IS NULL), 'fence-2', now() + interval '1 minute')`, order, rider)
+	f.svc.Check(ctx, time.Now().Add(time.Second))
+	if f.state(id) != "cancelled" {
+		t.Errorf("an offer during the move: %s", f.state(id))
+	}
+	// The next suggestion goes to another rider; ending their shift ends it.
+	f.exec("DELETE FROM offers")
+	f.exec("UPDATE relocations SET state_changed_at = now() - interval '1 hour' WHERE id = $1", id)
+	f.exec("UPDATE shifts SET node_id = $1 WHERE rider_id = $2", f.b, rider)
+	f.svc.Check(ctx, time.Now().Add(2*time.Second))
+	next := f.id("SELECT id::text FROM relocations WHERE state = 'suggested'")
+	who := f.id("SELECT rider_id::text FROM relocations WHERE id = $1", next)
+	f.exec("UPDATE shifts SET ended_at = now() WHERE rider_id = $1", who)
+	if cur, _ := Current(ctx, f.pool, who, time.Now()); cur != nil {
+		t.Error("a suggestion for an ended shift is shown")
+	}
+	f.svc.Check(ctx, time.Now().Add(3*time.Second))
+	if f.state(next) != "cancelled" {
+		t.Errorf("an ended shift: %s", f.state(next))
+	}
+	_ = other
+}
+
+func TestOnlyAnAccurateNewPingMarksArrival(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rider, token := f.rider(f.b)
+	f.rider(f.b)
+	f.orders(2, 12.9425, 77.6365, 5*time.Minute)
+	f.svc.Check(ctx, time.Now())
+	id := f.suggestion(rider)
+	f.post("/riders/me/relocations/"+id+"/accept", token)
+	ping := func(lat, lng, accuracy float64, recorded string) {
+		f.exec(`INSERT INTO location_pings (rider_id, lat, lng, speed_mps, accuracy_m, device_time, applied)
+			VALUES ($1, $2, $3, 4, $4, now() + $5::interval, true)`, rider, lat, lng, accuracy, recorded)
+	}
+	ping(12.9423, 77.6362, 5, "-10 minutes") // Near C, but recorded before accepting and sent late.
+	ping(12.9423, 77.6362, 900, "0 s")       // Near C, but 900 metres inaccurate.
+	f.svc.Check(ctx, time.Now().Add(time.Second))
+	if f.state(id) != "accepted" {
+		t.Fatalf("a stale or inaccurate ping marked arrival: %s", f.state(id))
+	}
+	ping(12.9423, 77.6362, 5, "0 s") // There.
+	ping(12.936, 77.629, 5, "1 s")   // And gone again before the next check.
+	f.svc.Check(ctx, time.Now().Add(2*time.Second))
+	if f.state(id) != "arrived" {
+		t.Errorf("a rider who reached the node was missed: %s", f.state(id))
+	}
+}

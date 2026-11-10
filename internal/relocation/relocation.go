@@ -61,8 +61,10 @@ type querier interface {
 func Current(ctx context.Context, q querier, rider string, now time.Time) (any, error) {
 	var id, node, reason string
 	var expires time.Time
-	err := q.QueryRow(ctx, `SELECT id::text, to_node_id::text, reason, expires_at FROM relocations
-		WHERE rider_id = $1 AND state = 'suggested' AND expires_at > $2`, rider, now).Scan(&id, &node, &reason, &expires)
+	err := q.QueryRow(ctx, `SELECT v.id::text, v.to_node_id::text, v.reason, v.expires_at FROM relocations v
+		JOIN shifts sh ON sh.id = v.shift_id AND sh.ended_at IS NULL
+		WHERE v.rider_id = $1 AND v.state = 'suggested' AND v.expires_at > $2
+			AND NOT EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL)`, rider, now).Scan(&id, &node, &reason, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -136,14 +138,21 @@ func (s *Service) AcceptTx(ctx context.Context, tx pgx.Tx, rider, id string) err
 		return errNotFound
 	}
 	now := s.clock()
-	var state, shift, to string
-	var expires time.Time
-	err := tx.QueryRow(ctx, "SELECT state, shift_id::text, to_node_id::text, expires_at FROM relocations WHERE id = $1 AND rider_id = $2 FOR UPDATE",
-		id, rider).Scan(&state, &shift, &to, &expires)
+	// The shift first, then the move: the order endShift takes them in.
+	var shift string
+	err := tx.QueryRow(ctx, "SELECT shift_id::text FROM relocations WHERE id = $1 AND rider_id = $2", id, rider).Scan(&shift)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
 	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM shifts WHERE id = $1 FOR UPDATE", shift); err != nil {
+		return err
+	}
+	var state, to string
+	var expires time.Time
+	if err := tx.QueryRow(ctx, "SELECT state, to_node_id::text, expires_at FROM relocations WHERE id = $1 FOR UPDATE", id).Scan(&state, &to, &expires); err != nil {
 		return err
 	}
 	switch {
@@ -224,16 +233,22 @@ func (s *Service) Check(ctx context.Context, now time.Time) (int, error) {
 	return made, nil
 }
 
+// maxAccuracyM is the worst GPS accuracy a ping may have to mark an arrival.
+const maxAccuracyM = 100
+
 // settle ends suggestions that are past their time or no longer fit (the rider has an offer or no
-// shift), closes accepted moves nobody finished, and marks arrivals from the rider's pings.
+// shift), ends accepted moves that an offer interrupted or nobody finished, and marks arrivals from
+// the rider's pings.
 func (s *Service) settle(ctx context.Context, now time.Time) error {
 	return database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `UPDATE relocations v SET state = CASE WHEN v.state = 'suggested' AND v.expires_at > $1 THEN 'cancelled' ELSE 'expired' END,
+		rows, err := tx.Query(ctx, `UPDATE relocations v SET state = CASE WHEN v.state = 'suggested' AND v.expires_at > $1 THEN 'cancelled'
+					WHEN v.state = 'accepted' AND v.accepted_at > $1 - make_interval(secs => $2) THEN 'cancelled' ELSE 'expired' END,
 				state_changed_at = $1
 			WHERE (v.state = 'suggested' AND (v.expires_at <= $1
 					OR NOT EXISTS (SELECT 1 FROM shifts sh WHERE sh.id = v.shift_id AND sh.ended_at IS NULL)
 					OR EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL)))
-				OR (v.state = 'accepted' AND v.accepted_at <= $1 - make_interval(secs => $2))
+				OR (v.state = 'accepted' AND (v.accepted_at <= $1 - make_interval(secs => $2)
+					OR EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL AND f.created_at > v.accepted_at)))
 			RETURNING v.id::text, v.rider_id::text`, now, arriveWithin.Seconds())
 		if err != nil {
 			return err
@@ -246,44 +261,49 @@ func (s *Service) settle(ctx context.Context, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		// Arrivals: the rider's latest ping since accepting is within the zone's arrival distance.
-		rows, err = tx.Query(ctx, `SELECT v.id::text, v.rider_id::text, n.zone_id::text, p.received_at,
-				extensions.ST_Distance(
-					extensions.ST_SetSRID(extensions.ST_MakePoint(n.lng, n.lat), 4326)::extensions.geography,
-					extensions.ST_SetSRID(extensions.ST_MakePoint(p.lng, p.lat), 4326)::extensions.geography)
-			FROM relocations v JOIN staging_nodes n ON n.id = v.to_node_id
-				JOIN LATERAL (SELECT lp.lat, lp.lng, lp.received_at FROM location_pings lp
-					WHERE lp.rider_id = v.rider_id AND lp.received_at >= v.accepted_at AND lp.received_at <= $1
-					ORDER BY lp.received_at DESC LIMIT 1) p ON true
-			WHERE v.state = 'accepted' FOR UPDATE OF v`, now)
+		rows, err = tx.Query(ctx, `SELECT v.id::text, v.rider_id::text, n.zone_id::text FROM relocations v JOIN staging_nodes n ON n.id = v.to_node_id
+			WHERE v.state = 'accepted' ORDER BY v.id FOR UPDATE OF v SKIP LOCKED`)
 		if err != nil {
 			return err
 		}
-		type near struct {
-			id, rider, zone string
-			at              time.Time
-			metres          float64
-		}
-		nearby, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (near, error) {
-			var x near
-			return x, r.Scan(&x.id, &x.rider, &x.zone, &x.at, &x.metres)
+		type open struct{ id, rider, zone string }
+		moving, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (open, error) {
+			var o open
+			return o, r.Scan(&o.id, &o.rider, &o.zone)
 		})
 		if err != nil {
 			return err
 		}
-		for _, x := range nearby {
-			settings, err := geo.LoadSettings(ctx, tx, x.zone)
+		reach := map[string]int{}
+		for _, m := range moving {
+			within, ok := reach[m.zone]
+			if !ok {
+				settings, err := geo.LoadSettings(ctx, tx, m.zone)
+				if err != nil {
+					return err
+				}
+				within, _ = settings.Get("relocation_arrive_m")
+				reach[m.zone] = within
+			}
+			// The first accurate ping, recorded and received since accepting, near the new node.
+			var at time.Time
+			err := tx.QueryRow(ctx, `SELECT lp.received_at FROM relocations v JOIN staging_nodes n ON n.id = v.to_node_id
+				JOIN location_pings lp ON lp.rider_id = v.rider_id AND lp.received_at >= v.accepted_at AND lp.device_time >= v.accepted_at
+					AND lp.received_at <= $2 AND lp.accuracy_m <= $3
+				WHERE v.id = $1 AND extensions.ST_DWithin(
+					extensions.ST_SetSRID(extensions.ST_MakePoint(n.lng, n.lat), 4326)::extensions.geography,
+					extensions.ST_SetSRID(extensions.ST_MakePoint(lp.lng, lp.lat), 4326)::extensions.geography, $4)
+				ORDER BY lp.received_at LIMIT 1`, m.id, now, maxAccuracyM, within).Scan(&at)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
 			if err != nil {
 				return err
 			}
-			within, _ := settings.Get("relocation_arrive_m")
-			if x.metres > float64(within) {
-				continue
-			}
-			if _, err := tx.Exec(ctx, "UPDATE relocations SET state = 'arrived', arrived_at = $2, state_changed_at = $3 WHERE id = $1", x.id, x.at, now); err != nil {
+			if _, err := tx.Exec(ctx, "UPDATE relocations SET state = 'arrived', arrived_at = $2, state_changed_at = $3 WHERE id = $1", m.id, at, now); err != nil {
 				return err
 			}
-			ended = append(ended, moved{x.id, x.rider})
+			ended = append(ended, moved{m.id, m.rider})
 		}
 		for _, m := range ended {
 			if err := bump(ctx, tx, m.rider, m.id); err != nil {
@@ -305,13 +325,13 @@ type place struct {
 
 func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now time.Time) (int, error) {
 	// One check per zone at a time, so two copies of the API never suggest twice.
-	var locked string
-	err := tx.QueryRow(ctx, "SELECT id::text FROM zones WHERE id = $1 FOR UPDATE SKIP LOCKED", zone).Scan(&locked)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
+	// An advisory lock, not a row lock on the zone, so orders in the zone never wait on it.
+	var locked bool
+	if err := tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock(hashtextextended('relocation:' || $1, 0))", zone).Scan(&locked); err != nil {
 		return 0, err
+	}
+	if !locked {
+		return 0, nil
 	}
 	settings, err := geo.LoadSettings(ctx, tx, zone)
 	if err != nil {
@@ -417,6 +437,9 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 		if err := tx.QueryRow(ctx, `INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at, state_changed_at)
 			SELECT $1, sh.id, $2, $3, $4, $5, $6 FROM shifts sh WHERE sh.rider_id = $1 AND sh.ended_at IS NULL RETURNING id::text`,
 			who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now).Scan(&id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue // The shift ended during this check.
+			}
 			return made, err
 		}
 		if err := bump(ctx, tx, who, id); err != nil {
