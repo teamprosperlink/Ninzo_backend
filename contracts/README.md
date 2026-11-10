@@ -311,3 +311,6 @@ A rider with no signal sends no pings, so the server cannot detect arrival. The 
 
 ## Hub offline sync
 `POST /hub/events` (#126) applies a hub's queued actions in the order sent, each once by event_id, with the same checks as their endpoints. A direct call made with the event_id as its Idempotency-Key counts as that event, whatever its path: use a new key for each action. An event applied from the queue is not known to the direct endpoints, so do not send it again directly. If an event comes back rejected with retryable true, keep it and the events after it for the same request queued, and send them again in order: a later event may depend on it.
+
+## Console API
+`console/openapi.yaml` (#133, decision 0015). Console staff sign in with an ID and password (`consoleLogin`), which returns a challenge, then an authenticator code (`verifyTotp`); a first sign-in sets the authenticator up with `enrollTotp`. Only then is there a session, with bearer tokens as in the other APIs. Roles are admin, ops, support and hub_manager; the server checks the role on every call, and a missing permission is 403 with `missing_permission`. A settings change, a kill-switch change and a flag change return 202 with a pending approval, which a second admin approves or rejects; a refund above the set amount does the same from v0.10.0. The mock serves it at `/console/v1`.

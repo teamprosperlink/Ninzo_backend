@@ -64,3 +64,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | The hub queue, accept, pick list, scan, unscan and the hub live channel | Real | Built (#124). The slot and rider arrival are estimates (5 and 10 minutes) until a hub sets its own. At a hub with active staff, the simulator stands aside | | v0.8.0 |
 | Shortfall lines, sealing the cassette, the label, the hub's lots, quarantine (hub lead), and substitutes | Real | Built (#125). A substitute accepted by the rider reopens packing with the substitute in place of what was short | | v0.8.0 |
 | Hub offline sync (`POST /hub/events`) | Real | Built (#126): queued accept, scan, unscan, shortfall, ready and quarantine, applied in order, each once by event_id | | v0.8.0 |
+| Console API | Mock only | Contract and mock (#133). The real console APIs come in parts B to F | | v0.9.0 |

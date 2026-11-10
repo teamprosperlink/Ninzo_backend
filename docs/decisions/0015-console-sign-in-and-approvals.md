@@ -1,0 +1,18 @@
+# 0015: Console sign-in, roles and approvals
+
+- Date: 2026-11-11
+- Status: accepted (the owner's answers in decision 0014, with the details below decided by the backend)
+
+## Context
+Decision 0014 settled that console staff sign in with an ID and password plus TOTP, that the roles are admin, ops, support and hub manager, and that a refund above a set amount and any settings change need approval. The ops console KT doc proposed a browser cookie session and six roles.
+
+## Decision
+- **A separate console API** (`apps/console-api`, `contracts/console/openapi.yaml`), with bearer tokens like the other three APIs, not a cookie. The console is a web app; it keeps the access token in memory and the refresh token in a secure store, as the KT doc's frontend notes allow.
+- **Two steps, always.** A password alone never gives a session: `consoleLogin` returns a short-lived challenge, and `verifyTotp` starts the session. A first sign-in sets up TOTP with `enrollTotp`. A temporary password must be changed before anything else.
+- **Four roles** (0014), checked on the server for every call, with 403 naming the missing permission: admin (users, settings, flags, approvals, audit, everything below); ops (zones and the kill switch to request, hubs and staff, riders, menu, gates, reviews); support (reviews, support alerts; refunds and tickets in v0.10.0); hub_manager (their own hub and its staff).
+- **Approvals.** A settings change, a kill-switch change and a flag change are requested (202, pending) and applied only when a second person with the admin role approves. The requester cannot approve their own. A refund above the set amount joins in v0.10.0.
+- **Lockout.** Repeated failed sign-ins lock the account until an admin resets it.
+
+## Consequences
+- The console developer builds against `/console/v1` on the mock now.
+- Console staff are a new kind of user in identity, with their own sessions.

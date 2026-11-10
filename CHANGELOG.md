@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console contract and mock (#133)
+- Added: `contracts/console/openapi.yaml`, 40 operations: two-step sign-in (ID and password, then TOTP), users and roles, approvals, rider review, flags, zones, settings and the kill switch, menu and prices, gates and their history, hubs and hub staff, the audit log, arrival reviews and support alerts.
+- Added: the mock serves it at `/console/v1`; CI checks the mock against it. Decision 0015.
+- Evidence: docs/testing/reports/133.md
+
 ### Hub offline sync (#126)
 - Added: `POST /hub/events` applies queued accept, scan, unscan, shortfall, ready and quarantine in order, each once by event_id, with the same rules as their endpoints. One rejected event never blocks the rest; a direct call and its queued copy count once.
 - Added: migration 0033, `hub_events`. Not applied to Supabase.

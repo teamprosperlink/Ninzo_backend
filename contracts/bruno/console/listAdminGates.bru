@@ -1,0 +1,16 @@
+meta {
+  name: listAdminGates
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/admin/gates
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

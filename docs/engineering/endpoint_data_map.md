@@ -70,6 +70,10 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `hub` | `hub_state` | Each hub's seq, raised by every change to its requests, for the live channel | v0.8.0 |
 | `hub` | `shortfall_lines` | The short lines of a shortfall, with the missing quantity | v0.8.0 |
 | `hub` | `hub_events` | Queued hub actions, each applied once by event_id | v0.8.0 |
+| `console` | `console_users` | Console staff: ID, password hash, TOTP secret, role, hub for a hub_manager | v0.9.0 |
+| `console` | `console_challenges` | The step between password and authenticator code | v0.9.0 |
+| `console` | `approvals` | Changes waiting for a second person, and what was decided | v0.9.0 |
+| `console` | `feature_flags` | Flags changed through approvals | v0.9.0 |
 
 ### 1.1 Columns that are easy to miss
 - **`orders`:** state, customer stage and `customer_seq`. `cancel_until`, `min_wait_until`, `wait_deadline`. `timer_started_at`, `timer_stopped_at`, `timer_missed`. **Fixed when the rider accepts, so a console change cannot affect it:** `timer_duration_s`, `perimeter_m`, `location_zone_id` and its version. `arrival_source` (`gps` or `handover`). `handover_otp`, `otp_attempts`, `ended_reason`. The `Idempotency-Key` that created it.
@@ -199,6 +203,53 @@ The partner (hub) app's endpoints (#122). Every hub path acts on the signed-in s
 | `listHubLots` | `hub_staff`, `lots`, `restock_lots` | | | |
 | `quarantineLot` | `hub_staff`, `lots`, `restock_lots`, `restock_requests`, `scooter_stock` | `lots`, `restock_lots`, `restock_requests`, `hub_state`, `audit_events`, `idempotency_keys` | | |
 | `sendEventBatch` | `hub_events`, `hub_staff`, `restock_requests`, `restock_lines`, `restock_lots`, `lots`, `shortfalls` | `hub_events`, `restock_lots`, `restock_requests`, `restock_lines`, `shortfalls`, `shortfall_lines`, `lots`, `hub_state`, `rider_state`, `outbox_events`, `audit_events` | | |
+
+## 4.2 Console API
+
+The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; until then only the contract and mock exist.
+
+| Endpoint | Reads | Writes | Redis | Outside calls |
+|---|---|---|---|---|
+| `consoleLogin` | `console_users` | `console_users`, `console_challenges`, `audit_events` | Rate limit | |
+| `enrollTotp` | `console_challenges`, `console_users` | `console_users` | Rate limit | |
+| `verifyTotp` | `console_challenges`, `console_users` | `console_challenges`, `refresh_tokens`, `audit_events` | Rate limit | |
+| `refreshToken` | `refresh_tokens`, `console_users` | `refresh_tokens`, `audit_events` | Rate limit | |
+| `signOut` | `refresh_tokens` | `refresh_tokens` |  | |
+| `changePassword` | `console_users` | `console_users`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
+| `getConsoleUser` | `console_users` |  |  | |
+| `listConsoleUsers` | `console_users` |  |  | |
+| `createConsoleUser` | `console_users`, `hubs` | `console_users`, `audit_events`, `idempotency_keys` |  | |
+| `updateConsoleUser` | `console_users`, `hubs` | `console_users`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
+| `resetConsoleUser` | `console_users` | `console_users`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
+| `listApprovals` | `approvals`, `console_users` |  |  | |
+| `approveChange` | `approvals`, `console_users`, `zone_settings`, `zones`, `feature_flags` | `approvals`, `zone_settings`, `zones`, `feature_flags`, `audit_events`, `idempotency_keys` |  | |
+| `rejectChange` | `approvals` | `approvals`, `audit_events`, `idempotency_keys` |  | |
+| `listRiderReviews` | `riders`, `people`, `rider_verifications` |  |  | |
+| `decideRider` | `riders`, `rider_verifications`, `zones`, `shifts` | `riders`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
+| `listFlags` | `feature_flags` |  |  | |
+| `requestFlagChange` | `feature_flags`, `approvals` | `approvals`, `audit_events`, `idempotency_keys` |  | |
+| `listZones` | `zones` |  |  | |
+| `getGlobalSettings` | `zone_settings` |  |  | |
+| `requestGlobalSettingsChange` | `zone_settings`, `approvals` | `approvals`, `audit_events`, `idempotency_keys` |  | |
+| `getZoneSettings` | `zones`, `zone_settings` |  |  | |
+| `requestZoneSettingsChange` | `zones`, `zone_settings`, `approvals` | `approvals`, `audit_events`, `idempotency_keys` |  | |
+| `requestKillSwitch` | `zones`, `approvals` | `approvals`, `audit_events`, `idempotency_keys` |  | |
+| `listAdminMenu` | `menu_items` |  |  | |
+| `createMenuItem` | `menu_items` | `menu_items`, `price_history`, `audit_events`, `idempotency_keys` |  | |
+| `updateMenuItem` | `menu_items` | `menu_items`, `price_history`, `audit_events`, `idempotency_keys` |  | |
+| `listAdminGates` | `gates` |  |  | |
+| `updateGate` | `gates`, `gate_history`, `location_zones` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` |  | |
+| `getGateHistory` | `gates`, `gate_history` |  |  | |
+| `listAdminHubs` | `hubs`, `hub_staff` |  |  | |
+| `createHub` | `zones`, `hubs` | `hubs`, `audit_events`, `idempotency_keys` |  | |
+| `updateHub` | `hubs` | `hubs`, `audit_events`, `idempotency_keys` |  | |
+| `listHubStaff` | `hub_staff`, `people` |  |  | |
+| `addHubStaff` | `hubs`, `people`, `hub_staff` | `people`, `hub_staff`, `audit_events`, `idempotency_keys` |  | |
+| `updateHubStaff` | `hub_staff`, `hubs` | `hub_staff`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
+| `listAuditEvents` | `audit_events` |  |  | |
+| `listArrivalReviews` | `arrival_reviews` |  |  | |
+| `decideArrivalReview` | `arrival_reviews`, `orders` | `arrival_reviews`, `orders`, `remedies`, `order_events`, `audit_events`, `idempotency_keys` |  | |
+| `listSupportAlerts` | `outbox_events` |  |  | |
 
 ## 5. Background work
 `cmd/worker` runs these from `scheduled_tasks`, or from `outbox_events`. A restart loses nothing, because they are rows and not memory. Each one must be safe to run twice.
