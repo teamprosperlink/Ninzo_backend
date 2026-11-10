@@ -18,7 +18,6 @@ var consoleScenarios = map[string]string{
 	"role_hub_manager":          "The signed-in user is a hub_manager for one hub",
 	"approval_pending":          "Settings, kill-switch and flag requests fail with approval_pending; the list shows one waiting",
 	"own_change":                "Approving fails with own_change: the same person asked for it",
-	"change_conflict":           "Approving fails with change_conflict: the setting changed since it was asked for",
 	"kill_switch_off":           "A zone's offer is off",
 	"rider_verification_failed": "The rider review queue has a rider whose verification failed",
 	"rider_not_verified":        "Approving a rider fails with not_verified",
@@ -31,6 +30,14 @@ var consoleScenarios = map[string]string{
 	"audit_empty":               "The audit log has nothing for the filters",
 	"invalid_setting":           "A settings change fails with invalid_setting",
 	"idempotency_in_progress":   "Any write with an Idempotency-Key returns a retryable 409, with Retry-After",
+	"password_change_required":  "Every admin call returns 403 password_change_required until the password is changed",
+	"not_pending":               "Approve, reject and cancel fail with not_pending",
+	"approval_failed":           "The approval list shows one that failed with stale_version",
+	"stale_version":             "A settings change fails with stale_version: someone changed them since",
+	"totp_attempts_exceeded":    "The authenticator code fails with totp_attempts_exceeded",
+	"not_allowed":               "A rider decision fails with not_allowed",
+	"rate_limited":              "Sign-in fails with rate_limited",
+	"account_locked_user":       "The user list shows a user locked after failed sign-ins",
 }
 
 const consoleUserID = "usr_mock01"
@@ -41,7 +48,22 @@ func consoleUser(role string, now time.Time) map[string]any {
 		hub = hubID
 	}
 	return map[string]any{"id": consoleUserID, "login_id": "asha.k", "name": "Asha K", "role": role, "hub_id": hub, "active": true, "totp_enrolled": true,
-		"created_at": stamp(now.Add(-30 * 24 * time.Hour))}
+		"locked_until": nil, "created_at": stamp(now.Add(-30 * 24 * time.Hour))}
+}
+
+// rolePermissions is decision 0015's table.
+var rolePermissions = map[string][]string{
+	"admin": {"users.manage", "approvals.read", "approvals.decide", "riders.review", "flags.manage", "zones.read", "settings.read", "settings.request",
+		"zones.kill_switch", "menu.manage", "gates.read", "gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "audit.read", "reviews.read",
+		"reviews.decide", "alerts.read"},
+	"ops": {"approvals.read", "riders.review", "zones.read", "settings.read", "settings.request", "zones.kill_switch", "menu.manage", "gates.read",
+		"gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "reviews.read", "reviews.decide", "alerts.read"},
+	"support":     {"zones.read", "gates.read", "reviews.read", "reviews.decide", "alerts.read"},
+	"hub_manager": {"hubs.read", "hub_staff.manage"},
+}
+
+func userReply(role string, now time.Time) map[string]any {
+	return map[string]any{"user": consoleUser(role, now), "permissions": rolePermissions[role]}
 }
 
 func consoleRole(c *call) string {
@@ -55,14 +77,28 @@ func consoleRole(c *call) string {
 }
 
 func sampleApproval(kind, status string, now time.Time) map[string]any {
-	var by, at any
-	if status != "pending" {
-		by, at = "Ravi M", stamp(now)
+	var by, at, why, failure any
+	switch status {
+	case "approved", "rejected", "failed":
+		by, at = map[string]any{"id": "usr_mock02", "name": "Ravi M"}, stamp(now)
 	}
+	if status == "rejected" {
+		why = "Not during rush hour"
+	}
+	if status == "failed" {
+		failure = "stale_version"
+	}
+	change := map[string]any{
+		"settings":    map[string]any{"kind": "settings", "zone_id": "zone_mock01", "base_version": 3, "diffs": []map[string]any{{"key": "timer_length_s", "before": 90, "after": 120}}},
+		"kill_switch": map[string]any{"kind": "kill_switch", "zone_id": "zone_mock01", "offer_enabled_before": true, "offer_enabled_after": false},
+		"flag":        map[string]any{"kind": "flag", "key": "eta_offers", "enabled_before": false, "enabled_after": true},
+		"refund":      map[string]any{"kind": "refund", "order_id": orderID, "amount": money(30000)},
+	}[kind]
 	summary := map[string]string{"settings": "Koramangala: timer_length_s 90 to 120", "kill_switch": "Koramangala: turn the 90-second offer off",
 		"flag": "eta_offers: on", "refund": "Order ord_mock0001: refund 30000 paise"}[kind]
-	return map[string]any{"id": "apr_mock01", "kind": kind, "status": status, "summary": summary, "change": map[string]any{},
-		"requested_by": "Asha K", "requested_at": stamp(now.Add(-5 * time.Minute)), "decided_by": by, "decided_at": at, "reason": "Rush hour in the zone"}
+	return map[string]any{"id": "apr_mock01", "kind": kind, "status": status, "summary": summary, "change": change,
+		"requested_by": map[string]any{"id": consoleUserID, "name": "Asha K"}, "requested_at": stamp(now.Add(-5 * time.Minute)), "request_reason": "Rush hour in the zone",
+		"decided_by": by, "decided_at": at, "decision_reason": why, "failure_code": failure, "expires_at": stamp(now.Add(24 * time.Hour))}
 }
 
 func sampleSettings(zone any) map[string]any {
@@ -71,7 +107,11 @@ func sampleSettings(zone any) map[string]any {
 		{"key": "zone_radius_m", "unit": "metres", "min": 50, "max": 5000, "value": nil, "effective": 350, "required": true, "description": "The zone around the customer where the timer can start"},
 		{"key": "pay_per_order_paise", "unit": "paise", "min": 0, "max": 100000, "value": 4000, "effective": 4000, "required": true, "description": "What a rider earns for each order handed over"},
 	}
-	return map[string]any{"zone_id": zone, "version": 3, "settings": settings}
+	var zoneVersion any
+	if zone != nil {
+		zoneVersion = 2
+	}
+	return map[string]any{"zone_id": zone, "global_version": 3, "zone_version": zoneVersion, "settings": settings}
 }
 
 func sampleRiderReview(verification string, now time.Time) map[string]any {
@@ -99,8 +139,12 @@ func hubStaffMember(role, status string) map[string]any {
 
 func consoleRoutes() []route {
 	denied := func(c *call) bool {
-		if c.scenario == "no_permission" {
-			c.json(403, map[string]any{"code": "forbidden", "message": "Your role cannot do this.", "retryable": false, "missing_permission": "admin.users"})
+		switch c.scenario {
+		case "no_permission":
+			c.json(403, map[string]any{"code": "forbidden", "message": "Your role cannot do this.", "retryable": false, "missing_permission": consolePermission(c)})
+			return true
+		case "password_change_required":
+			c.json(403, map[string]any{"code": "password_change_required", "message": "Change your temporary password first.", "retryable": false, "missing_permission": "password_changed"})
 			return true
 		}
 		return false
@@ -128,7 +172,10 @@ func consoleRoutes() []route {
 				c.fail(401, "invalid_credentials", "That ID or password is wrong.", false)
 				return
 			case "account_locked":
-				c.json(403, map[string]any{"code": "account_locked", "message": "Too many failed sign-ins. Ask an admin to reset.", "retryable": false, "missing_permission": "account_active"})
+				c.json(403, map[string]any{"code": "account_locked", "message": "Too many failed sign-ins. Try again in 15 minutes.", "retryable": true, "missing_permission": "account_active"})
+				return
+			case "rate_limited":
+				c.fail(429, "rate_limited", "Too many requests.", true)
 				return
 			}
 			c.json(200, map[string]any{"challenge_id": "chl_mock01", "totp_enrolled": c.scenario != "totp_not_enrolled",
@@ -158,6 +205,9 @@ func consoleRoutes() []route {
 			case "challenge_expired":
 				c.fail(409, "challenge_expired", "Sign in again.", false)
 				return
+			case "totp_attempts_exceeded":
+				c.fail(429, "totp_attempts_exceeded", "Too many wrong codes. Sign in again.", false)
+				return
 			}
 			c.json(200, sessionReply(map[string]any{"user_id": consoleUserID, "role": consoleRole(c), "must_change_password": c.scenario == "must_change_password"}))
 		}},
@@ -174,10 +224,14 @@ func consoleRoutes() []route {
 			}
 			c.json(200, map[string]any{})
 		}},
-		{method: "GET", path: "/admin/me", handle: func(c *call) { c.json(200, map[string]any{"user": consoleUser(consoleRole(c), c.now)}) }},
+		{method: "GET", path: "/admin/me", handle: func(c *call) { c.json(200, userReply(consoleRole(c), c.now)) }},
 		{method: "GET", path: "/admin/users", handle: func(c *call) {
 			if !denied(c) {
-				page(c, "users", []map[string]any{consoleUser("admin", c.now), consoleUser("support", c.now)})
+				locked := consoleUser("support", c.now)
+				if c.scenario == "account_locked_user" {
+					locked["locked_until"] = stamp(c.now.Add(10 * time.Minute))
+				}
+				page(c, "users", []map[string]any{consoleUser("admin", c.now), locked})
 			}
 		}},
 		{method: "POST", path: "/admin/users", handle: func(c *call) {
@@ -200,7 +254,7 @@ func consoleRoutes() []route {
 				return
 			}
 			if _, ok := reason(c); ok {
-				c.json(200, map[string]any{"user": consoleUser("support", c.now)})
+				c.json(200, userReply("support", c.now))
 			}
 		}},
 		{method: "POST", path: "/admin/users/{user_id}/reset", handle: func(c *call) {
@@ -216,18 +270,26 @@ func consoleRoutes() []route {
 				return
 			}
 			list := []map[string]any{sampleApproval("settings", "approved", c.now)}
-			if c.scenario == "approval_pending" {
+			switch c.scenario {
+			case "approval_pending":
 				list = append([]map[string]any{sampleApproval("kill_switch", "pending", c.now)}, list...)
+			case "approval_failed":
+				list = append([]map[string]any{sampleApproval("settings", "failed", c.now)}, list...)
 			}
 			page(c, "approvals", list)
 		}},
 		{method: "POST", path: "/admin/approvals/{approval_id}/approve", handle: func(c *call) {
-			if !denied(c) && !fail(c, "own_change", "change_conflict") {
+			if !denied(c) && !fail(c, "own_change", "not_pending") {
 				c.json(200, map[string]any{"approval": sampleApproval("settings", "approved", c.now)})
 			}
 		}},
+		{method: "POST", path: "/admin/approvals/{approval_id}/cancel", handle: func(c *call) {
+			if !denied(c) && !fail(c, "not_pending") {
+				c.json(200, map[string]any{"approval": sampleApproval("settings", "cancelled", c.now)})
+			}
+		}},
 		{method: "POST", path: "/admin/approvals/{approval_id}/reject", handle: func(c *call) {
-			if denied(c) {
+			if denied(c) || fail(c, "not_pending") {
 				return
 			}
 			if _, ok := reason(c); ok {
@@ -252,12 +314,15 @@ func consoleRoutes() []route {
 				c.fail(409, "not_verified", "Verification is not complete.", false)
 				return
 			}
+			if fail(c, "not_allowed") {
+				return
+			}
 			body, ok := needsBody(c, "decision", "reason")
 			if !ok {
 				return
 			}
 			r := sampleRiderReview("verified", c.now)
-			r["status"] = map[any]string{"approve": "active", "reinstate": "active", "suspend": "suspended", "reject": "rejected"}[body["decision"]]
+			r["status"] = map[any]string{"approve": "active", "reinstate": "active", "suspend": "suspended"}[body["decision"]]
 			if r["status"] == "" {
 				c.fail(400, "invalid_request", "Unknown decision.", false)
 				return
@@ -325,6 +390,13 @@ func consoleRoutes() []route {
 				c.json(200, map[string]any{"item": adminMenuItem("item_burger", "Burger", 15900, "active", c.now)})
 			}
 		}},
+		{method: "GET", path: "/admin/menu/items/{item_id}/prices", handle: func(c *call) {
+			if !denied(c) {
+				c.json(200, map[string]any{"item_id": c.param("item_id"), "prices": []map[string]any{
+					{"price": money(15900), "reason": "New price list", "created_at": stamp(c.now)},
+					{"price": money(14900), "reason": "First price", "created_at": stamp(c.now.Add(-30 * 24 * time.Hour))}}})
+			}
+		}},
 		{method: "GET", path: "/admin/gates", handle: func(c *call) {
 			if !denied(c) {
 				page(c, "gates", []map[string]any{adminGate(2, c.now)})
@@ -343,7 +415,12 @@ func consoleRoutes() []route {
 				return
 			}
 			v := func(n int, label string) map[string]any {
-				return map[string]any{"version": n, "label": label, "lat": 12.9352, "lng": 77.6245, "entry_notes": nil, "verified": n > 1, "reason": fmt.Sprintf("version %d", n), "created_at": stamp(c.now.Add(-time.Duration(3-n) * time.Hour))}
+				var by any
+				if n > 1 {
+					by = "Asha K"
+				}
+				return map[string]any{"version": n, "label": label, "lat": 12.9352, "lng": 77.6245, "entry_notes": nil, "verified": n > 1, "reason": fmt.Sprintf("version %d", n),
+					"changed_by": by, "created_at": stamp(c.now.Add(-time.Duration(3-n) * time.Hour))}
 			}
 			c.json(200, map[string]any{"gate_id": c.param("gate_id"), "versions": []map[string]any{v(1, "Tower B"), v(2, "Tower B main gate")}})
 		}},
@@ -412,7 +489,7 @@ func consoleRoutes() []route {
 		{method: "GET", path: "/admin/arrival-reviews", handle: func(c *call) {
 			if !denied(c) {
 				page(c, "reviews", []map[string]any{{"id": "arv_mock01", "order_id": orderID, "status": "open", "lat": 12.9352, "lng": 77.6245,
-					"device_time": stamp(c.now.Add(-2 * time.Minute)), "due_at": stamp(c.now.Add(8 * time.Minute)), "decided_at": nil}})
+					"device_time": stamp(c.now.Add(-2 * time.Minute)), "due_at": stamp(c.now.Add(8 * time.Minute)), "decided_at": nil, "decided_by": nil, "decision_reason": nil}})
 			}
 		}},
 		{method: "POST", path: "/admin/arrival-reviews/{review_id}/decision", handle: func(c *call) {
@@ -429,7 +506,8 @@ func consoleRoutes() []route {
 				return
 			}
 			c.json(200, map[string]any{"review": map[string]any{"id": c.param("review_id"), "order_id": orderID, "status": d, "lat": 12.9352, "lng": 77.6245,
-				"device_time": stamp(c.now.Add(-2 * time.Minute)), "due_at": stamp(c.now.Add(8 * time.Minute)), "decided_at": stamp(c.now)}})
+				"device_time": stamp(c.now.Add(-2 * time.Minute)), "due_at": stamp(c.now.Add(8 * time.Minute)), "decided_at": stamp(c.now),
+				"decided_by": "Asha K", "decision_reason": body["reason"]}})
 		}},
 		{method: "GET", path: "/admin/support-alerts", handle: func(c *call) {
 			if !denied(c) {
@@ -441,14 +519,14 @@ func consoleRoutes() []route {
 
 func settingsChange(denied func(*call) bool, fail func(*call, ...string) bool) func(*call) {
 	return func(c *call) {
-		if denied(c) || fail(c, "approval_pending") {
+		if denied(c) || fail(c, "approval_pending", "stale_version") {
 			return
 		}
 		if c.scenario == "invalid_setting" {
 			c.fail(400, "invalid_setting", "timer_length_s must be from 30 to 600.", false)
 			return
 		}
-		body, ok := needsBody(c, "changes", "reason")
+		body, ok := needsBody(c, "changes", "base_version", "reason")
 		if !ok {
 			return
 		}
@@ -458,4 +536,64 @@ func settingsChange(denied func(*call) bool, fail func(*call, ...string) bool) f
 		}
 		c.json(202, map[string]any{"approval": sampleApproval("settings", "pending", c.now)})
 	}
+}
+
+// consolePermission is the permission the called operation needs, as the contract names it.
+func consolePermission(c *call) string {
+	path := c.r.URL.Path
+	switch {
+	case contains(path, "/admin/users"):
+		return "users.manage"
+	case contains(path, "/approve") || contains(path, "/reject"):
+		return "approvals.decide"
+	case contains(path, "/admin/approvals"):
+		return "approvals.read"
+	case contains(path, "/admin/riders"):
+		return "riders.review"
+	case contains(path, "/admin/flags"):
+		return "flags.manage"
+	case contains(path, "/kill-switch"):
+		return "zones.kill_switch"
+	case contains(path, "/settings"):
+		if c.r.Method == "GET" {
+			return "settings.read"
+		}
+		return "settings.request"
+	case contains(path, "/admin/zones"):
+		return "zones.read"
+	case contains(path, "/admin/menu"):
+		return "menu.manage"
+	case contains(path, "/admin/gates"):
+		if c.r.Method == "GET" {
+			return "gates.read"
+		}
+		return "gates.manage"
+	case contains(path, "/staff") && c.r.Method != "GET":
+		return "hub_staff.manage"
+	case contains(path, "/admin/hub-staff"):
+		return "hub_staff.manage"
+	case contains(path, "/admin/hubs"):
+		if c.r.Method == "GET" {
+			return "hubs.read"
+		}
+		return "hubs.manage"
+	case contains(path, "/admin/audit"):
+		return "audit.read"
+	case contains(path, "/decision") && contains(path, "arrival"):
+		return "reviews.decide"
+	case contains(path, "/admin/arrival-reviews"):
+		return "reviews.read"
+	case contains(path, "/admin/support-alerts"):
+		return "alerts.read"
+	}
+	return "console"
+}
+
+func contains(s, part string) bool {
+	for i := 0; i+len(part) <= len(s); i++ {
+		if s[i:i+len(part)] == part {
+			return true
+		}
+	}
+	return false
 }

@@ -11,7 +11,10 @@ Decision 0014 settled that console staff sign in with an ID and password plus TO
 - **Two steps, always.** A password alone never gives a session: `consoleLogin` returns a short-lived challenge, and `verifyTotp` starts the session. A first sign-in sets up TOTP with `enrollTotp`. A temporary password must be changed before anything else.
 - **Four roles** (0014), checked on the server for every call, with 403 naming the missing permission: admin (users, settings, flags, approvals, audit, everything below); ops (zones and the kill switch to request, hubs and staff, riders, menu, gates, reviews); support (reviews, support alerts; refunds and tickets in v0.10.0); hub_manager (their own hub and its staff).
 - **Approvals.** A settings change, a kill-switch change and a flag change are requested (202, pending) and applied only when a second person with the admin role approves. The requester cannot approve their own. A refund above the set amount joins in v0.10.0.
-- **Lockout.** Repeated failed sign-ins lock the account until an admin resets it.
+- **Lockout.** Five failed sign-ins in 15 minutes lock the account for 15 minutes, so a stranger cannot lock admins out for good. A wrong ID or password always gets the same answer; only the right password learns the account is locked. An admin reset clears a lock, and a command-line tool on the server creates the first admin and unlocks one (part B).
+- **A temporary password** must be changed first: until then every call but changePassword, getConsoleUser, refreshToken and signOut is 403 password_change_required.
+- **Permissions.** Each operation names its permission (`x-permission` in the contract, the Permission enum, and in the 403's missing_permission). Each role's list is in the Permission schema's description; getConsoleUser returns the signed-in user's.
+- **Approvals carry their change.** An approval shows the change itself (typed by kind), who asked and why, who decided and why, and, if it could not be applied, failure_code. A settings change names the version it was based on; if the settings moved on, approving fails it as stale_version and nothing changes. The requester can cancel a pending approval; it lapses after 24 hours.
 
 ## Consequences
 - The console developer builds against `/console/v1` on the mock now.

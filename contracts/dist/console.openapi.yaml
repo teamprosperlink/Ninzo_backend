@@ -83,6 +83,16 @@ components:
                         $ref: '#/components/schemas/Error'
             description: The token is missing, invalid or expired.
     schemas:
+        Actor:
+            properties:
+                id:
+                    $ref: '#/components/schemas/Id'
+                name:
+                    type: string
+            required:
+                - id
+                - name
+            type: object
         AdminGate:
             properties:
                 entry_notes:
@@ -265,14 +275,38 @@ components:
         Approval:
             properties:
                 change:
-                    description: The change itself, by kind.
-                    type: object
+                    discriminator:
+                        mapping:
+                            flag: '#/components/schemas/FlagApprovalChange'
+                            kill_switch: '#/components/schemas/KillSwitchApprovalChange'
+                            refund: '#/components/schemas/RefundApprovalChange'
+                            settings: '#/components/schemas/SettingsApprovalChange'
+                        propertyName: kind
+                    oneOf:
+                        - $ref: '#/components/schemas/SettingsApprovalChange'
+                        - $ref: '#/components/schemas/KillSwitchApprovalChange'
+                        - $ref: '#/components/schemas/FlagApprovalChange'
+                        - $ref: '#/components/schemas/RefundApprovalChange'
                 decided_at:
                     format: date-time
                     type:
                         - string
                         - "null"
                 decided_by:
+                    oneOf:
+                        - $ref: '#/components/schemas/Actor'
+                        - type: "null"
+                decision_reason:
+                    description: Why it was rejected or cancelled.
+                    type:
+                        - string
+                        - "null"
+                expires_at:
+                    description: A pending approval lapses then.
+                    format: date-time
+                    type: string
+                failure_code:
+                    description: Why an approved change could not be applied, such as stale_version or invalid_setting.
                     type:
                         - string
                         - "null"
@@ -285,20 +319,21 @@ components:
                         - flag
                         - refund
                     type: string
-                reason:
-                    description: Why it was asked for; for a rejection, why it was rejected.
+                request_reason:
                     type: string
                 requested_at:
                     format: date-time
                     type: string
                 requested_by:
-                    type: string
+                    $ref: '#/components/schemas/Actor'
                 status:
                     enum:
                         - pending
                         - approved
                         - rejected
                         - failed
+                        - cancelled
+                        - lapsed
                     type: string
                 summary:
                     description: What would change, in words.
@@ -308,11 +343,15 @@ components:
                 - kind
                 - status
                 - summary
+                - change
                 - requested_by
                 - requested_at
+                - request_reason
                 - decided_by
                 - decided_at
-                - reason
+                - decision_reason
+                - failure_code
+                - expires_at
             type: object
         ApprovalList:
             properties:
@@ -363,6 +402,14 @@ components:
                     type:
                         - string
                         - "null"
+                decided_by:
+                    type:
+                        - string
+                        - "null"
+                decision_reason:
+                    type:
+                        - string
+                        - "null"
                 device_time:
                     description: When the rider's phone says it reached the perimeter.
                     format: date-time
@@ -394,6 +441,8 @@ components:
                 - device_time
                 - due_at
                 - decided_at
+                - decided_by
+                - decision_reason
             type: object
         ArrivalReviewList:
             properties:
@@ -530,6 +579,12 @@ components:
                         - "null"
                 id:
                     $ref: '#/components/schemas/Id'
+                locked_until:
+                    description: Set while sign-in is locked after repeated failures; a reset clears it.
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
                 login_id:
                     type: string
                 name:
@@ -546,6 +601,7 @@ components:
                 - hub_id
                 - active
                 - totp_enrolled
+                - locked_until
                 - created_at
             type: object
         ConsoleUserCreate:
@@ -599,12 +655,18 @@ components:
             type: object
         ConsoleUserResponse:
             properties:
+                permissions:
+                    description: What this user's role may do.
+                    items:
+                        $ref: '#/components/schemas/Permission'
+                    type: array
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
                 user:
                     $ref: '#/components/schemas/ConsoleUser'
             required:
                 - user
+                - permissions
                 - server_time
             type: object
         ConsoleUserUpdate:
@@ -612,7 +674,10 @@ components:
                 active:
                     type: boolean
                 hub_id:
-                    $ref: '#/components/schemas/Id'
+                    description: Null takes a user off a hub.
+                    oneOf:
+                        - $ref: '#/components/schemas/Id'
+                        - type: "null"
                 reason:
                     maxLength: 500
                     minLength: 3
@@ -677,6 +742,23 @@ components:
                 - description
                 - updated_at
             type: object
+        FlagApprovalChange:
+            properties:
+                enabled_after:
+                    type: boolean
+                enabled_before:
+                    type: boolean
+                key:
+                    type: string
+                kind:
+                    const: flag
+                    type: string
+            required:
+                - kind
+                - key
+                - enabled_before
+                - enabled_after
+            type: object
         FlagChange:
             properties:
                 enabled:
@@ -720,7 +802,9 @@ components:
             properties:
                 entry_notes:
                     maxLength: 500
-                    type: string
+                    type:
+                        - string
+                        - "null"
                 label:
                     maxLength: 80
                     minLength: 1
@@ -744,6 +828,11 @@ components:
             type: object
         GateVersion:
             properties:
+                changed_by:
+                    description: Who made this version; null for one the customer made.
+                    type:
+                        - string
+                        - "null"
                 created_at:
                     format: date-time
                     type: string
@@ -771,6 +860,7 @@ components:
                 - entry_notes
                 - verified
                 - reason
+                - changed_by
                 - created_at
             type: object
         HubCreate:
@@ -930,6 +1020,23 @@ components:
                 - offer_enabled
                 - reason
             type: object
+        KillSwitchApprovalChange:
+            properties:
+                kind:
+                    const: kill_switch
+                    type: string
+                offer_enabled_after:
+                    type: boolean
+                offer_enabled_before:
+                    type: boolean
+                zone_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - kind
+                - zone_id
+                - offer_enabled_before
+                - offer_enabled_after
+            type: object
         LoginChallenge:
             properties:
                 challenge_id:
@@ -989,6 +1096,11 @@ components:
                     maximum: 1000000
                     minimum: 100
                     type: integer
+                reason:
+                    description: Kept in the price history as why the first price was set.
+                    maxLength: 500
+                    minLength: 3
+                    type: string
                 sort_order:
                     maximum: 10000
                     minimum: 0
@@ -1007,7 +1119,9 @@ components:
                     type: array
                 description:
                     maxLength: 500
-                    type: string
+                    type:
+                        - string
+                        - "null"
                 name:
                     maxLength: 80
                     minLength: 1
@@ -1015,7 +1129,9 @@ components:
                 photo_url:
                     maxLength: 1000
                     pattern: ^https://
-                    type: string
+                    type:
+                        - string
+                        - "null"
                 price_paise:
                     maximum: 1000000
                     minimum: 100
@@ -1066,6 +1182,58 @@ components:
                 - current_password
                 - new_password
             type: object
+        Permission:
+            description: What a call needs; each role's list is in decision 0015. admin has every one; ops has approvals.read, riders.review, zones.read, settings.read, settings.request, zones.kill_switch, menu.manage, gates.read, gates.manage, hubs.read, hubs.manage, hub_staff.manage, reviews.read, reviews.decide, alerts.read; support has zones.read, gates.read, reviews.read, reviews.decide, alerts.read; hub_manager has hubs.read and hub_staff.manage for their own hub.
+            enum:
+                - users.manage
+                - approvals.read
+                - approvals.decide
+                - riders.review
+                - flags.manage
+                - zones.read
+                - settings.read
+                - settings.request
+                - zones.kill_switch
+                - menu.manage
+                - gates.read
+                - gates.manage
+                - hubs.read
+                - hubs.manage
+                - hub_staff.manage
+                - audit.read
+                - reviews.read
+                - reviews.decide
+                - alerts.read
+            type: string
+        PriceHistory:
+            properties:
+                item_id:
+                    $ref: '#/components/schemas/Id'
+                prices:
+                    items:
+                        $ref: '#/components/schemas/PricePoint'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - item_id
+                - prices
+                - server_time
+            type: object
+        PricePoint:
+            properties:
+                created_at:
+                    format: date-time
+                    type: string
+                price:
+                    $ref: '#/components/schemas/Money'
+                reason:
+                    type: string
+            required:
+                - price
+                - reason
+                - created_at
+            type: object
         ReasonBody:
             properties:
                 reason:
@@ -1082,12 +1250,25 @@ components:
             required:
                 - refresh_token
             type: object
+        RefundApprovalChange:
+            properties:
+                amount:
+                    $ref: '#/components/schemas/Money'
+                kind:
+                    const: refund
+                    type: string
+                order_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - kind
+                - order_id
+                - amount
+            type: object
         RiderDecision:
             properties:
                 decision:
                     enum:
                         - approve
-                        - reject
                         - suspend
                         - reinstate
                     type: string
@@ -1116,7 +1297,10 @@ components:
                 rider_id:
                     $ref: '#/components/schemas/Id'
                 status:
-                    description: applicant, active or suspended.
+                    enum:
+                        - applicant
+                        - active
+                        - suspended
                     type: string
                 verification:
                     enum:
@@ -1212,8 +1396,52 @@ components:
                 - required
                 - description
             type: object
+        SettingDiff:
+            properties:
+                after:
+                    type:
+                        - integer
+                        - "null"
+                before:
+                    type:
+                        - integer
+                        - "null"
+                key:
+                    type: string
+            required:
+                - key
+                - before
+                - after
+            type: object
+        SettingsApprovalChange:
+            properties:
+                base_version:
+                    minimum: 0
+                    type: integer
+                diffs:
+                    items:
+                        $ref: '#/components/schemas/SettingDiff'
+                    type: array
+                kind:
+                    const: settings
+                    type: string
+                zone_id:
+                    description: Null for the global settings.
+                    type:
+                        - string
+                        - "null"
+            required:
+                - kind
+                - zone_id
+                - base_version
+                - diffs
+            type: object
         SettingsChange:
             properties:
+                base_version:
+                    description: The version you read (global_version, or zone_version for a zone).
+                    minimum: 0
+                    type: integer
                 changes:
                     additionalProperties:
                         type:
@@ -1231,27 +1459,34 @@ components:
                     type: string
             required:
                 - changes
+                - base_version
                 - reason
             type: object
         SettingsView:
             properties:
+                global_version:
+                    minimum: 0
+                    type: integer
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
                 settings:
                     items:
                         $ref: '#/components/schemas/Setting'
                     type: array
-                version:
-                    minimum: 0
-                    type: integer
                 zone_id:
                     description: Null for the global settings.
                     type:
                         - string
                         - "null"
+                zone_version:
+                    description: The zone's own version; null for the global settings, 0 for a zone with none yet.
+                    type:
+                        - integer
+                        - "null"
             required:
                 - zone_id
-                - version
+                - global_version
+                - zone_version
                 - settings
                 - server_time
             type: object
@@ -1392,7 +1627,7 @@ openapi: 3.1.0
 paths:
     /admin/approvals:
         get:
-            description: Pending first. A second person approves a settings change, a kill-switch change, a flag change and a refund above the set amount (decision 0014).
+            description: 'Pending first. A second person approves a settings change, a kill-switch change, a flag change and a refund above the set amount (decision 0014). Permission: approvals.read.'
             operationId: listApprovals
             parameters:
                 - description: Only this status.
@@ -1400,7 +1635,17 @@ paths:
                   name: status
                   required: false
                   schema:
-                    maxLength: 40
+                    enum:
+                        - pending
+                        - approved
+                        - rejected
+                        - failed
+                        - cancelled
+                        - lapsed
+                        - open
+                        - arrived_in_time
+                        - late
+                        - timed_out
                     type: string
                 - description: From next_cursor.
                   in: query
@@ -1437,9 +1682,10 @@ paths:
             summary: List approvals
             tags:
                 - approvals
+            x-permission: approvals.read
     /admin/approvals/{approval_id}/approve:
         post:
-            description: 'Applies it. The person who asked cannot approve their own change. Errors: own_change, not_pending, change_conflict (the setting changed since; ask again) (all 409).'
+            description: 'Applies it. The person who asked cannot approve their own change. If the change no longer applies (the settings moved past its base version, or a zone would become invalid), the approval becomes failed with failure_code and nothing changes. Errors: own_change, not_pending (both 409). Permission: approvals.decide.'
             operationId: approveChange
             parameters:
                 - description: The id.
@@ -1475,9 +1721,49 @@ paths:
             summary: Approve a change
             tags:
                 - approvals
+            x-permission: approvals.decide
+    /admin/approvals/{approval_id}/cancel:
+        post:
+            description: 'Only the person who asked. A pending approval also lapses after 24 hours. Errors: not_pending (409). Permission: approvals.read.'
+            operationId: cancelChange
+            parameters:
+                - description: The id.
+                  in: path
+                  name: approval_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ApprovalResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Cancel your own pending change
+            tags:
+                - approvals
+            x-permission: approvals.read
     /admin/approvals/{approval_id}/reject:
         post:
-            description: 'With a reason. Errors: not_pending (409).'
+            description: 'With a reason. Errors: not_pending (409). Permission: approvals.decide.'
             operationId: rejectChange
             parameters:
                 - description: The id.
@@ -1519,9 +1805,10 @@ paths:
             summary: Reject a change
             tags:
                 - approvals
+            x-permission: approvals.decide
     /admin/arrival-reviews:
         get:
-            description: Open ones first, with how long is left. Ops and support.
+            description: 'Open ones first, with how long is left. Ops and support. Permission: reviews.read.'
             operationId: listArrivalReviews
             parameters:
                 - description: Only this status.
@@ -1529,7 +1816,17 @@ paths:
                   name: status
                   required: false
                   schema:
-                    maxLength: 40
+                    enum:
+                        - pending
+                        - approved
+                        - rejected
+                        - failed
+                        - cancelled
+                        - lapsed
+                        - open
+                        - arrived_in_time
+                        - late
+                        - timed_out
                     type: string
                 - description: From next_cursor.
                   in: query
@@ -1566,9 +1863,10 @@ paths:
             summary: List late-arrival reviews
             tags:
                 - reviews
+            x-permission: reviews.read
     /admin/arrival-reviews/{review_id}/decision:
         post:
-            description: 'arrived_in_time stops the timer at the rider''s evidence; late keeps the miss and its credit. Errors: review_closed (409).'
+            description: 'arrived_in_time stops the timer at the rider''s evidence; late keeps the miss and its credit. Errors: review_closed (409). Permission: reviews.decide.'
             operationId: decideArrivalReview
             parameters:
                 - description: The id.
@@ -1610,9 +1908,10 @@ paths:
             summary: Decide a late-arrival review
             tags:
                 - reviews
+            x-permission: reviews.decide
     /admin/audit:
         get:
-            description: Newest first. Admin only. Read-only.
+            description: 'Newest first. Read-only. Password hashes, TOTP secrets and full phone numbers are never in before or after. Permission: audit.read.'
             operationId: listAuditEvents
             parameters:
                 - description: From this time.
@@ -1642,6 +1941,13 @@ paths:
                   required: false
                   schema:
                     maxLength: 80
+                    type: string
+                - description: Only this kind of thing, such as order, zone or lot.
+                  in: query
+                  name: entity_type
+                  required: false
+                  schema:
+                    maxLength: 40
                     type: string
                 - description: From next_cursor.
                   in: query
@@ -1678,9 +1984,10 @@ paths:
             summary: Search the audit log
             tags:
                 - audit
+            x-permission: audit.read
     /admin/flags:
         get:
-            description: Admin.
+            description: 'Admin. Permission: flags.manage.'
             operationId: listFlags
             responses:
                 "200":
@@ -1700,9 +2007,10 @@ paths:
             summary: List feature flags
             tags:
                 - flags
+            x-permission: flags.manage
     /admin/flags/{flag_key}:
         put:
-            description: 'Creates an approval; a second admin applies it. Errors: approval_pending (409) if one is already waiting.'
+            description: 'Creates an approval; a second admin applies it. Errors: approval_pending (409) if one is already waiting. Permission: flags.manage.'
             operationId: requestFlagChange
             parameters:
                 - description: The flag.
@@ -1745,9 +2053,10 @@ paths:
             summary: Ask to change a feature flag
             tags:
                 - flags
+            x-permission: flags.manage
     /admin/gates:
         get:
-            description: Newest first, optionally in one zone.
+            description: 'Newest first, optionally in one zone. Customers add gates; the console edits and verifies them. Permission: gates.read.'
             operationId: listAdminGates
             parameters:
                 - description: Only this zone.
@@ -1791,9 +2100,10 @@ paths:
             summary: List gates
             tags:
                 - gates
+            x-permission: gates.read
     /admin/gates/{gate_id}:
         patch:
-            description: 'Every change is a new version with who and why; orders keep the version they were placed with. Errors: outside_zone (409).'
+            description: 'Every change is a new version with who and why; orders keep the version they were placed with. Errors: outside_zone (409). Permission: gates.manage.'
             operationId: updateGate
             parameters:
                 - description: The id.
@@ -1835,9 +2145,10 @@ paths:
             summary: Change a gate
             tags:
                 - gates
+            x-permission: gates.manage
     /admin/gates/{gate_id}/history:
         get:
-            description: Oldest first.
+            description: 'Oldest first. Permission: gates.read.'
             operationId: getGateHistory
             parameters:
                 - description: The id.
@@ -1866,9 +2177,10 @@ paths:
             summary: Get a gate's versions
             tags:
                 - gates
+            x-permission: gates.read
     /admin/hub-staff/{staff_id}:
         patch:
-            description: Role, hub or status, with a reason. Suspending ends their sessions.
+            description: 'Role, hub or status, with a reason. Suspending ends their sessions. Permission: hub_staff.manage.'
             operationId: updateHubStaff
             parameters:
                 - description: The id.
@@ -1910,9 +2222,10 @@ paths:
             summary: Change hub staff
             tags:
                 - hubs
+            x-permission: hub_staff.manage
     /admin/hubs:
         get:
-            description: Optionally in one zone.
+            description: 'Optionally in one zone. Permission: hubs.read.'
             operationId: listAdminHubs
             parameters:
                 - description: Only this zone.
@@ -1941,8 +2254,9 @@ paths:
             summary: List hubs
             tags:
                 - hubs
+            x-permission: hubs.read
         post:
-            description: 'Errors: name_taken (409).'
+            description: 'Errors: name_taken (409). Permission: hubs.manage.'
             operationId: createHub
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -1976,9 +2290,10 @@ paths:
             summary: Add a hub
             tags:
                 - hubs
+            x-permission: hubs.manage
     /admin/hubs/{hub_id}:
         patch:
-            description: 'A paused hub accepts nothing new. Errors: name_taken (409).'
+            description: 'A paused hub accepts nothing new. Errors: name_taken (409). Permission: hubs.manage.'
             operationId: updateHub
             parameters:
                 - description: The id.
@@ -2020,9 +2335,10 @@ paths:
             summary: Change or pause a hub
             tags:
                 - hubs
+            x-permission: hubs.manage
     /admin/hubs/{hub_id}/staff:
         get:
-            description: A hub_manager sees only their own hub.
+            description: 'A hub_manager sees only their own hub. Permission: hubs.read.'
             operationId: listHubStaff
             parameters:
                 - description: The id.
@@ -2051,8 +2367,9 @@ paths:
             summary: List a hub's staff
             tags:
                 - hubs
+            x-permission: hubs.read
         post:
-            description: 'They sign in to the partner app with this phone. Errors: phone_taken (409).'
+            description: 'They sign in to the partner app with this phone. Errors: phone_taken (409). Permission: hub_staff.manage.'
             operationId: addHubStaff
             parameters:
                 - description: The id.
@@ -2094,9 +2411,10 @@ paths:
             summary: Add hub staff
             tags:
                 - hubs
+            x-permission: hub_staff.manage
     /admin/me:
         get:
-            description: The role decides what the console shows; the server checks it on every call.
+            description: The user, their role and their permissions; the console builds its menus from them. The server checks the permission on every call.
             operationId: getConsoleUser
             responses:
                 "200":
@@ -2118,7 +2436,7 @@ paths:
                 - users
     /admin/menu/items:
         get:
-            description: Hidden ones too.
+            description: 'Hidden ones too. Permission: menu.manage.'
             operationId: listAdminMenu
             responses:
                 "200":
@@ -2138,8 +2456,9 @@ paths:
             summary: List every menu item
             tags:
                 - menu
+            x-permission: menu.manage
         post:
-            description: 'Added hidden. Errors: name_taken (409).'
+            description: 'Added hidden. Errors: name_taken (409). Permission: menu.manage.'
             operationId: createMenuItem
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2173,9 +2492,10 @@ paths:
             summary: Add a menu item
             tags:
                 - menu
+            x-permission: menu.manage
     /admin/menu/items/{item_id}:
         patch:
-            description: 'A price change is kept in the price history; orders already placed keep their price. Errors: name_taken (409).'
+            description: 'A price change is kept in the price history; orders already placed keep their price. Errors: name_taken (409). Permission: menu.manage.'
             operationId: updateMenuItem
             parameters:
                 - description: The id.
@@ -2217,9 +2537,42 @@ paths:
             summary: Change a menu item or its price
             tags:
                 - menu
+            x-permission: menu.manage
+    /admin/menu/items/{item_id}/prices:
+        get:
+            description: 'Newest first. Permission: menu.manage.'
+            operationId: getPriceHistory
+            parameters:
+                - description: The id.
+                  in: path
+                  name: item_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PriceHistory'
+                    description: Done.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Get an item's prices over time
+            tags:
+                - menu
+            x-permission: menu.manage
     /admin/riders/{rider_id}/decision:
         post:
-            description: 'With a reason. Approving needs zone_id and a verified rider. Suspending ends the rider''s sessions and their shift. Errors: not_verified, not_allowed (both 409).'
+            description: 'With a reason. Approving needs zone_id and a verified rider. Suspending (also how an applicant is turned down) ends the rider''s sessions and their shift. Errors: not_verified, not_allowed (both 409). Permission: riders.review.'
             operationId: decideRider
             parameters:
                 - description: The id.
@@ -2258,12 +2611,13 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
-            summary: Approve, reject, suspend or reinstate a rider
+            summary: Approve, suspend or reinstate a rider
             tags:
                 - riders
+            x-permission: riders.review
     /admin/riders/review:
         get:
-            description: Applicants and riders whose verification failed or expired, oldest first. Admin and ops.
+            description: 'Applicants and riders whose verification failed or expired, oldest first. Admin and ops. Permission: riders.review.'
             operationId: listRiderReviews
             parameters:
                 - description: From next_cursor.
@@ -2301,9 +2655,10 @@ paths:
             summary: List riders waiting for a decision
             tags:
                 - riders
+            x-permission: riders.review
     /admin/settings:
         get:
-            description: Every setting with its value, version and limits.
+            description: 'Every setting with its value, version and limits. Permission: settings.read.'
             operationId: getGlobalSettings
             responses:
                 "200":
@@ -2323,8 +2678,9 @@ paths:
             summary: Get the global settings
             tags:
                 - zones
+            x-permission: settings.read
         put:
-            description: 'Creates an approval. Every zone must stay valid with the change. Errors: invalid_setting (400), approval_pending (409).'
+            description: 'Creates an approval. Send base_version, the version you read; every zone must stay valid with the change. Errors: invalid_setting (400), approval_pending, stale_version (both 409). Permission: settings.request.'
             operationId: requestGlobalSettingsChange
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2358,9 +2714,10 @@ paths:
             summary: Ask to change global settings
             tags:
                 - zones
+            x-permission: settings.request
     /admin/support-alerts:
         get:
-            description: Alerts the system raised for a person to look at, such as a refused handover. Newest first.
+            description: 'Alerts the system raised for a person to look at, such as a refused handover. Newest first. Permission: alerts.read.'
             operationId: listSupportAlerts
             parameters:
                 - description: From next_cursor.
@@ -2398,9 +2755,10 @@ paths:
             summary: List queued support alerts
             tags:
                 - reviews
+            x-permission: alerts.read
     /admin/users:
         get:
-            description: Admin only.
+            description: 'Admin only. Permission: users.manage.'
             operationId: listConsoleUsers
             parameters:
                 - description: From next_cursor.
@@ -2438,8 +2796,9 @@ paths:
             summary: List console users
             tags:
                 - users
+            x-permission: users.manage
         post:
-            description: 'Admin only. Returns a temporary password once; the user changes it and sets up the authenticator at first sign-in. A hub_manager needs hub_id. Errors: login_id_taken (409).'
+            description: 'Admin only. Returns a temporary password once; the user changes it and sets up the authenticator at first sign-in. A hub_manager needs hub_id. Errors: login_id_taken (409). Permission: users.manage.'
             operationId: createConsoleUser
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2473,9 +2832,10 @@ paths:
             summary: Add a console user
             tags:
                 - users
+            x-permission: users.manage
     /admin/users/{user_id}:
         patch:
-            description: 'Admin only, with a reason. Deactivating ends the user''s sessions. An admin cannot deactivate or demote themselves. Errors: last_admin (409).'
+            description: 'Admin only, with a reason. Deactivating ends the user''s sessions. An admin cannot deactivate or demote themselves. Errors: last_admin (409). Permission: users.manage.'
             operationId: updateConsoleUser
             parameters:
                 - description: The id.
@@ -2517,9 +2877,10 @@ paths:
             summary: Change a user's role, hub or access
             tags:
                 - users
+            x-permission: users.manage
     /admin/users/{user_id}/reset:
         post:
-            description: Admin only, with a reason. Returns a new temporary password once and ends the user's sessions.
+            description: 'Admin only, with a reason. Returns a new temporary password once and ends the user''s sessions. Permission: users.manage.'
             operationId: resetConsoleUser
             parameters:
                 - description: The id.
@@ -2561,9 +2922,10 @@ paths:
             summary: Reset a user's password and authenticator
             tags:
                 - users
+            x-permission: users.manage
     /admin/zones:
         get:
-            description: With each zone's kill switch.
+            description: 'With each zone''s kill switch. Permission: zones.read.'
             operationId: listZones
             responses:
                 "200":
@@ -2583,9 +2945,10 @@ paths:
             summary: List zones
             tags:
                 - zones
+            x-permission: zones.read
     /admin/zones/{zone_id}/kill-switch:
         post:
-            description: 'Creates an approval. Turning it off stops new orders in the zone; orders in progress finish. Errors: approval_pending (409).'
+            description: 'Creates an approval. Turning it off stops new orders in the zone; orders in progress finish. Errors: approval_pending (409). Permission: zones.kill_switch.'
             operationId: requestKillSwitch
             parameters:
                 - description: The id.
@@ -2627,9 +2990,10 @@ paths:
             summary: Ask to turn a zone's 90-second offer off or on
             tags:
                 - zones
+            x-permission: zones.kill_switch
     /admin/zones/{zone_id}/settings:
         get:
-            description: Its own values, and the effective values with the global ones beneath.
+            description: 'Its own values, and the effective values with the global ones beneath. Permission: settings.read.'
             operationId: getZoneSettings
             parameters:
                 - description: The id.
@@ -2658,8 +3022,9 @@ paths:
             summary: Get a zone's settings
             tags:
                 - zones
+            x-permission: settings.read
         put:
-            description: 'Creates an approval. A null value goes back to the global one. Errors: invalid_setting (400), approval_pending (409).'
+            description: 'Creates an approval. Send base_version, the zone version you read. A null value goes back to the global one. Errors: invalid_setting (400), approval_pending, stale_version (both 409). Permission: settings.request.'
             operationId: requestZoneSettingsChange
             parameters:
                 - description: The id.
@@ -2701,9 +3066,10 @@ paths:
             summary: Ask to change a zone's settings
             tags:
                 - zones
+            x-permission: settings.request
     /auth/login:
         post:
-            description: 'Step one of two. Returns a challenge for the authenticator code; a session starts only after it. The same reply for a wrong ID or password. Errors: invalid_credentials (401), account_locked (403, after repeated failures), rate_limited (429).'
+            description: 'Step one of two. Returns a challenge for the authenticator code; a session starts only after it. A wrong ID or password is always invalid_credentials (401). After 5 failures in 15 minutes the account locks for 15 minutes; only the right password then learns account_locked (403). Errors also: rate_limited (429).'
             operationId: consoleLogin
             requestBody:
                 content:
@@ -2849,7 +3215,7 @@ paths:
                 - auth
     /me/password:
         post:
-            description: 'Ends every other session. Errors: invalid_credentials (401) for a wrong current password; weak_password (400).'
+            description: 'Ends every other session. After a temporary password, this is the only call that works besides getConsoleUser, refreshToken and signOut; every other call is 403 password_change_required. Errors: invalid_credentials (401) for a wrong current password; weak_password (400).'
             operationId: changePassword
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'

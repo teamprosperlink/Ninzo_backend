@@ -223,6 +223,7 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `resetConsoleUser` | `console_users` | `console_users`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
 | `listApprovals` | `approvals`, `console_users` |  |  | |
 | `approveChange` | `approvals`, `console_users`, `zone_settings`, `zones`, `feature_flags` | `approvals`, `zone_settings`, `zones`, `feature_flags`, `audit_events`, `idempotency_keys` |  | |
+| `cancelChange` | `approvals` | `approvals`, `audit_events`, `idempotency_keys` | | |
 | `rejectChange` | `approvals` | `approvals`, `audit_events`, `idempotency_keys` |  | |
 | `listRiderReviews` | `riders`, `people`, `rider_verifications` |  |  | |
 | `decideRider` | `riders`, `rider_verifications`, `zones`, `shifts` | `riders`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
@@ -237,6 +238,7 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `listAdminMenu` | `menu_items` |  |  | |
 | `createMenuItem` | `menu_items` | `menu_items`, `price_history`, `audit_events`, `idempotency_keys` |  | |
 | `updateMenuItem` | `menu_items` | `menu_items`, `price_history`, `audit_events`, `idempotency_keys` |  | |
+| `getPriceHistory` | `menu_items`, `price_history` | | | |
 | `listAdminGates` | `gates` |  |  | |
 | `updateGate` | `gates`, `gate_history`, `location_zones` | `gates`, `gate_history`, `audit_events`, `idempotency_keys` |  | |
 | `getGateHistory` | `gates`, `gate_history` |  |  | |

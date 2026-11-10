@@ -222,3 +222,28 @@ func TestConsoleDocsAndFilesAreServed(t *testing.T) {
 		}
 	}
 }
+
+// TestEachRefusalNamesTheContractsPermission checks the mock's 403 names the permission the contract
+// gives the operation, so the console can build its menus from either.
+func TestEachRefusalNamesTheContractsPermission(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := consoleContract(t)
+	named := 0
+	for _, o := range c.operations() {
+		want, _ := o.node["x-permission"].(string)
+		if want == "" {
+			continue
+		}
+		_, body, _ := doRequest(t, srv, c, o, "no_permission", "named-"+o.id)
+		var got map[string]any
+		_ = json.Unmarshal(body, &got)
+		if got["missing_permission"] != want {
+			t.Errorf("%s: 403 names %v, the contract says %s", o.id, got["missing_permission"], want)
+		}
+		named++
+	}
+	if named < 30 {
+		t.Errorf("only %d operations have a permission", named)
+	}
+}
