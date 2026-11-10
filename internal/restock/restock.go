@@ -248,6 +248,25 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 }
 
 // bumpRider raises the rider's seq and pushes, so the rider app sees the request moved.
+// bumpInHubOrder bumps several of a rider's requests in hub order, so two changes that touch the
+// same two hubs take their hub_state rows in the same order.
+func bumpInHubOrder(ctx context.Context, tx pgx.Tx, rider string, requests ...string) error {
+	rows, err := tx.Query(ctx, "SELECT id::text FROM restock_requests WHERE id = ANY($1::uuid[]) ORDER BY hub_id, id", requests)
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := bumpRider(ctx, tx, rider, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // BumpRider records a change the rider sees to a request, and the hub with it.
 func BumpRider(ctx context.Context, tx pgx.Tx, rider, request string) error {
 	return bumpRider(ctx, tx, rider, request)
@@ -259,13 +278,19 @@ func bumpRider(ctx context.Context, tx pgx.Tx, rider, request string) error {
 		return err
 	}
 	// The hub sees every change to its requests too: the request's seq and the hub's rise with it.
+	// A suggestion, or one declined or expired without being confirmed, is the rider's draft, so
+	// the hub's seq does not move for it.
 	var hub string
-	if err := tx.QueryRow(ctx, "UPDATE restock_requests SET seq = seq + 1, updated_at = now() WHERE id = $1 RETURNING hub_id::text", request).Scan(&hub); err != nil {
+	var draft bool
+	if err := tx.QueryRow(ctx, `UPDATE restock_requests SET seq = seq + 1, updated_at = now() WHERE id = $1
+		RETURNING hub_id::text, source = 'suggested' AND state IN ('suggested', 'expired', 'cancelled') AND accepted_by IS NULL AND slot_at IS NULL`, request).Scan(&hub, &draft); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO hub_state (hub_id, seq) VALUES ($1, 1)
-		ON CONFLICT (hub_id) DO UPDATE SET seq = hub_state.seq + 1, updated_at = now()`, hub); err != nil {
-		return err
+	if !draft {
+		if _, err := tx.Exec(ctx, `INSERT INTO hub_state (hub_id, seq) VALUES ($1, 1)
+			ON CONFLICT (hub_id) DO UPDATE SET seq = hub_state.seq + 1, updated_at = now()`, hub); err != nil {
+			return err
+		}
 	}
 	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
 }

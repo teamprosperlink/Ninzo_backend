@@ -22,6 +22,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/restock"
+	"github.com/teamprosperlink/Ninzo_backend/internal/shifts"
 )
 
 // queue is a hub with a lead and a staff member, a rider on shift, lots at the hub and a request.
@@ -424,5 +425,76 @@ func TestTheLiveChannel(t *testing.T) {
 	rs := q.open(q.token(identity.TypeRider, q.rider))
 	if _, _, err := rs.conn.Read(ctx); websocket.CloseStatus(err) != 4401 {
 		t.Errorf("a rider token on the hub channel: %v", err)
+	}
+}
+
+func TestASuggestionIsNotTheHubs(t *testing.T) {
+	q := newQueue(t)
+	ctx := context.Background()
+	s := q.open(q.leadTok)
+	s.next("auth_ok")
+	seq := func() int64 {
+		n, err := HubSeq(ctx, q.pool, q.hub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := seq()
+	scooter := q.id("INSERT INTO scooters (code, zone_id) VALUES ('SC-S', $1) RETURNING id::text", q.zone)
+	sug := q.id("INSERT INTO restock_requests (rider_id, scooter_id, hub_id, source, state, expires_at) VALUES ($1, $2, $3, 'suggested', 'suggested', now() + interval '10 minutes') RETURNING id::text", q.rider, scooter, q.hub)
+	q.exec("INSERT INTO restock_lines (request_id, item_id, qty) VALUES ($1, $2, 3)", sug, q.chai)
+	bump := func() {
+		if err := database.InTx(ctx, q.pool, func(tx pgx.Tx) error { return restock.BumpRider(ctx, tx, q.rider, sug) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bump()
+	if seq() != before {
+		t.Error("a suggestion raised the hub's seq")
+	}
+	if code, _ := q.call("GET", "/hub/restock/"+sug, q.staffTok, ""); code != 404 {
+		t.Errorf("a suggestion is visible to the hub: %d", code)
+	}
+	if code, _ := q.call("POST", "/hub/restock/"+sug+"/accept", q.staffTok, ""); code != 404 {
+		t.Errorf("a suggestion can be accepted: %d", code)
+	}
+	// Once confirmed, it is new to the hub.
+	q.exec("UPDATE restock_requests SET state = 'confirmed' WHERE id = $1", sug)
+	bump()
+	if f := s.next("request_new"); f["data"].(map[string]any)["id"] != sug {
+		t.Errorf("%v", f)
+	}
+}
+
+func TestTheRidersPickupReachesTheHub(t *testing.T) {
+	q := newQueue(t)
+	ctx := context.Background()
+	q.lot("CHAI-PU", q.chai, 10, 6*time.Hour)
+	q.call("POST", "/hub/restock/"+q.request+"/accept", q.staffTok, "")
+	q.scan(q.staffTok, "CHAI-PU")
+	q.exec("UPDATE restock_requests SET state = 'ready' WHERE id = $1", q.request)
+	s := q.open(q.leadTok)
+	s.next("auth_ok")
+	if err := database.InTx(ctx, q.pool, func(tx pgx.Tx) error {
+		_, err := shifts.ScanTx(ctx, tx, q.rider, "CHAI-PU", false)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if f := s.next("request_changed"); f["data"].(map[string]any)["state"] != "received" {
+		t.Errorf("the hub did not see the pickup: %v", f)
+	}
+}
+
+func TestThePickListSortsByTimeNotText(t *testing.T) {
+	q := newQueue(t)
+	// The same second: one lot at .5 seconds, one on the second. Text order would put .5 first.
+	q.exec("INSERT INTO lots (code, item_id, qty, expires_at, hub_id) VALUES ('CHAI-HALF', $1, 10, date_trunc('second', now()) + interval '6 hours 500 milliseconds', $2)", q.chai, q.hub)
+	q.exec("INSERT INTO lots (code, item_id, qty, expires_at, hub_id) VALUES ('SAM-WHOLE', $1, 10, date_trunc('second', now()) + interval '6 hours', $2)", q.samosa, q.hub)
+	q.call("POST", "/hub/restock/"+q.request+"/accept", q.staffTok, "")
+	_, out := q.call("GET", "/hub/restock/"+q.request+"/pick-list", q.staffTok, "")
+	if first := out["lines"].([]any)[0].(map[string]any); first["item_id"] != q.samosa {
+		t.Errorf("the line with the sooner lot must come first: %v", out)
 	}
 }

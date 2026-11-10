@@ -35,7 +35,10 @@ channels:
     subscribe:
       operationId: receiveHubStreamEvent
       summary: Events the app receives
-      description: Apply events by the seq rules in contracts/README.md. Within one request, drop an event whose request seq is older than what you show.
+      description: >-
+        One poll can send several frames with the same hub seq, one per changed request. Apply each
+        frame by its request's own seq (data.seq): drop it only if that is not newer than what you show
+        for that request. Use the hub seq, here and on heartbeats, to know when to fetch the queue.
       tags:
         - name: hub
       message:

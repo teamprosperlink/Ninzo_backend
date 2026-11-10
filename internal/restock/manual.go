@@ -200,12 +200,13 @@ func (s *Service) RespondTx(ctx context.Context, tx pgx.Tx, rider, id string, ac
 		if _, err := tx.Exec(ctx, "INSERT INTO restock_lines (request_id, item_id, qty) SELECT $2, item_id, qty FROM restock_lines WHERE request_id = $1", id, follow); err != nil {
 			return nil, err
 		}
-		if err := bumpRider(ctx, tx, rider, follow); err != nil {
-			return nil, err
-		}
 		shown = follow
 	}
-	if err := bumpRider(ctx, tx, rider, id); err != nil {
+	bumped := []string{id}
+	if shown != id {
+		bumped = append(bumped, shown)
+	}
+	if err := bumpInHubOrder(ctx, tx, rider, bumped...); err != nil {
 		return nil, err
 	}
 	if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: rider, Action: "restock.shortfall_" + decision, EntityType: "restock_request", EntityID: id,

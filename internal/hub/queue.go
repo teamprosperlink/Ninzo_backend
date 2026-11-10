@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
@@ -180,6 +181,9 @@ func (s *Service) failQueue(w http.ResponseWriter, r *http.Request, err error) {
 		httpserver.WriteError(w, http.StatusConflict, no.code, no.message, false)
 	case errors.Is(err, errNotFound):
 		httpserver.WriteError(w, http.StatusNotFound, "not_found", "No such request at this hub.", false)
+	case retryable(err):
+		w.Header().Set("Retry-After", "1")
+		httpserver.WriteError(w, http.StatusServiceUnavailable, "service_unavailable", "Another change was saved at the same moment. Try again.", true)
 	default:
 		s.fail(w, r, err)
 	}
@@ -236,7 +240,7 @@ func own(ctx context.Context, q querier, id, hub string) error {
 		return errNotFound
 	}
 	var at string
-	err := q.QueryRow(ctx, "SELECT hub_id::text FROM restock_requests WHERE id = $1", id).Scan(&at)
+	err := q.QueryRow(ctx, "SELECT hub_id::text FROM restock_requests WHERE id = $1 AND state <> 'suggested'", id).Scan(&at)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && at != hub) {
 		return errNotFound
 	}
@@ -281,7 +285,7 @@ func (s *Service) change(w http.ResponseWriter, r *http.Request, act func(ctx co
 			return errNotFound
 		}
 		var state, hub string
-		err = tx.QueryRow(r.Context(), "SELECT state, hub_id::text FROM restock_requests WHERE id = $1 FOR UPDATE", id).Scan(&state, &hub)
+		err = tx.QueryRow(r.Context(), "SELECT state, hub_id::text FROM restock_requests WHERE id = $1 AND state <> 'suggested' FOR UPDATE", id).Scan(&state, &hub)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && hub != st.HubID) {
 			return errNotFound
 		}
@@ -397,7 +401,7 @@ func (s *Service) pickList(w http.ResponseWriter, r *http.Request) {
 		item, name         string
 		qty, order, picked int
 		lots               []map[string]any
-		soonest            string
+		soonest            time.Time
 	}
 	lines, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (line, error) {
 		var l line
@@ -419,9 +423,9 @@ func (s *Service) pickList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		l.lots = lots
-		l.soonest = "9999"
+		l.soonest = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 		if len(lots) > 0 {
-			l.soonest = lots[0]["expires_at"].(string)
+			l.soonest, _ = time.Parse(time.RFC3339Nano, lots[0]["expires_at"].(string))
 		}
 		out = append(out, map[string]any{"item_id": l.item, "name": l.name, "qty": l.qty, "picked_qty": l.picked, "route_order": l.order, "lots": lots, "_soonest": l.soonest})
 	}
@@ -429,7 +433,8 @@ func (s *Service) pickList(w http.ResponseWriter, r *http.Request) {
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0; j-- {
 			a, b := out[j-1], out[j]
-			if a["_soonest"].(string) < b["_soonest"].(string) || (a["_soonest"] == b["_soonest"] && a["route_order"].(int) <= b["route_order"].(int)) {
+			at, bt := a["_soonest"].(time.Time), b["_soonest"].(time.Time)
+			if at.Before(bt) || (at.Equal(bt) && a["route_order"].(int) <= b["route_order"].(int)) {
 				break
 			}
 			out[j-1], out[j] = b, a
@@ -595,4 +600,11 @@ func (s *Service) Feed() orders.HubFeed {
 		Seq:  func(ctx context.Context, hub string) (int64, error) { return HubSeq(ctx, s.Pool, hub) },
 		View: func(ctx context.Context, id string) (map[string]any, error) { return View(ctx, s.Pool, id) },
 	}
+}
+
+// retryable is a clash with another change at the same moment: a unique key taken, a deadlock or
+// a serialisation failure. Sending again works.
+func retryable(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23505" || pgErr.Code == "40P01" || pgErr.Code == "40001")
 }

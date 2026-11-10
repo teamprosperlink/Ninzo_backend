@@ -34,7 +34,8 @@ func (s *Service) hubStream(w http.ResponseWriter, r *http.Request, st *Streams,
 	// current reads the requests the channel follows: those in progress, and any changed lately.
 	current := func(ctx context.Context) (map[string]int64, map[string]string, error) {
 		rows, err := s.Pool.Query(ctx, `SELECT id::text, seq, state FROM restock_requests WHERE hub_id = $1
-			AND (state IN ('confirmed', 'hub_accepted', 'packing', 'ready', 'partial', 'picked_up') OR updated_at > now() - interval '1 hour')`, hub)
+			AND state <> 'suggested' AND (state IN ('confirmed', 'hub_accepted', 'packing', 'ready', 'partial', 'picked_up') OR updated_at > now() - interval '1 hour')
+			AND NOT (source = 'suggested' AND state IN ('expired', 'cancelled') AND accepted_by IS NULL AND slot_at IS NULL)`, hub)
 		if err != nil {
 			return nil, nil, err
 		}
