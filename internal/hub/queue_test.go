@@ -44,6 +44,7 @@ func newQueue(t *testing.T) *queue {
 	f.srv = httptest.NewServer(httpserver.NewRouter(quiet, func(context.Context) error { return nil }, func(r chi.Router) {
 		svc.MountStaff(r, identity.RequireActor(f.sessions.Signer, identity.TypeStaff))
 		svc.MountQueue(r, identity.RequireActor(f.sessions.Signer, identity.TypeStaff))
+		svc.MountSeal(r, identity.RequireActor(f.sessions.Signer, identity.TypeStaff))
 		streams.MountHubStream(r, &orders.Streams{Signer: f.sessions.Signer}, svc.Feed())
 	}))
 	t.Cleanup(f.srv.Close)

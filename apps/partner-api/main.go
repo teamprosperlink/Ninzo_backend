@@ -38,6 +38,7 @@ func main() {
 			hubs := &hub.Service{Pool: d.DB, Log: d.Log}
 			hubs.MountStaff(r, identity.RequireActor(sessions.Signer, identity.TypeStaff), limits.BySession())
 			hubs.MountQueue(r, identity.RequireActor(sessions.Signer, identity.TypeStaff), limits.BySession())
+			hubs.MountSeal(r, identity.RequireActor(sessions.Signer, identity.TypeStaff), limits.BySession())
 			streams := &orders.Service{Pool: d.DB, Log: d.Log}
 			streams.MountHubStream(r, &orders.Streams{Signer: sessions.Signer}, hubs.Feed())
 		},

@@ -124,7 +124,7 @@ func View(ctx context.Context, q querier, id string) (map[string]any, error) {
 		"created_at": created.UTC().Format(time.RFC3339Nano)}, nil
 }
 
-// shortfallView is the request's shortfall with its short lines: the lines filled below what was asked.
+// shortfallView is the request's shortfall with its short lines.
 func shortfallView(ctx context.Context, q querier, id string) (any, error) {
 	var action, status string
 	var sub, other, otherName *string
@@ -136,7 +136,7 @@ func shortfallView(ctx context.Context, q querier, id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(ctx, "SELECT item_id::text, qty - coalesce(filled_qty, 0) FROM restock_lines WHERE request_id = $1 AND coalesce(filled_qty, 0) < qty ORDER BY item_id", id)
+	rows, err := q.Query(ctx, "SELECT item_id::text, qty_missing FROM shortfall_lines WHERE request_id = $1 ORDER BY item_id", id)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,9 @@ func (s *Service) failQueue(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &no):
 		httpserver.WriteError(w, http.StatusConflict, no.code, no.message, false)
 	case errors.Is(err, errNotFound):
-		httpserver.WriteError(w, http.StatusNotFound, "not_found", "No such request at this hub.", false)
+		httpserver.WriteError(w, http.StatusNotFound, "not_found", "Not found at this hub.", false)
+	case errors.Is(err, errInvalid):
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Check the fields against the contract.", false)
 	case retryable(err):
 		w.Header().Set("Retry-After", "1")
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "service_unavailable", "Another change was saved at the same moment. Try again.", true)
