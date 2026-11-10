@@ -115,3 +115,27 @@ func TestTheTestRiderIsAddedOnce(t *testing.T) {
 		t.Errorf("%d %v", n, err)
 	}
 }
+
+func TestTestHubsAreAddedOnce(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	url := pool.Config().ConnString()
+	if err := run(context.Background(), []string{"-local", "hubs"}, env(map[string]string{"DATABASE_URL": url}), &bytes.Buffer{}); err == nil {
+		t.Error("hubs ran with no zones")
+	}
+	for _, what := range []string{"zones", "menu", "hubs", "hubs"} {
+		if err := run(context.Background(), []string{"-local", what}, env(map[string]string{"DATABASE_URL": url}), &bytes.Buffer{}); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	var hubs, lots int
+	if err := pool.QueryRow(context.Background(), "SELECT (SELECT count(*) FROM hubs WHERE is_test), (SELECT count(*) FROM lots WHERE hub_id IS NOT NULL)").Scan(&hubs, &lots); err != nil {
+		t.Fatal(err)
+	}
+	var zones, items int
+	if err := pool.QueryRow(context.Background(), "SELECT (SELECT count(*) FROM zones WHERE is_test), (SELECT count(*) FROM menu_items WHERE is_test)").Scan(&zones, &items); err != nil {
+		t.Fatal(err)
+	}
+	if hubs != zones || lots != zones*items*5 {
+		t.Errorf("%d hubs, %d hub lots, for %d zones and %d items", hubs, lots, zones, items)
+	}
+}

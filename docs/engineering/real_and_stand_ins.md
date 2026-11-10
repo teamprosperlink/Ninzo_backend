@@ -55,3 +55,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 - Accepted downsides: `known_downsides.md`
 - Version plan: `docs/planning/milestones.md`
 | Hubs, earning rates, menu, prices, zones and gates | Test data | Entered by the admin in the console from v0.9.0 (decision 0014) | The console | v0.9.0 |
+| **Hub staff** | Stand-in | Built (#105): a simulator accepts, packs and readies a confirmed restock, packing whole lots from the hub's own stock, and records a shortfall when it cannot fill | The partner APIs, v0.8.0 | v0.7.0 |

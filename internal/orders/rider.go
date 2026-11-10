@@ -18,6 +18,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
+	"github.com/teamprosperlink/Ninzo_backend/internal/restock"
 )
 
 // MountRider adds the rider's offers and orders: getRiderState, listOffers, acceptOffer,
@@ -237,8 +238,13 @@ func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	restockNow, err := restock.Current(ctx, s.Pool, actor.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"seq": seq, "shift": shift, "offers": offers, "current_order": current,
-		"restock_request": nil, "server_time": serverTime()})
+		"restock_request": restockNow, "server_time": serverTime()})
 }
 
 // listOffers shows the live offer, and offers that ended in the last 10 minutes and were never

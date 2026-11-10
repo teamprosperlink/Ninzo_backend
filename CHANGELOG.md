@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Hubs and restock data (#105)
+- Added: hubs, lots waiting at a hub, restock requests, their lines and packed lots, and shortfalls. Migration 0025, not applied to Supabase.
+- Added: `getRestockOptions`, `getRestock`, and the rider's `restock_request` in `getRiderState`.
+- Added: a hub simulator, standing in for hub staff until v0.8.0, and a test hub with lots in each test zone.
+- Evidence: docs/testing/reports/105.md
+
 ### Support and notifications (#101)
 - Added: `createTicket`, `getTicket` and `notifyWhenAvailable`.
 - Added: a push per customer stage change, following `customer_stage` only, and per new offer for the rider; a support alert for a rejected queued handover. Pushes go through the outbox to a pusher that only logs until FCM is connected.

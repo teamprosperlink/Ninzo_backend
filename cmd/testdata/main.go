@@ -28,7 +28,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 )
 
-const usage = "usage: testdata -local|-remote zones|menu|fleet|rider"
+const usage = "usage: testdata -local|-remote zones|menu|fleet|hubs|rider"
 
 // testItems are placeholders until the owner gives the real menu.
 var testItems = []struct {
@@ -55,7 +55,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer) error {
-	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "rider") {
+	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "hubs" && args[1] != "rider") {
 		return errors.New(usage)
 	}
 	dsn := getenv("DATABASE_URL")
@@ -84,6 +84,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	defer pool.Close()
 	if args[1] == "rider" {
 		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addRider(ctx, tx, out, target) })
+	}
+	if args[1] == "hubs" {
+		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addHubs(ctx, tx, out, target) })
 	}
 	if args[1] == "fleet" {
 		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addFleet(ctx, tx, out, target) })
@@ -265,5 +268,64 @@ func addRider(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Tar
 		return errors.New(target.Safe(err))
 	}
 	fmt.Fprintf(out, "kept the test rider %s\n", testRiderPhone)
+	return nil
+}
+
+// addHubs adds a test hub in each test zone, with lots waiting there for restocks. Real hubs come
+// from the admin in the console (decision 0014).
+func addHubs(ctx context.Context, tx pgx.Tx, out io.Writer, target dbtarget.Target) error {
+	rows, err := tx.Query(ctx, `SELECT id::text, name, extensions.ST_Y(extensions.ST_Centroid(area)), extensions.ST_X(extensions.ST_Centroid(area))
+		FROM zones WHERE is_test AND area IS NOT NULL ORDER BY name`)
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	type zone struct {
+		id, name string
+		lat, lng float64
+	}
+	zones, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (zone, error) {
+		var z zone
+		return z, r.Scan(&z.id, &z.name, &z.lat, &z.lng)
+	})
+	if err != nil {
+		return err
+	}
+	if len(zones) == 0 {
+		return errors.New("no test zones: run zones first")
+	}
+	items, err := tx.Query(ctx, "SELECT id::text FROM menu_items WHERE is_test ORDER BY sort_order, name")
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(items, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return errors.New("no test menu: run menu first")
+	}
+	for zi, z := range zones {
+		var hub string
+		err := tx.QueryRow(ctx, `INSERT INTO hubs (zone_id, name, lat, lng, is_test) VALUES ($1, 'Test hub', $2, $3, true)
+			ON CONFLICT (zone_id, name) DO UPDATE SET status = 'active' WHERE hubs.is_test RETURNING id::text`, z.id, z.lat+0.002, z.lng+0.002).Scan(&hub)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("a real hub in %s is called Test hub, so test data will not touch it", z.name)
+		}
+		if err != nil {
+			return errors.New(target.Safe(err))
+		}
+		for i, id := range ids {
+			for n := 1; n <= 5; n++ {
+				code := fmt.Sprintf("TEST-HUB-%d-%d%02d", zi+1, i+1, n)
+				if _, err := tx.Exec(ctx, `INSERT INTO lots (code, item_id, qty, expires_at, hub_id, is_test) VALUES ($1, $2, 10, now() + interval '30 days', $3, true)
+					ON CONFLICT (code) DO UPDATE SET expires_at = now() + interval '30 days'
+					WHERE lots.is_test AND NOT EXISTS (SELECT 1 FROM scooter_stock WHERE lot_id = lots.id)
+						AND NOT EXISTS (SELECT 1 FROM restock_lots WHERE lot_id = lots.id AND released_at IS NULL)`, code, id, hub); err != nil {
+					return errors.New(target.Safe(err))
+				}
+			}
+		}
+		fmt.Fprintf(out, "test hub ready in %s\n", z.name)
+	}
 	return nil
 }
