@@ -110,6 +110,19 @@ func ShortfallTx(ctx context.Context, tx pgx.Tx, st Staff, id, state string, sf 
 		if !ok {
 			return errInvalid // A substitute is an active item the rider did not already ask for.
 		}
+		missing := 0
+		for _, l := range sf.Lines {
+			missing += l.QtyMissing
+		}
+		var free int
+		if err := tx.QueryRow(ctx, `SELECT coalesce(sum(l.qty), 0)::int FROM lots l WHERE l.hub_id = $1 AND l.item_id = $2 AND l.status = 'ok' AND l.temp_status = 'ok'
+			AND l.expires_at > now() AND NOT EXISTS (SELECT 1 FROM restock_lots x WHERE x.lot_id = l.id AND x.released_at IS NULL)
+			AND NOT EXISTS (SELECT 1 FROM scooter_stock ss WHERE ss.lot_id = l.id)`, st.HubID, sf.Substitute).Scan(&free); err != nil {
+			return err
+		}
+		if free < missing {
+			return refuse("substitute_out_of_stock", "The hub does not have enough of the substitute.")
+		}
 		sub = sf.Substitute
 	}
 	if sf.Action == "other_hub" {
@@ -192,8 +205,19 @@ func ReadyTx(ctx context.Context, tx pgx.Tx, st Staff, id, state string, lotNumb
 			return mismatch
 		}
 	}
-	var open bool
-	if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM shortfalls WHERE request_id = $1 AND status = 'open')", id).Scan(&open); err != nil {
+	var bad bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM restock_lots x JOIN lots l ON l.id = x.lot_id
+		WHERE x.request_id = $1 AND x.released_at IS NULL AND (l.status <> 'ok' OR l.temp_status <> 'ok'))`, id).Scan(&bad); err != nil {
+		return err
+	}
+	if bad {
+		return refuse("lot_quarantined", "A lot in the cassette is quarantined or failed its temperature check. Take it out first.")
+	}
+	// open: a shortfall waits for the rider. answered: the rider accepted a substitute, so what is
+	// packed now is sealed as it is, even if the hub ran short of the substitute.
+	var open, answered bool
+	if err := tx.QueryRow(ctx, `SELECT coalesce(bool_or(status = 'open'), false), coalesce(bool_or(status = 'accepted' AND action = 'substitute'), false)
+		FROM shortfalls WHERE request_id = $1`, id).Scan(&open, &answered); err != nil {
 		return err
 	}
 	if len(scanned) == 0 && !open {
@@ -204,8 +228,28 @@ func ReadyTx(ctx context.Context, tx pgx.Tx, st Staff, id, state string, lotNumb
 			FROM restock_lots x JOIN lots l ON l.id = x.lot_id WHERE x.request_id = w.request_id AND x.released_at IS NULL AND l.item_id = w.item_id), 0))`, id).Scan(&short); err != nil {
 		return err
 	}
-	if short && !open {
+	if short && !open && !answered {
 		return refuse("shortfall_needed", "A line is short. Record a shortfall first.")
+	}
+	// FAIL 2: an open shortfall's lines are what is really short, as packed.
+	if open {
+		if _, err := tx.Exec(ctx, "DELETE FROM shortfall_lines WHERE request_id = $1", id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO shortfall_lines (request_id, item_id, qty_missing)
+			SELECT w.request_id, w.item_id, least(w.qty - p.picked, 500) FROM restock_lines w
+			CROSS JOIN LATERAL (SELECT coalesce(sum(l.qty), 0)::int AS picked FROM restock_lots x JOIN lots l ON l.id = x.lot_id
+				WHERE x.request_id = w.request_id AND x.released_at IS NULL AND l.item_id = w.item_id) p
+			WHERE w.request_id = $1 AND p.picked < w.qty`, id); err != nil {
+			return err
+		}
+		if !short {
+			// Packed in full after all: the shortfall is not needed.
+			if _, err := tx.Exec(ctx, "DELETE FROM shortfalls WHERE request_id = $1", id); err != nil {
+				return err
+			}
+			open = false
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE restock_lines w SET filled_qty = coalesce((SELECT sum(l.qty) FROM restock_lots x JOIN lots l ON l.id = x.lot_id
 		WHERE x.request_id = w.request_id AND x.released_at IS NULL AND l.item_id = w.item_id), 0) WHERE w.request_id = $1`, id); err != nil {
@@ -215,7 +259,7 @@ func ReadyTx(ctx context.Context, tx pgx.Tx, st Staff, id, state string, lotNumb
 	if open {
 		to = "partial"
 	}
-	if _, err := tx.Exec(ctx, "UPDATE restock_requests SET state = $2, state_changed_at = $3 WHERE id = $1", id, to, now); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE restock_requests SET state = $2, state_changed_at = $3, sealed_at = $3 WHERE id = $1", id, to, now); err != nil {
 		return err
 	}
 	if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeStaff, ActorID: st.ID, Action: "restock.sealed", EntityType: "restock_request", EntityID: id,
@@ -258,7 +302,7 @@ func (s *Service) label(w http.ResponseWriter, r *http.Request) {
 	}
 	var state, scooter string
 	var sealed *time.Time
-	if err := s.Pool.QueryRow(r.Context(), `SELECT r.state, c.code, r.state_changed_at FROM restock_requests r JOIN scooters c ON c.id = r.scooter_id WHERE r.id = $1`, id).
+	if err := s.Pool.QueryRow(r.Context(), `SELECT r.state, c.code, coalesce(r.sealed_at, r.state_changed_at) FROM restock_requests r JOIN scooters c ON c.id = r.scooter_id WHERE r.id = $1`, id).
 		Scan(&state, &scooter, &sealed); err != nil {
 		s.fail(w, r, err)
 		return
@@ -346,7 +390,7 @@ var quarantineReasons = map[string]bool{"temperature": true, "damaged": true, "e
 // errLeadOnly refuses quarantine to anyone but a hub lead.
 var errLeadOnly = errors.New("hub: hub lead only")
 
-// QuarantineTx quarantines a lot at the hub, hub lead only. It leaves any cassette not yet sealed.
+// QuarantineTx quarantines a lot at the hub, hub lead only. It leaves any cassette still at the hub.
 // The requests it is packed in are locked before the lot, as a scan locks them, so the two never
 // deadlock. Quarantining again changes nothing.
 func QuarantineTx(ctx context.Context, tx pgx.Tx, st Staff, lot, reason, note string, now time.Time) error {
@@ -360,7 +404,7 @@ func QuarantineTx(ctx context.Context, tx pgx.Tx, st Staff, lot, reason, note st
 		return errInvalid
 	}
 	rows, err := tx.Query(ctx, `SELECT r.id::text FROM restock_lots x JOIN restock_requests r ON r.id = x.request_id
-		WHERE x.lot_id = $1 AND x.released_at IS NULL AND r.state IN ('hub_accepted', 'packing') ORDER BY r.id FOR UPDATE OF r`, lot)
+		WHERE x.lot_id = $1 AND x.released_at IS NULL AND r.state IN ('hub_accepted', 'packing', 'ready', 'partial') ORDER BY r.id FOR UPDATE OF r`, lot)
 	if err != nil {
 		return err
 	}
@@ -405,6 +449,12 @@ func QuarantineTx(ctx context.Context, tx pgx.Tx, st Staff, lot, reason, note st
 	}
 	for _, request := range open {
 		if _, err := tx.Exec(ctx, "UPDATE restock_lots SET released_at = $3 WHERE request_id = $1 AND lot_id = $2 AND released_at IS NULL", request, lot, now); err != nil {
+			return err
+		}
+		// A sealed cassette's filled quantities follow what is left in it.
+		if _, err := tx.Exec(ctx, `UPDATE restock_lines w SET filled_qty = coalesce((SELECT sum(l.qty) FROM restock_lots x JOIN lots l ON l.id = x.lot_id
+			WHERE x.request_id = w.request_id AND x.released_at IS NULL AND l.item_id = w.item_id), 0)
+			WHERE w.request_id = $1 AND w.filled_qty IS NOT NULL`, request); err != nil {
 			return err
 		}
 		if err := Bump(ctx, tx, request); err != nil {

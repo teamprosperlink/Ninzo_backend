@@ -74,6 +74,7 @@ func TestRecordingAShortfall(t *testing.T) {
 	if code, out := q.shortfall(`{"action":"other_hub","other_hub_id":"` + farHub + `","lines":[{"item_id":"` + q.samosa + `","qty_missing":4}]}`); code != 409 || out["code"] != "other_hub_unavailable" {
 		t.Errorf("a hub in another zone: %d %v", code, out)
 	}
+	q.lot("TEA-REC", tea, 5, 6*time.Hour) // A substitute is offered only if the hub holds it.
 	code, out := q.shortfall(`{"action":"substitute","substitute_item_id":"` + tea + `","reason":"out of samosa","lines":[{"item_id":"` + q.samosa + `","qty_missing":4}]}`)
 	if code != 200 {
 		t.Fatalf("%d %v", code, out)
@@ -307,6 +308,110 @@ func TestTheSimulatorWritesShortLines(t *testing.T) {
 	}
 	sf, _ := v["shortfall"].(map[string]any)
 	if sf == nil || len(sf["lines"].([]map[string]any)) != 2 {
-		t.Errorf("chai 3 short and samosa 4 short: %v", v["shortfall"])
+		t.Fatalf("chai 3 short and samosa 4 short: %v", v["shortfall"])
+	}
+	for _, l := range sf["lines"].([]map[string]any) {
+		if want := map[string]int{q.chai: 3, q.samosa: 4}[l["item_id"].(string)]; l["qty_missing"] != want {
+			t.Errorf("%v, want %d missing", l, want)
+		}
+	}
+}
+
+func TestShortLinesFollowWhatWasPacked(t *testing.T) {
+	q := newQueue(t)
+	q.lot("CHAI-F", q.chai, 8, 6*time.Hour)
+	q.accept()
+	q.scan(q.staffTok, "CHAI-F")
+	// Recorded as 1 samosa short, but none was packed: 4 are short.
+	q.shortfall(`{"action":"partial","lines":[{"item_id":"` + q.samosa + `","qty_missing":1}]}`)
+	if code, out := q.ready("CHAI-F"); code != 200 || out["request"].(map[string]any)["state"] != "partial" {
+		t.Fatalf("%d %v", code, out)
+	}
+	if n := q.count("SELECT qty_missing FROM shortfall_lines WHERE request_id = $1 AND item_id = $2", q.request, q.samosa); n != 4 {
+		t.Errorf("samosa missing %d, want 4", n)
+	}
+}
+
+func TestAShortfallNotNeededIsDropped(t *testing.T) {
+	q := newQueue(t)
+	q.lot("CHAI-N", q.chai, 8, 6*time.Hour)
+	q.lot("SAM-N", q.samosa, 4, 6*time.Hour)
+	q.accept()
+	q.shortfall(`{"action":"partial","lines":[{"item_id":"` + q.samosa + `","qty_missing":4}]}`)
+	q.scan(q.staffTok, "CHAI-N")
+	q.scan(q.staffTok, "SAM-N") // Found after all.
+	if code, out := q.ready("CHAI-N", "SAM-N"); code != 200 || out["request"].(map[string]any)["state"] != "ready" || out["request"].(map[string]any)["shortfall"] != nil {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestASubstituteTheHubRunsShortOfStillSeals(t *testing.T) {
+	q := newQueue(t)
+	tea := q.id("INSERT INTO menu_items (name, price_paise, status, sort_order) VALUES ('Tea', 2900, 'active', 3) RETURNING id::text")
+	q.lot("CHAI-R", q.chai, 8, 6*time.Hour)
+	tealot := q.lot("TEA-R", tea, 4, 6*time.Hour)
+	q.accept()
+	q.scan(q.staffTok, "CHAI-R")
+	q.shortfall(`{"action":"substitute","substitute_item_id":"` + tea + `","lines":[{"item_id":"` + q.samosa + `","qty_missing":4}]}`)
+	q.ready("CHAI-R")
+	q.answer(true)
+	// The tea goes bad before it is packed: the hub seals what it has.
+	q.exec("UPDATE lots SET status = 'quarantined' WHERE id = $1", tealot)
+	if code, out := q.ready("CHAI-R"); code != 200 || out["request"].(map[string]any)["state"] != "ready" {
+		t.Errorf("a request must never be stuck after a substitute: %d %v", code, out)
+	}
+}
+
+func TestASubstituteMustBeInStock(t *testing.T) {
+	q := newQueue(t)
+	tea := q.id("INSERT INTO menu_items (name, price_paise, status, sort_order) VALUES ('Tea', 2900, 'active', 3) RETURNING id::text")
+	q.lot("TEA-ONE", tea, 2, 6*time.Hour)
+	q.accept()
+	if code, out := q.shortfall(`{"action":"substitute","substitute_item_id":"` + tea + `","lines":[{"item_id":"` + q.samosa + `","qty_missing":4}]}`); code != 409 || out["code"] != "substitute_out_of_stock" {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestAQuarantinedLotIsNeverSealed(t *testing.T) {
+	q := newQueue(t)
+	lot := q.lot("CHAI-QS", q.chai, 8, 6*time.Hour)
+	q.lot("SAM-QS", q.samosa, 4, 6*time.Hour)
+	q.accept()
+	q.scan(q.staffTok, "CHAI-QS")
+	q.scan(q.staffTok, "SAM-QS")
+	// As if a quarantine raced the scan and left the lot in the cassette.
+	q.exec("UPDATE lots SET status = 'quarantined' WHERE id = $1", lot)
+	if code, out := q.ready("CHAI-QS", "SAM-QS"); code != 409 || out["code"] != "lot_quarantined" {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestQuarantineEmptiesASealedCassetteToo(t *testing.T) {
+	q := newQueue(t)
+	lot := q.lot("CHAI-SQ", q.chai, 8, 6*time.Hour)
+	q.lot("SAM-SQ", q.samosa, 4, 6*time.Hour)
+	q.accept()
+	q.scan(q.staffTok, "CHAI-SQ")
+	q.scan(q.staffTok, "SAM-SQ")
+	q.ready("CHAI-SQ", "SAM-SQ")
+	if code, out := q.call("POST", "/hub/lots/"+lot+"/quarantine", q.leadTok, `{"reason":"damaged"}`); code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	_, out := q.call("GET", "/hub/restock/"+q.request, q.staffTok, "")
+	if lots := out["request"].(map[string]any)["lot_numbers"].([]any); len(lots) != 1 || lots[0] != "SAM-SQ" {
+		t.Errorf("%v", lots)
+	}
+	if n := q.count("SELECT filled_qty FROM restock_lines WHERE request_id = $1 AND item_id = $2", q.request, q.chai); n != 0 {
+		t.Errorf("filled chai %d after its lot left, want 0", n)
+	}
+	// The rider can still finish the pickup with what is left.
+	if err := database.InTx(context.Background(), q.pool, func(tx pgx.Tx) error {
+		_, err := shifts.ScanTx(context.Background(), tx, q.rider, "SAM-SQ", false)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if q.state() != "received" {
+		t.Errorf("%s", q.state())
 	}
 }

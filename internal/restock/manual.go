@@ -340,6 +340,7 @@ func (sim *Simulator) expireUncollected(ctx context.Context, now time.Time) erro
 
 // takeSubstitute changes the lines for an accepted substitute: each short line keeps what was
 // packed (a line with nothing packed goes), and the substitute is asked for in the missing units.
+// The hub then packs the substitute and seals again; it seals what it has if it runs short.
 func takeSubstitute(ctx context.Context, tx pgx.Tx, id string) error {
 	var sub string
 	var missing int
@@ -347,12 +348,12 @@ func takeSubstitute(ctx context.Context, tx pgx.Tx, id string) error {
 		FROM shortfalls s WHERE s.request_id = $1`, id).Scan(&sub, &missing); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE restock_lines w SET qty = w.qty - f.qty_missing FROM shortfall_lines f
-		WHERE f.request_id = w.request_id AND f.item_id = w.item_id AND w.request_id = $1 AND w.qty > f.qty_missing`, id); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE restock_lines w SET qty = w.filled_qty FROM shortfall_lines f
+		WHERE f.request_id = w.request_id AND f.item_id = w.item_id AND w.request_id = $1 AND coalesce(w.filled_qty, 0) > 0`, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM restock_lines w USING shortfall_lines f
-		WHERE f.request_id = w.request_id AND f.item_id = w.item_id AND w.request_id = $1 AND w.qty <= f.qty_missing`, id); err != nil {
+		WHERE f.request_id = w.request_id AND f.item_id = w.item_id AND w.request_id = $1 AND coalesce(w.filled_qty, 0) = 0`, id); err != nil {
 		return err
 	}
 	if missing < 1 {

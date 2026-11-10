@@ -17,6 +17,9 @@ ALTER TABLE shortfalls
     ADD COLUMN reason      text CHECK (length(reason) <= 200),
     ADD COLUMN recorded_by uuid REFERENCES hub_staff (id) ON DELETE RESTRICT;
 
+-- When the cassette was sealed, for its label.
+ALTER TABLE restock_requests ADD COLUMN sealed_at timestamptz;
+
 -- Who quarantined a lot, when and why.
 ALTER TABLE lots
     ADD COLUMN quarantine_reason text CHECK (quarantine_reason IN ('temperature', 'damaged', 'expired', 'contamination', 'other')),
@@ -26,5 +29,6 @@ ALTER TABLE lots
 
 -- +goose Down
 ALTER TABLE lots DROP COLUMN quarantined_at, DROP COLUMN quarantined_by, DROP COLUMN quarantine_note, DROP COLUMN quarantine_reason;
+ALTER TABLE restock_requests DROP COLUMN sealed_at;
 ALTER TABLE shortfalls DROP COLUMN recorded_by, DROP COLUMN reason;
 DROP TABLE shortfall_lines;

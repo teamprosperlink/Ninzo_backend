@@ -428,8 +428,9 @@ paths:
         with nothing packed: the request becomes partial, and the rider answers it then. If the rider accepts
         a substitute, the request returns to packing with a new line for the substitute item: scan it and send
         ready again. If the rider accepts another hub, the request ends here and its lots go back on the
-        shelf. Errors, all 409: shortfall_already_recorded, not_accepted, request_closed,
-        other_hub_unavailable.
+        shelf. A substitute is offered only if the hub holds enough of it. Errors, all 409:
+        shortfall_already_recorded, not_accepted, request_closed, other_hub_unavailable,
+        substitute_out_of_stock.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -475,7 +476,9 @@ paths:
         or partial when a shortfall is recorded, which the rider then answers. lot_numbers may be empty only
         when a shortfall is recorded. Sending ready again changes nothing and returns the request. Errors, all
         409: lots_mismatch, nothing_packed (no lots and no shortfall), shortfall_needed (a line is short and no
-        shortfall is recorded), request_closed.
+        shortfall is recorded), lot_quarantined (take that lot out first), request_closed. With a shortfall, its
+        lines become what is really short as packed. After the rider accepted a substitute, what is packed is
+        sealed as it is.
       parameters:
       - $ref: '#/components/parameters/RequestId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -557,7 +560,7 @@ paths:
       - lots
       operationId: listHubLots
       summary: List the lots at the hub
-      description: Soonest expiry first. Includes quarantined and expired lots, marked by status, so staff can clear them.
+      description: Soonest expiry first, at most 500. Includes quarantined and expired lots, marked by status, so staff can clear them.
       parameters:
       - name: item_id
         in: query
@@ -590,7 +593,8 @@ paths:
       summary: Quarantine a lot
       description: >-
         Hub lead only; hub staff get 403 forbidden. The app shows the reason and asks to confirm first. A
-        quarantined lot can never be scanned again, and is taken out of any cassette not yet ready.
+        quarantined lot can never be scanned again, and is taken out of any cassette still at the hub, sealed
+        or not.
         Quarantining again changes nothing. Errors, all 409: lot_on_scooter (it already left the hub).
       parameters:
       - name: lot_id
