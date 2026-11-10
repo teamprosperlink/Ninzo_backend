@@ -47,6 +47,7 @@ func main() {
 			delivery.MountRiderStream(r, &orders.Streams{Signer: sessions.Signer})
 			restocks := &restock.Service{Pool: d.DB, Log: d.Log}
 			restocks.MountRider(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
+			restocks.MountSuggestions(r, identity.RequireActor(sessions.Signer, identity.TypeRider), limits.BySession())
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rider-api:", err)

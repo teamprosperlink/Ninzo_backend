@@ -26,6 +26,8 @@ var idPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 var (
 	errNotFound = errors.New("restock: not found")
 	errBlocked  = errors.New("restock: blocked")
+	// ErrNotFound lets the offline batch tell a missing request from other errors.
+	ErrNotFound = errNotFound
 )
 
 // Open are the states of a request still in progress.
@@ -288,7 +290,8 @@ func (sim *Simulator) defaults() {
 	}
 }
 
-// Run moves requests along every so often until ctx ends. A failure is logged, never fatal.
+// Run checks stock and moves requests along every so often until ctx ends. A failure is logged,
+// never fatal.
 func (sim *Simulator) Run(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -303,7 +306,11 @@ func (sim *Simulator) Run(ctx context.Context, every time.Duration) {
 						sim.Service.Log.Error("restock: simulator panicked")
 					}
 				}()
-				if _, err := sim.Step(ctx, sim.Service.clock()); err != nil && ctx.Err() == nil {
+				now := sim.Service.clock()
+				if _, err := sim.Service.Suggest(ctx, now); err != nil && ctx.Err() == nil {
+					sim.Service.Log.Error("restock: stock check failed", "error", err.Error())
+				}
+				if _, err := sim.Step(ctx, now); err != nil && ctx.Err() == nil {
 					sim.Service.Log.Error("restock: simulator failed", "error", err.Error())
 				}
 			}()

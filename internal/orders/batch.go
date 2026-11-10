@@ -17,6 +17,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
+	"github.com/teamprosperlink/Ninzo_backend/internal/restock"
 	"github.com/teamprosperlink/Ninzo_backend/internal/shifts"
 )
 
@@ -258,8 +259,31 @@ func (s *Service) effect(ctx context.Context, tx pgx.Tx, rider string, e queued,
 		}
 		return outcome{accepted: err == nil}, err
 	case "restock_confirm", "restock_decline":
-		// Restock comes in v0.7.0. The app keeps the event and sends it again.
-		return rejected("not_available_yet", "Restock is not available yet.", true), nil
+		var raw struct {
+			RequestID string         `json:"request_id"`
+			Reason    string         `json:"reason"`
+			Override  []restock.Line `json:"quantity_override"`
+		}
+		if json.Unmarshal(e.Payload, &raw) != nil || !idPattern.MatchString(raw.RequestID) || utf8.RuneCountInString(raw.Reason) > 200 {
+			return bad, nil
+		}
+		svc := &restock.Service{Pool: s.Pool, Log: s.Log}
+		var err error
+		if e.Type == "restock_confirm" {
+			_, err = svc.ConfirmTx(ctx, tx, rider, raw.RequestID, raw.Override, false)
+		} else {
+			_, err = svc.DeclineTx(ctx, tx, rider, raw.RequestID, raw.Reason, false)
+		}
+		if c, m, ok := restock.RefusalOf(err); ok {
+			return rejected(c, m, false), nil
+		}
+		if errors.Is(err, restock.ErrNotFound) {
+			return rejected("not_found", "That restock is not one of yours.", false), nil
+		}
+		if err != nil && strings.Contains(err.Error(), "invalid request") {
+			return bad, nil
+		}
+		return outcome{accepted: err == nil}, err
 	}
 	return rejected("unknown_event_type", "This event type is not known.", false), nil
 }
