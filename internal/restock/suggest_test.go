@@ -59,6 +59,7 @@ func TestALowScooterGetsOneSuggestion(t *testing.T) {
 	f.onScooter("ON-CHAI", f.chai, 2)                                                                 // Below the low level of 3: bring it up to 10.
 	f.onScooter("ON-SAMOSA", f.samosa, 5)                                                             // Fine.
 	f.exec("INSERT INTO hubs (zone_id, name, lat, lng) VALUES ($1, 'Hub Z', 12.944, 77.639)", f.zone) // Farther, and last by name.
+	f.hubLot(f.other, "HUB-LOW-1", f.chai, 10, time.Hour)
 	now := time.Now()
 	if n, err := f.svc.Suggest(ctx, now); err != nil || n != 1 {
 		t.Fatalf("%d %v", n, err)
@@ -124,9 +125,12 @@ func TestConfirmRefusals(t *testing.T) {
 	f := newFixture(t)
 	f.withSuggestions()
 	ctx := context.Background()
+	f.hubLot(f.other, "HUB-RF-1", f.chai, 10, time.Hour)
+	f.hubLot(f.other, "HUB-RF-2", f.samosa, 10, time.Hour)
 	f.svc.Suggest(ctx, time.Now())
 	id := f.suggestion()
-	// The hub holds none of it.
+	// The hub's stock went bad after the suggestion was made.
+	f.exec("UPDATE lots SET status = 'quarantined' WHERE code IN ('HUB-RF-1', 'HUB-RF-2')")
 	if code, out := f.post("/restock/"+id+"/confirm", f.token, `{}`); code != 409 || out["code"] != "hub_out_of_stock" {
 		t.Errorf("%d %v", code, out)
 	}
@@ -159,6 +163,7 @@ func TestDecliningASuggestion(t *testing.T) {
 	f := newFixture(t)
 	f.withSuggestions()
 	ctx := context.Background()
+	f.hubLot(f.other, "HUB-DC-1", f.chai, 10, time.Hour)
 	now := time.Now()
 	f.svc.Suggest(ctx, now)
 	id := f.suggestion()
@@ -182,6 +187,7 @@ func TestASuggestionExpires(t *testing.T) {
 	f := newFixture(t)
 	f.withSuggestions()
 	ctx := context.Background()
+	f.hubLot(f.other, "HUB-SE-1", f.chai, 10, time.Hour)
 	now := time.Now()
 	f.svc.Suggest(ctx, now)
 	id := f.suggestion()
@@ -205,5 +211,65 @@ func TestNoSuggestionWithoutAShiftOrAHub(t *testing.T) {
 	f.exec("UPDATE shifts SET ended_at = now()")
 	if n, _ := f.svc.Suggest(ctx, time.Now()); n != 0 {
 		t.Error("suggested to a rider with no shift")
+	}
+}
+
+func TestReservedUnitsAreNotFree(t *testing.T) {
+	f := newFixture(t)
+	f.onScooter("ON-CHAI-R", f.chai, 5)
+	f.onScooter("ON-SAMOSA-R", f.samosa, 9)
+	f.exec("UPDATE scooter_stock SET reserved = 4 WHERE lot_id = (SELECT id FROM lots WHERE code = 'ON-CHAI-R')") // 1 free.
+	f.hubLot(f.other, "HUB-R-1", f.chai, 10, time.Hour)
+	f.svc.Suggest(context.Background(), time.Now())
+	if f.count("SELECT qty FROM restock_lines WHERE item_id = $1", f.chai) != 9 {
+		t.Errorf("chai to suggest: %d, want 9 (target 10 less 1 free)", f.count("SELECT coalesce(max(qty), 0) FROM restock_lines WHERE item_id = $1", f.chai))
+	}
+}
+
+func TestOnlyWhatTheHubHasIsSuggested(t *testing.T) {
+	f := newFixture(t)
+	f.hubLot(f.other, "HUB-ONLY-CHAI", f.chai, 4, time.Hour) // No samosa at the hub, and only 4 chai.
+	f.svc.Suggest(context.Background(), time.Now())
+	if f.count("SELECT count(*) FROM restock_lines") != 1 || f.count("SELECT qty FROM restock_lines WHERE item_id = $1", f.chai) != 4 {
+		t.Error("a suggestion must ask only for what the hub has")
+	}
+}
+
+func TestNoSuggestionForASuspendedRiderOrABrokenScooter(t *testing.T) {
+	f := newFixture(t)
+	f.hubLot(f.other, "HUB-S-1", f.chai, 10, time.Hour)
+	f.exec("UPDATE riders SET status = 'suspended' WHERE id = $1", f.rider)
+	if n, _ := f.svc.Suggest(context.Background(), time.Now()); n != 0 {
+		t.Error("a suspended rider got a suggestion")
+	}
+	f.exec("UPDATE riders SET status = 'active' WHERE id = $1", f.rider)
+	f.exec("UPDATE scooters SET status = 'maintenance' WHERE id = $1", f.scooter)
+	if n, _ := f.svc.Suggest(context.Background(), time.Now()); n != 0 {
+		t.Error("a scooter in maintenance got a suggestion")
+	}
+}
+
+func TestOnlyTheRiderOnShiftCanConfirm(t *testing.T) {
+	f := newFixture(t)
+	f.withSuggestions()
+	f.hubLot(f.other, "HUB-OS-1", f.chai, 10, time.Hour)
+	f.hubLot(f.other, "HUB-OS-2", f.samosa, 10, time.Hour)
+	f.svc.Suggest(context.Background(), time.Now())
+	id := f.suggestion()
+	f.exec("UPDATE shifts SET ended_at = now() WHERE rider_id = $1", f.rider)
+	if code, out := f.post("/restock/"+id+"/confirm", f.token, `{}`); code != 409 || out["code"] != "suggestion_expired" {
+		t.Errorf("a rider off shift confirmed: %d %v", code, out)
+	}
+}
+
+func TestExpiryTellsTheRider(t *testing.T) {
+	f := newFixture(t)
+	f.hubLot(f.other, "HUB-EX-1", f.chai, 10, time.Hour)
+	now := time.Now()
+	f.svc.Suggest(context.Background(), now)
+	before := f.count("SELECT seq::int FROM rider_state WHERE rider_id = $1", f.rider)
+	f.svc.Suggest(context.Background(), now.Add(11*time.Minute))
+	if f.count("SELECT seq::int FROM rider_state WHERE rider_id = $1", f.rider) <= before {
+		t.Error("the rider was not told the suggestion expired")
 	}
 }

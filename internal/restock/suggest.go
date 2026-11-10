@@ -36,6 +36,9 @@ func RefusalOf(err error) (code, message string, ok bool) {
 
 var errInvalid = errors.New("restock: invalid request")
 
+// ErrInvalid lets the offline batch tell bad quantities from other errors.
+var ErrInvalid = errInvalid
+
 // Line is one item and quantity a rider asks for.
 type Line struct {
 	ItemID string `json:"item_id"`
@@ -167,6 +170,14 @@ func (s *Service) ConfirmTx(ctx context.Context, tx pgx.Tx, rider, id string, ov
 			}
 		}
 	}
+	var onShift bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM shifts sh JOIN restock_requests q ON q.scooter_id = sh.scooter_id
+		WHERE q.id = $1 AND sh.rider_id = $2 AND sh.ended_at IS NULL)`, id, rider).Scan(&onShift); err != nil {
+		return nil, err
+	}
+	if !onShift {
+		return nil, &refusal{"suggestion_expired", "Your shift with this scooter has ended."}
+	}
 	ok, err := hubHas(ctx, tx, id, now)
 	if err != nil {
 		return nil, err
@@ -228,6 +239,9 @@ func (s *Service) DeclineTx(ctx context.Context, tx pgx.Tx, rider, id, reason st
 			return nil, err
 		}
 		if err := bumpRider(ctx, tx, rider, id); err != nil {
+			return nil, err
+		}
+		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: rider, Action: "restock.declined", EntityType: "restock_request", EntityID: id}); err != nil {
 			return nil, err
 		}
 	default:
@@ -308,8 +322,27 @@ func (s *Service) check(r *http.Request, tx pgx.Tx, a identity.Actor) error {
 // with a suggestion or a request in progress, or one that had a suggestion end within the check
 // interval, is left alone. It also expires suggestions past their time.
 func (s *Service) Suggest(ctx context.Context, now time.Time) (int, error) {
-	if _, err := s.Pool.Exec(ctx, `UPDATE restock_requests SET state = 'expired', state_changed_at = $1, updated_at = now()
-		WHERE state = 'suggested' AND expires_at <= $1`, now); err != nil {
+	if err := database.InTx(ctx, s.Pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `UPDATE restock_requests SET state = 'expired', state_changed_at = $1, updated_at = now()
+			WHERE state = 'suggested' AND expires_at <= $1 RETURNING id::text, rider_id::text`, now)
+		if err != nil {
+			return err
+		}
+		type ended struct{ id, rider string }
+		list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ended, error) {
+			var e ended
+			return e, r.Scan(&e.id, &e.rider)
+		})
+		if err != nil {
+			return err
+		}
+		for _, e := range list {
+			if err := bumpRider(ctx, tx, e.rider, e.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return 0, err
 	}
 	rows, err := s.Pool.Query(ctx, `SELECT sh.scooter_id::text FROM shifts sh JOIN riders r ON r.id = sh.rider_id AND r.status = 'active'
@@ -339,9 +372,9 @@ func (s *Service) Suggest(ctx context.Context, now time.Time) (int, error) {
 
 func (s *Service) suggestFor(ctx context.Context, tx pgx.Tx, scooter string, now time.Time) (bool, error) {
 	var rider, zone string
-	var lat, lng float64
+	var lat, lng *float64
 	err := tx.QueryRow(ctx, `SELECT sh.rider_id::text, c.zone_id::text, n.lat, n.lng FROM scooters c JOIN shifts sh ON sh.scooter_id = c.id AND sh.ended_at IS NULL
-		JOIN staging_nodes n ON n.id = c.node_id WHERE c.id = $1 FOR UPDATE OF c SKIP LOCKED`, scooter).Scan(&rider, &zone, &lat, &lng)
+		LEFT JOIN staging_nodes n ON n.id = c.node_id WHERE c.id = $1 FOR UPDATE OF c SKIP LOCKED`, scooter).Scan(&rider, &zone, &lat, &lng)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -358,25 +391,40 @@ func (s *Service) suggestFor(ctx context.Context, tx pgx.Tx, scooter string, now
 	every, _ := settings.Get("restock_check_s")
 	var busy bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM restock_requests WHERE scooter_id = $1 AND (state = 'suggested' OR state = ANY($2)
-			OR (state IN ('expired', 'cancelled') AND state_changed_at > $3)))`,
+			OR (state IN ('expired', 'cancelled', 'received', 'closed') AND state_changed_at > $3)))`,
 		scooter, Open, now.Add(-time.Duration(every)*time.Second)).Scan(&busy); err != nil {
 		return false, err
 	}
 	if busy {
 		return false, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT m.id::text, coalesce((SELECT sum(ss.on_hand - ss.reserved) FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id
-			WHERE ss.scooter_id = $1 AND l.item_id = m.id AND l.status = 'ok' AND l.temp_status = 'ok' AND l.expires_at > $2), 0)::int
-		FROM menu_items m WHERE m.status = 'active' ORDER BY m.sort_order, m.id`, scooter, now)
+	// The nearest active hub in the zone. With no waiting point, the first by name.
+	var hub string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM hubs WHERE zone_id = $1 AND status = 'active'
+		ORDER BY CASE WHEN $2::float8 IS NULL THEN 0 ELSE (lat - $2) * (lat - $2) + (lng - $3) * (lng - $3) END, name, id LIMIT 1`, zone, lat, lng).Scan(&hub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // No hub in this zone yet.
+	}
+	if err != nil {
+		return false, err
+	}
+	// Free units on the scooter (reserved units are promised to orders), and free units at the hub.
+	rows, err := tx.Query(ctx, `SELECT m.id::text,
+			coalesce((SELECT sum(ss.on_hand - ss.reserved) FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id
+				WHERE ss.scooter_id = $1 AND l.item_id = m.id AND l.status = 'ok' AND l.temp_status = 'ok' AND l.expires_at > $2), 0)::int,
+			coalesce((SELECT sum(l.qty) FROM lots l WHERE l.hub_id = $3 AND l.item_id = m.id AND l.status = 'ok' AND l.temp_status = 'ok'
+				AND l.expires_at > $2 AND NOT EXISTS (SELECT 1 FROM scooter_stock ss WHERE ss.lot_id = l.id)
+				AND NOT EXISTS (SELECT 1 FROM restock_lots x WHERE x.lot_id = l.id AND x.released_at IS NULL)), 0)::int
+		FROM menu_items m WHERE m.status = 'active' ORDER BY m.sort_order, m.id`, scooter, now, hub)
 	if err != nil {
 		return false, err
 	}
 	want := []Line{}
 	var item string
-	var free int
-	if _, err := pgx.ForEachRow(rows, []any{&item, &free}, func() error {
-		if free < low && target > free {
-			want = append(want, Line{ItemID: item, Qty: target - free})
+	var free, atHub int
+	if _, err := pgx.ForEachRow(rows, []any{&item, &free, &atHub}, func() error {
+		if free < low && target > free && atHub > 0 {
+			want = append(want, Line{ItemID: item, Qty: min(target-free, atHub)})
 		}
 		return nil
 	}); err != nil {
@@ -384,15 +432,6 @@ func (s *Service) suggestFor(ctx context.Context, tx pgx.Tx, scooter string, now
 	}
 	if len(want) == 0 {
 		return false, nil
-	}
-	var hub string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM hubs WHERE zone_id = $1 AND status = 'active'
-		ORDER BY (lat - $2) * (lat - $2) + (lng - $3) * (lng - $3), id LIMIT 1`, zone, lat, lng).Scan(&hub)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil // No hub in this zone yet.
-	}
-	if err != nil {
-		return false, err
 	}
 	var id string
 	if err := tx.QueryRow(ctx, `INSERT INTO restock_requests (rider_id, scooter_id, hub_id, source, state, expires_at, state_changed_at)

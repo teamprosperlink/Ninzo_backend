@@ -250,6 +250,11 @@ func (s *Service) endShift(w http.ResponseWriter, r *http.Request) {
 		if err := handBack(r.Context(), tx, actor.ID); err != nil {
 			return err
 		}
+		// A suggestion is for the scooter on shift; the next rider gets their own.
+		if _, err := tx.Exec(r.Context(), "UPDATE restock_requests SET state = 'cancelled', state_changed_at = now(), updated_at = now() WHERE rider_id = $1 AND state = 'suggested'",
+			actor.ID); err != nil {
+			return err
+		}
 		var ended time.Time
 		if err := tx.QueryRow(r.Context(), "UPDATE shifts SET ended_at = now() WHERE id = $1 RETURNING ended_at", sh.ID).Scan(&ended); err != nil {
 			return err

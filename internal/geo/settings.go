@@ -45,7 +45,7 @@ var Settings = []Setting{
 	{"restock_low_qty", "units", 0, 500, true, "Fewer free units of an item than this drafts a restock suggestion"},
 	{"restock_target_qty", "units", 1, 500, true, "A restock suggestion brings an item back up to this"},
 	{"restock_suggestion_ttl_s", "seconds", 60, 3600, true, "How long a restock suggestion stays open"},
-	{"restock_check_s", "seconds", 60, 3600, true, "How often stock is checked; a declined or expired suggestion waits this long"},
+	{"restock_check_s", "seconds", 60, 3600, true, "The wait before a scooter is suggested a restock again, after one ends"},
 }
 
 // ErrInvalidSetting means a change was refused, and nothing was stored.

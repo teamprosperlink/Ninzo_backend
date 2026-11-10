@@ -280,7 +280,7 @@ func (s *Service) effect(ctx context.Context, tx pgx.Tx, rider string, e queued,
 		if errors.Is(err, restock.ErrNotFound) {
 			return rejected("not_found", "That restock is not one of yours.", false), nil
 		}
-		if err != nil && strings.Contains(err.Error(), "invalid request") {
+		if errors.Is(err, restock.ErrInvalid) {
 			return bad, nil
 		}
 		return outcome{accepted: err == nil}, err
