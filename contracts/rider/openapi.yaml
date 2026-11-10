@@ -999,6 +999,10 @@ paths:
                 $ref: '#/components/schemas/RestockSuggestionList'
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /restock/{request_id}/confirm:
@@ -1034,14 +1038,20 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /restock/{request_id}/decline:
     post:
       tags:
@@ -1073,14 +1083,20 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
         '404':
           $ref: ../shared/common.yaml#/components/responses/NotFound
         '409':
           $ref: ../shared/common.yaml#/components/responses/Conflict
         '422':
           $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
   /restock:
     post:
       tags:
@@ -1146,6 +1162,10 @@ paths:
                 $ref: '#/components/schemas/RestockOptions'
         '401':
           $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
   /restock/{request_id}/shortfall-response:
@@ -2161,6 +2181,7 @@ components:
         qty:
           type: integer
           minimum: 1
+          maximum: 500
     RestockLine:
       type: object
       required:

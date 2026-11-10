@@ -42,6 +42,10 @@ var Settings = []Setting{
 	{"max_search_radius_m", "metres", 100, 20000, true, "Widest rider search. Past it, the order is refused before payment"},
 	{"payment_hold_s", "seconds", 60, 3600, true, "How long an unpaid order holds its stock"},
 	{"offer_timeout_s", "seconds", 10, 300, true, "How long a rider has to answer an offer"},
+	{"restock_low_qty", "units", 0, 500, true, "Fewer free units of an item than this drafts a restock suggestion"},
+	{"restock_target_qty", "units", 1, 500, true, "A restock suggestion brings an item back up to this"},
+	{"restock_suggestion_ttl_s", "seconds", 60, 3600, true, "How long a restock suggestion stays open"},
+	{"restock_check_s", "seconds", 60, 3600, true, "The wait before a scooter is suggested a restock again, after one ends"},
 }
 
 // ErrInvalidSetting means a change was refused, and nothing was stored.

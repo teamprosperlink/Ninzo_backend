@@ -94,12 +94,12 @@ func TestOneBadEventNeverBlocksTheQueue(t *testing.T) {
 		t.Fatalf("%d %v", code, out)
 	}
 	acc, rej := ids(out)
-	for id, want := range map[string]string{"bad": "invalid_event", "evt-bad-payload": "invalid_event", "evt-mystery-1": "unknown_event_type", "evt-restock-1": "not_available_yet", "evt-wrong-code": "wrong_otp"} {
+	for id, want := range map[string]string{"bad": "invalid_event", "evt-bad-payload": "invalid_event", "evt-mystery-1": "unknown_event_type", "evt-restock-1": "invalid_event", "evt-wrong-code": "wrong_otp"} {
 		if rej[id]["code"] != want {
 			t.Errorf("%s: %v", id, rej[id])
 		}
 	}
-	if rej["evt-restock-1"]["retryable"] != true || rej["evt-wrong-code"]["retryable"] != false {
+	if rej["evt-wrong-code"]["retryable"] != false {
 		t.Error("retryable must say whether the event may succeed later")
 	}
 	if len(acc) != 1 || acc[0] != "evt-right-code" || tr.state() != "HANDED_OVER" {
@@ -108,8 +108,8 @@ func TestOneBadEventNeverBlocksTheQueue(t *testing.T) {
 	if tr.count("SELECT otp_attempts FROM orders WHERE id = $1", tr.order) != 1 {
 		t.Error("a queued wrong code still counts as an attempt")
 	}
-	// A retryable rejection is not kept, so it is checked again; a final one is.
-	if tr.count("SELECT count(*) FROM rider_events WHERE event_id = 'evt-restock-1'") != 0 || tr.count("SELECT count(*) FROM rider_events WHERE event_id = 'evt-wrong-code'") != 1 {
+	// A final rejection is kept. A retryable one is checked in TestARetryableRejectionIsNotKept.
+	if tr.count("SELECT count(*) FROM rider_events WHERE event_id = 'evt-wrong-code'") != 1 {
 		t.Error("only final results are kept")
 	}
 	for _, body := range []string{`{}`, `{"events":[]}`, `nope`} {
@@ -245,5 +245,44 @@ func TestAnUnknownTypeIsNotStoredAsSent(t *testing.T) {
 	tr.batch(`{"event_id":"evt-weird-type","type":"` + strings.Repeat("x", 300) + `","device_time":"` + stamp3339(tr.clock) + `","payload":{}}`)
 	if tr.count("SELECT count(*) FROM rider_events WHERE event_id = 'evt-weird-type' AND type = 'unknown'") != 1 {
 		t.Error("an unknown type must be stored as unknown")
+	}
+}
+
+func TestARetryableRejectionIsNotKept(t *testing.T) {
+	tr := begin(t, nil)
+	tr.exec("INSERT INTO lots (code, item_id, qty, expires_at) VALUES ('L-LATER', $1, 3, now() + interval '1 day')", tr.samosa)
+	tr.exec("UPDATE shifts SET ended_at = now()") // With no shift, a scan may work once one starts.
+	_, out := tr.batch(`{"event_id":"evt-scan-noshift","type":"stock_scan","device_time":"` + stamp3339(tr.clock) + `","payload":{"lot_code":"L-LATER"}}`)
+	if _, rej := ids(out); rej["evt-scan-noshift"]["code"] != "no_open_shift" || rej["evt-scan-noshift"]["retryable"] != true {
+		t.Fatalf("%v", out)
+	}
+	if tr.count("SELECT count(*) FROM rider_events WHERE event_id = 'evt-scan-noshift'") != 0 {
+		t.Error("a retryable rejection was kept, so it would never be checked again")
+	}
+}
+
+func TestQueuedRestockConfirmAndDecline(t *testing.T) {
+	tr := begin(t, nil)
+	hub := tr.id("INSERT INTO hubs (zone_id, name, lat, lng) VALUES ($1, 'Hub', 12.935, 77.625) RETURNING id::text", tr.zone)
+	tr.exec("INSERT INTO lots (code, item_id, qty, expires_at, hub_id) VALUES ('HUB-L1', $1, 10, now() + interval '1 day', $2)", tr.samosa, hub)
+	rider := tr.id("SELECT rider_id::text FROM shifts WHERE scooter_id = $1 AND ended_at IS NULL", tr.scooter)
+	sug := func() string {
+		id := tr.id("INSERT INTO restock_requests (rider_id, scooter_id, hub_id, source, state, expires_at) VALUES ($1, $2, $3, 'suggested', 'suggested', now() + interval '10 minutes') RETURNING id::text", rider, tr.scooter, hub)
+		tr.exec("INSERT INTO restock_lines (request_id, item_id, qty) VALUES ($1, $2, 5)", id, tr.samosa)
+		return id
+	}
+	first := sug()
+	_, out := tr.batch(`{"event_id":"evt-rs-decline","type":"restock_decline","device_time":"` + stamp3339(tr.clock) + `","payload":{"request_id":"` + first + `","reason":"later"}}`)
+	if acc, _ := ids(out); len(acc) != 1 || tr.id("SELECT state FROM restock_requests WHERE id = $1", first) != "cancelled" {
+		t.Errorf("%v", out)
+	}
+	second := sug()
+	_, out = tr.batch(`{"event_id":"evt-rs-confirm","type":"restock_confirm","device_time":"` + stamp3339(tr.clock) + `","payload":{"request_id":"` + second + `"}}`)
+	if acc, _ := ids(out); len(acc) != 1 || tr.id("SELECT state FROM restock_requests WHERE id = $1", second) != "confirmed" {
+		t.Errorf("%v", out)
+	}
+	_, out = tr.batch(`{"event_id":"evt-rs-gone","type":"restock_confirm","device_time":"` + stamp3339(tr.clock) + `","payload":{"request_id":"` + first + `"}}`)
+	if _, rej := ids(out); rej["evt-rs-gone"]["code"] != "suggestion_expired" {
+		t.Errorf("%v", out)
 	}
 }

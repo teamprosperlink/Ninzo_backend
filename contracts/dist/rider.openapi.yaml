@@ -739,6 +739,7 @@ components:
                 item_id:
                     $ref: '#/components/schemas/Id'
                 qty:
+                    maximum: 500
                     minimum: 1
                     type: integer
             required:
@@ -1828,14 +1829,20 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Confirm a suggested restock
             tags:
                 - restock
@@ -1867,14 +1874,20 @@ paths:
                     $ref: '#/components/responses/BadRequest'
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
                 "404":
                     $ref: '#/components/responses/NotFound'
                 "409":
                     $ref: '#/components/responses/Conflict'
                 "422":
                     $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
             summary: Decline a suggested restock
             tags:
                 - restock
@@ -1931,6 +1944,10 @@ paths:
                     description: The options.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get hubs and items for a manual request
@@ -2287,6 +2304,10 @@ paths:
                     description: The suggestions.
                 "401":
                     $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: List suggested restocks

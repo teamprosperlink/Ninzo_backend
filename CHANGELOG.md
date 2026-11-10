@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Restock suggestions (#106)
+- Added: a stock check that drafts one suggestion when a scooter runs low, from the nearest hub; `listRestockSuggestions`, `confirmRestock` (with changed quantities) and `declineRestock`; suggestions expire.
+- Added: settings `restock_low_qty` (3), `restock_target_qty` (10), `restock_suggestion_ttl_s` (600) and `restock_check_s` (300). Migration 0026, not applied to Supabase.
+- Changed: queued `restock_confirm` and `restock_decline` events apply in the offline batch.
+- Evidence: docs/testing/reports/106.md
+
 ### Hubs and restock data (#105)
 - Added: hubs, lots waiting at a hub, restock requests, their lines and packed lots, and shortfalls. Migration 0025, not applied to Supabase.
 - Added: `getRestockOptions`, `getRestock`, and the rider's `restock_request` in `getRiderState`.
