@@ -56,8 +56,8 @@ func TestALowScooterGetsOneSuggestion(t *testing.T) {
 	f := newFixture(t)
 	f.withSuggestions()
 	ctx := context.Background()
-	f.onScooter("ON-CHAI", f.chai, 2)     // Below the low level of 3: bring it up to 10.
-	f.onScooter("ON-SAMOSA", f.samosa, 5) // Fine.
+	f.onScooter("ON-CHAI", f.chai, 2)                                                                 // Below the low level of 3: bring it up to 10.
+	f.onScooter("ON-SAMOSA", f.samosa, 5)                                                             // Fine.
 	f.exec("INSERT INTO hubs (zone_id, name, lat, lng) VALUES ($1, 'Hub Z', 12.944, 77.639)", f.zone) // Farther, and last by name.
 	now := time.Now()
 	if n, err := f.svc.Suggest(ctx, now); err != nil || n != 1 {
