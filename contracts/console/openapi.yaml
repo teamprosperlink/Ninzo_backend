@@ -3946,6 +3946,7 @@ components:
         amount_paise:
           type: integer
           minimum: 1
+          maximum: 10000000
         reason:
           type: string
           minLength: 3
@@ -3979,6 +3980,7 @@ components:
         amount_paise:
           type: integer
           minimum: 1
+          maximum: 10000000
         reason:
           type: string
           minLength: 3

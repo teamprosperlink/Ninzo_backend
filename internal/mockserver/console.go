@@ -2,6 +2,7 @@ package mockserver
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"time"
 )
@@ -692,9 +693,9 @@ func consoleRoutes() []route {
 			if !ok {
 				return
 			}
-			amount, _ := body["amount_paise"].(float64)
-			if amount < 1 || amount != float64(int(amount)) {
-				c.fail(400, "invalid_request", "amount_paise must be a whole number of paise, at least 1.", false)
+			amount, ok := paise(body["amount_paise"])
+			if !ok {
+				c.fail(400, "invalid_request", "amount_paise must be a whole number of paise, from 1 to 10000000.", false)
 				return
 			}
 			// The setting refund_approval_paise (#147), cumulative per order: refunds already made from
@@ -735,9 +736,9 @@ func consoleRoutes() []route {
 			if !ok {
 				return
 			}
-			amount, _ := body["amount_paise"].(float64)
-			if amount < 1 {
-				c.fail(400, "invalid_request", "amount_paise must be at least 1.", false)
+			amount, ok := paise(body["amount_paise"])
+			if !ok {
+				c.fail(400, "invalid_request", "amount_paise must be a whole number of paise, from 1 to 10000000.", false)
 				return
 			}
 			r := adminRemedy("credit", c.now)
@@ -941,4 +942,14 @@ func contains(s, part string) bool {
 		}
 	}
 	return false
+}
+
+// paise reads a whole number of paise within the contract's range (1 to 10,000,000, #167), so a
+// value past what an int holds is refused instead of wrapping round.
+func paise(v any) (int, bool) {
+	f, ok := v.(float64)
+	if !ok || f < 1 || f > 10000000 || f != math.Trunc(f) {
+		return 0, false
+	}
+	return int(f), true
 }
