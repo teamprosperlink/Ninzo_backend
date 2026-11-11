@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"time"
@@ -112,9 +113,10 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 // View is a restock request as its rider sees it (contract: RestockRequest).
 func View(ctx context.Context, q querier, id string) (map[string]any, error) {
 	var state, hubID, hubName string
+	var hubLat, hubLng float64
 	var slot, arrive *time.Time
-	err := q.QueryRow(ctx, `SELECT r.state, h.id::text, h.name, r.slot_at, r.arrive_by FROM restock_requests r JOIN hubs h ON h.id = r.hub_id
-		WHERE r.id = $1`, id).Scan(&state, &hubID, &hubName, &slot, &arrive)
+	err := q.QueryRow(ctx, `SELECT r.state, h.id::text, h.name, h.lat, h.lng, r.slot_at, r.arrive_by FROM restock_requests r JOIN hubs h ON h.id = r.hub_id
+		WHERE r.id = $1`, id).Scan(&state, &hubID, &hubName, &hubLat, &hubLng, &slot, &arrive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -151,9 +153,13 @@ func View(ctx context.Context, q querier, id string) (map[string]any, error) {
 	var shortfall any
 	var action string
 	var subID, subName, otherID, otherName *string
-	err = q.QueryRow(ctx, `SELECT s.action, s.substitute_item_id::text, m.name, s.other_hub_id::text, h.name FROM shortfalls s
+	var otherLat, otherLng, nodeLat, nodeLng *float64
+	// The distance is from the node the rider is at now, so it is null with no open shift.
+	err = q.QueryRow(ctx, `SELECT s.action, s.substitute_item_id::text, m.name, s.other_hub_id::text, h.name, h.lat, h.lng, n.lat, n.lng FROM shortfalls s
+		JOIN restock_requests r ON r.id = s.request_id
 		LEFT JOIN menu_items m ON m.id = s.substitute_item_id LEFT JOIN hubs h ON h.id = s.other_hub_id
-		WHERE s.request_id = $1 AND s.status = 'open'`, id).Scan(&action, &subID, &subName, &otherID, &otherName)
+		LEFT JOIN shifts sh ON sh.rider_id = r.rider_id AND sh.ended_at IS NULL LEFT JOIN staging_nodes n ON n.id = sh.node_id
+		WHERE s.request_id = $1 AND s.status = 'open'`, id).Scan(&action, &subID, &subName, &otherID, &otherName, &otherLat, &otherLng, &nodeLat, &nodeLng)
 	switch {
 	case err == nil:
 		var sub, other any
@@ -161,14 +167,23 @@ func View(ctx context.Context, q querier, id string) (map[string]any, error) {
 			sub = map[string]any{"item_id": *subID, "name": *subName}
 		}
 		if otherID != nil {
-			other = map[string]any{"id": *otherID, "name": *otherName}
+			var distance any
+			if nodeLat != nil && nodeLng != nil && otherLat != nil && otherLng != nil {
+				distance = int(math.Round(geo.Metres(*nodeLat, *nodeLng, *otherLat, *otherLng)))
+			}
+			other = map[string]any{"id": *otherID, "name": *otherName, "lat": *otherLat, "lng": *otherLng, "distance_m": distance}
 		}
 		shortfall = map[string]any{"action": action, "substitute": sub, "other_hub": other}
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, err
 	}
-	return map[string]any{"id": id, "state": state, "hub": map[string]any{"id": hubID, "name": hubName}, "items": items,
-		"shortfall": shortfall, "slot_at": stamp(slot), "arrive_by": stamp(arrive), "lot_numbers": codes}, nil
+	// ready_in_s counts down to the hub's slot. It stops at 0 once the slot has passed.
+	var readyIn any
+	if slot != nil {
+		readyIn = int(math.Max(0, math.Ceil(time.Until(*slot).Seconds())))
+	}
+	return map[string]any{"id": id, "state": state, "hub": map[string]any{"id": hubID, "name": hubName, "lat": hubLat, "lng": hubLng}, "items": items,
+		"shortfall": shortfall, "slot_at": stamp(slot), "arrive_by": stamp(arrive), "lot_numbers": codes, "ready_in_s": readyIn}, nil
 }
 
 // Current is the rider's request in progress, for the rider's state, or nil.
@@ -193,15 +208,16 @@ func (s *Service) options(w http.ResponseWriter, r *http.Request) {
 	}
 	hubs := []map[string]any{}
 	if zone != nil {
-		rows, err := s.Pool.Query(r.Context(), "SELECT id::text, name FROM hubs WHERE zone_id = $1 AND status = 'active' ORDER BY name, id", *zone)
+		rows, err := s.Pool.Query(r.Context(), "SELECT id::text, name, lat, lng FROM hubs WHERE zone_id = $1 AND status = 'active' ORDER BY name, id", *zone)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
 		if hubs, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (map[string]any, error) {
 			var id, name string
-			err := r.Scan(&id, &name)
-			return map[string]any{"id": id, "name": name}, err
+			var lat, lng float64
+			err := r.Scan(&id, &name, &lat, &lng)
+			return map[string]any{"id": id, "name": name, "lat": lat, "lng": lng}, err
 		}); err != nil {
 			s.fail(w, r, err)
 			return

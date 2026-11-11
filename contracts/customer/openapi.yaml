@@ -1592,6 +1592,7 @@ components:
         - remedy
         - handover_otp
         - created_at
+        - order_number
       properties:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
@@ -1672,6 +1673,10 @@ components:
         created_at:
           type: string
           format: date-time
+        order_number:
+          description: Readable order number, a letter and four digits such as A2931.
+          type: string
+          pattern: '^[A-Z][0-9]{4}$'
     Remedy:
       type: object
       required: [type, amount]

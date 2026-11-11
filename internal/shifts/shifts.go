@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
+	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
@@ -135,6 +137,28 @@ type shift struct {
 	NodeID    string  `json:"node_id"`
 	StartedAt string  `json:"started_at"`
 	EndedAt   *string `json:"ended_at"`
+	// NodeAssignedAt is the shift start, or the last arrived move in the shift. Scooter is the one
+	// on this shift. Both are filled by Fill.
+	NodeAssignedAt string         `json:"node_assigned_at"`
+	Scooter        map[string]any `json:"scooter"`
+}
+
+// Fill adds node_assigned_at and the scooter to a shift read from the database. The battery is null
+// until scooter data exists (docs/engineering/real_and_stand_ins.md).
+func Fill(ctx context.Context, q querier, shiftID string, started time.Time) (assigned string, scooter map[string]any, err error) {
+	var id, plate string
+	var arrived *time.Time
+	err = q.QueryRow(ctx, `SELECT c.id::text, c.code,
+			(SELECT max(m.accepted_at) FROM relocations m WHERE m.shift_id = sh.id AND m.accepted_at IS NOT NULL)
+		FROM shifts sh JOIN scooters c ON c.id = sh.scooter_id WHERE sh.id = $1`, shiftID).Scan(&id, &plate, &arrived)
+	if err != nil {
+		return "", nil, err
+	}
+	at := started
+	if arrived != nil && arrived.After(started) {
+		at = *arrived
+	}
+	return stamp(at), map[string]any{"id": id, "plate": plate, "battery_pct": nil}, nil
 }
 
 // openShift returns the rider's open shift and its scooter, locked.
@@ -147,7 +171,11 @@ func openShift(ctx context.Context, tx pgx.Tx, riderID string) (shift, string, b
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sh, "", false, nil
 	}
+	if err != nil {
+		return sh, "", false, err
+	}
 	sh.StartedAt = stamp(started)
+	sh.NodeAssignedAt, sh.Scooter, err = Fill(ctx, tx, sh.ID, started)
 	return sh, scooter, err == nil, err
 }
 
@@ -222,6 +250,9 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		sh.StartedAt = stamp(started)
+		if sh.NodeAssignedAt, sh.Scooter, err = Fill(r.Context(), tx, sh.ID, started); err != nil {
+			return err
+		}
 		if err := bump(r.Context(), tx, actor.ID); err != nil {
 			return err
 		}
@@ -319,6 +350,22 @@ type node struct {
 	FullnessPct int     `json:"fullness_pct"`
 	Lat         float64 `json:"lat"`
 	Lng         float64 `json:"lng"`
+	// HubDistanceM is the straight line to the nearest active hub in the zone, in metres. Null if
+	// the zone has no active hub.
+	HubDistanceM *int `json:"hub_distance_m"`
+}
+
+// nearestHub is the rounded straight-line metres from a point to the closest of the hubs, or nil.
+func nearestHub(lat, lng float64, hubs [][2]float64) *int {
+	if len(hubs) == 0 {
+		return nil
+	}
+	best := math.MaxFloat64
+	for _, h := range hubs {
+		best = math.Min(best, geo.Metres(lat, lng, h[0], h[1]))
+	}
+	m := int(math.Round(best))
+	return &m
 }
 
 func (s *Service) listNodes(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +401,23 @@ func (s *Service) listNodes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	hubRows, err := s.Pool.Query(r.Context(), "SELECT lat, lng FROM hubs WHERE zone_id = $1 AND status = 'active'", zone)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	hubs, err := pgx.CollectRows(hubRows, func(row pgx.CollectableRow) ([2]float64, error) {
+		var p [2]float64
+		err := row.Scan(&p[0], &p[1])
+		return p, err
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	for i := range nodes {
+		nodes[i].HubDistanceM = nearestHub(nodes[i].Lat, nodes[i].Lng, hubs)
 	}
 	if nodes == nil {
 		nodes = []node{}
@@ -515,11 +579,12 @@ func RefusalOf(err error) (code, message string, ok bool) {
 }
 
 type stockLot struct {
-	LotID      string `json:"lot_id"`
-	ItemID     string `json:"item_id"`
-	Qty        int    `json:"qty"`
-	Expiry     string `json:"expiry"`
-	TempStatus string `json:"temp_status"`
+	LotID      string  `json:"lot_id"`
+	ItemID     string  `json:"item_id"`
+	Qty        int     `json:"qty"`
+	Expiry     string  `json:"expiry"`
+	TempStatus string  `json:"temp_status"`
+	ImageURL   *string `json:"image_url"`
 }
 
 // getStock lists what is on the rider's scooter now. With no shift there is no scooter, so nothing.
@@ -529,8 +594,9 @@ func (s *Service) getStock(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	rows, err := s.Pool.Query(r.Context(), `SELECT l.id::text, l.item_id::text, ss.on_hand - ss.reserved, l.expires_at, l.temp_status
+	rows, err := s.Pool.Query(r.Context(), `SELECT l.id::text, l.item_id::text, ss.on_hand - ss.reserved, l.expires_at, l.temp_status, m.photo_url
 		FROM shifts sh JOIN scooter_stock ss ON ss.scooter_id = sh.scooter_id JOIN lots l ON l.id = ss.lot_id
+		JOIN menu_items m ON m.id = l.item_id
 		WHERE sh.rider_id = $1 AND sh.ended_at IS NULL AND ss.on_hand > 0 ORDER BY l.expires_at, l.id`, actor.ID)
 	if err != nil {
 		s.fail(w, r, err)
@@ -539,7 +605,7 @@ func (s *Service) getStock(w http.ResponseWriter, r *http.Request) {
 	lots, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (stockLot, error) {
 		var l stockLot
 		var expires time.Time
-		err := row.Scan(&l.LotID, &l.ItemID, &l.Qty, &expires, &l.TempStatus)
+		err := row.Scan(&l.LotID, &l.ItemID, &l.Qty, &expires, &l.TempStatus, &l.ImageURL)
 		l.Expiry = stamp(expires)
 		return l, err
 	})

@@ -427,12 +427,13 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 	var total int
 	var cancelUntil, waitDeadline, minWait, endedAt *time.Time
 	var created time.Time
+	var orderNo int64
 	var riderName *string
 	var hasRider, waitSeen bool
 	err := q.QueryRow(ctx, `SELECT o.state, o.seq, o.total_paise, o.currency, o.ended_reason, o.cancel_until, o.wait_deadline, o.created_at,
-			o.gate_id::text, h.label, o.min_wait_until, o.ended_at, o.rider_id IS NOT NULL, r.name, o.min_wait_until_seen
+			o.gate_id::text, h.label, o.min_wait_until, o.ended_at, o.rider_id IS NOT NULL, r.name, o.min_wait_until_seen, o.order_no
 		FROM orders o JOIN gate_history h ON h.id = o.gate_history_id LEFT JOIN riders r ON r.id = o.rider_id WHERE o.id = $1`, orderID).
-		Scan(&state, &seq, &total, &currency, &ended, &cancelUntil, &waitDeadline, &created, &gateID, &label, &minWait, &endedAt, &hasRider, &riderName, &waitSeen)
+		Scan(&state, &seq, &total, &currency, &ended, &cancelUntil, &waitDeadline, &created, &gateID, &label, &minWait, &endedAt, &hasRider, &riderName, &waitSeen, &orderNo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -550,7 +551,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		// No rider is ever shown before v0.5.0, so these stay at their "not yet" values.
 		"eta_source": "placeholder", "eta_s": nil, "eta_offer": etaOffer, "rider": rider,
 		"timer":  timer,
-		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano),
+		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano), "order_number": OrderNumber(orderNo),
 	}, nil
 }
 

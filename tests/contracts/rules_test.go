@@ -358,7 +358,7 @@ func TestRejectionsAreDeclared(t *testing.T) {
 // A new field must be added here on purpose, after checking it cannot reveal the rider.
 var customerOrderFields = []string{
 	"cancel_until", "cancellable", "created_at", "customer_stage", "ended_reason", "eta_offer", "eta_s",
-	"eta_source", "gate", "handover_otp", "id", "items", "payment_request", "payment_status",
+	"eta_source", "gate", "handover_otp", "id", "items", "order_number", "payment_request", "payment_status",
 	"remedy", "rider", "seq", "timer", "total", "wait_deadline",
 }
 
@@ -461,7 +461,7 @@ func TestRiderContractHasNoCountdown(t *testing.T) {
 // A new field must be added here on purpose, after checking it adds no countdown
 // and no customer contact details.
 var riderOrderFields = []string{
-	"ended_reason", "fencing_token", "gate", "handed_over_at", "id", "items", "offer_id",
+	"ended_reason", "fencing_token", "gate", "handed_over_at", "id", "items", "offer_id", "order_number",
 	"otp_available", "rider_accepted_at", "seq", "state", "timer_label",
 }
 

@@ -1435,6 +1435,8 @@ components:
       - name
       - status
       - zone_id
+      - created_at
+      - approved_at
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1451,6 +1453,16 @@ components:
         status:
           type: string
           description: Open list, including applicant, active, suspended.
+        created_at:
+          description: When the account was made.
+          type: string
+          format: date-time
+        approved_at:
+          description: When the rider was approved. Null before approval.
+          type:
+          - string
+          - 'null'
+          format: date-time
     RiderResponse:
       type: object
       required:
@@ -1517,6 +1529,8 @@ components:
       - node_id
       - started_at
       - ended_at
+      - node_assigned_at
+      - scooter
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1530,6 +1544,30 @@ components:
           - string
           - 'null'
           format: date-time
+        node_assigned_at:
+          description: When the rider was given this node. This is the shift start, or when the rider accepted the last move in the shift (the node changes at accept).
+          type: string
+          format: date-time
+        scooter:
+          description: The scooter on this shift.
+          type: object
+          required:
+          - id
+          - plate
+          - battery_pct
+          properties:
+            id:
+              $ref: ../shared/common.yaml#/components/schemas/Id
+            plate:
+              type: string
+              description: The scooter code shown on the vehicle.
+            battery_pct:
+              description: Null until scooter data exists.
+              type:
+              - integer
+              - 'null'
+              minimum: 0
+              maximum: 100
     ShiftResponse:
       type: object
       required:
@@ -1581,6 +1619,7 @@ components:
       - fullness_pct
       - lat
       - lng
+      - hub_distance_m
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1594,6 +1633,12 @@ components:
           type: number
         lng:
           type: number
+        hub_distance_m:
+          description: Straight-line metres to the nearest active hub in the zone. Null if the zone has no active hub.
+          type:
+          - integer
+          - 'null'
+          minimum: 0
     RelocationSuggestion:
       type: object
       required:
@@ -1601,6 +1646,7 @@ components:
       - node_id
       - reason
       - expires_at
+      - orders_waiting
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1613,6 +1659,12 @@ components:
         expires_at:
           type: string
           format: date-time
+        orders_waiting:
+          description: Orders expected near the node when this was made. Null for older suggestions.
+          type:
+          - integer
+          - 'null'
+          minimum: 0
     NodeList:
       type: object
       required:
@@ -1677,6 +1729,7 @@ components:
       - qty
       - expiry
       - temp_status
+      - image_url
       properties:
         lot_id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1690,6 +1743,11 @@ components:
           format: date-time
         temp_status:
           $ref: '#/components/schemas/TempStatus'
+        image_url:
+          description: The menu item photo. Null when the item has none.
+          type:
+          - string
+          - 'null'
     StockList:
       type: object
       required:
@@ -1726,6 +1784,7 @@ components:
       - expires_at
       - state
       - fencing_token
+      - order_number
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1776,6 +1835,10 @@ components:
           type: string
           description: Fixed for the life of the offer. Send with accept, decline and Ready. A device
             holding a token from another offer is rejected with stale_fencing_token.
+        order_number:
+          description: Readable order number, a letter and four digits such as A2931.
+          type: string
+          pattern: '^[A-Z][0-9]{4}$'
     OfferList:
       type: object
       required:
@@ -1805,6 +1868,7 @@ components:
       - rider_accepted_at
       - otp_available
       - handed_over_at
+      - order_number
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -1869,6 +1933,10 @@ components:
           - string
           - 'null'
           format: date-time
+        order_number:
+          description: Readable order number, a letter and four digits such as A2931.
+          type: string
+          pattern: '^[A-Z][0-9]{4}$'
     OrderResponse:
       type: object
       required:
@@ -2283,7 +2351,18 @@ components:
           - type: 'null'
         other_hub:
           oneOf:
-          - $ref: '#/components/schemas/HubRef'
+          - allOf:
+            - $ref: '#/components/schemas/HubRef'
+            - type: object
+              required:
+              - distance_m
+              properties:
+                distance_m:
+                  description: Straight-line metres from the rider's node to this hub. Null if it cannot be worked out.
+                  type:
+                  - integer
+                  - 'null'
+                  minimum: 0
           - type: 'null'
     RestockSuggestion:
       type: object
@@ -2309,11 +2388,17 @@ components:
       required:
       - id
       - name
+      - lat
+      - lng
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
         name:
           type: string
+        lat:
+          type: number
+        lng:
+          type: number
     RestockSuggestionList:
       type: object
       required:
@@ -2337,6 +2422,7 @@ components:
       - arrive_by
       - lot_numbers
       - shortfall
+      - ready_in_s
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -2381,6 +2467,12 @@ components:
           description: The lots in the cassette, set at ready. The rider's scan is checked against these.
           items:
             type: string
+        ready_in_s:
+          description: Seconds from now to the hub slot, never below 0. Null without a slot.
+          type:
+          - integer
+          - 'null'
+          minimum: 0
     RestockResponse:
       type: object
       required:

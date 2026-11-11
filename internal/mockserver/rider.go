@@ -61,7 +61,7 @@ func riderOrder(state string, seq int, now time.Time) map[string]any {
 		"id": orderID, "offer_id": "off_mock01", "fencing_token": "ft_mock01", "state": state, "seq": seq, "ended_reason": nil,
 		"items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1}},
 		"gate":  riderGate(), "timer_label": "1.5 mins", "rider_accepted_at": stamp(now.Add(-time.Minute)),
-		"otp_available": state == "ARRIVED", "handed_over_at": nil,
+		"otp_available": state == "ARRIVED", "handed_over_at": nil, "order_number": "A2931",
 	}
 	if state == "HANDED_OVER" {
 		o["handed_over_at"] = stamp(now)
@@ -151,12 +151,13 @@ func sampleOffer(state string, now time.Time) map[string]any {
 	}
 	return map[string]any{
 		"id": "off_mock01", "order_id": orderRef, "items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1}},
-		"gate": riderGate(), "expires_at": stamp(now.Add(20 * time.Second)), "state": state, "fencing_token": "ft_mock01",
+		"gate": riderGate(), "expires_at": stamp(now.Add(20 * time.Second)), "state": state, "fencing_token": "ft_mock01", "order_number": "A2931",
 	}
 }
 
 func sampleShift(now time.Time, ended bool) map[string]any {
-	s := map[string]any{"id": "shf_mock01", "node_id": "node_mock01", "started_at": stamp(now.Add(-time.Hour)), "ended_at": nil}
+	s := map[string]any{"id": "shf_mock01", "node_id": "node_mock01", "started_at": stamp(now.Add(-time.Hour)), "ended_at": nil,
+		"node_assigned_at": stamp(now.Add(-time.Hour)), "scooter": map[string]any{"id": "scr_mock01", "plate": "NZ-014", "battery_pct": nil}}
 	if ended {
 		s["ended_at"] = stamp(now)
 	}
@@ -165,9 +166,9 @@ func sampleShift(now time.Time, ended bool) map[string]any {
 
 func sampleRestock(state string, now time.Time, short bool) map[string]any {
 	r := map[string]any{
-		"id": "rst_mock01", "state": state, "hub": map[string]any{"id": "hub_mock01", "name": "Hub 2"},
+		"id": "rst_mock01", "state": state, "hub": mockHub(),
 		"items":     []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 4, "filled_qty": nil}},
-		"shortfall": nil, "slot_at": stamp(now.Add(10 * time.Minute)), "arrive_by": stamp(now.Add(9 * time.Minute)), "lot_numbers": []string{},
+		"shortfall": nil, "slot_at": stamp(now.Add(10 * time.Minute)), "arrive_by": stamp(now.Add(9 * time.Minute)), "lot_numbers": []string{}, "ready_in_s": 600,
 	}
 	if short {
 		r["state"] = "partial"
@@ -197,7 +198,8 @@ func riderRoutes() []route {
 				accountBlocked(c)
 				return
 			}
-			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01"}})
+			c.json(200, map[string]any{"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi Kumar", "status": "active", "zone_id": "zone_mock01",
+				"created_at": stamp(c.now.Add(-30 * 24 * time.Hour)), "approved_at": stamp(c.now.Add(-29 * 24 * time.Hour))}})
 		}},
 		{method: "GET", path: "/riders/me/state", handle: func(c *call) {
 			story := riderStoryFor(c.scenario, c.now)
@@ -259,13 +261,13 @@ func riderRoutes() []route {
 			if c.scenario == "node_full" {
 				fullness = 100
 			}
-			nodes := []map[string]any{{"id": "node_mock01", "name": "Node 7", "fullness_pct": fullness, "lat": 12.97, "lng": 77.59}}
+			nodes := []map[string]any{{"id": "node_mock01", "name": "Node 7", "fullness_pct": fullness, "lat": 12.97, "lng": 77.59, "hub_distance_m": 850}}
 			var assigned, relocation any = "node_mock01", nil
 			if c.scenario == "no_nodes" {
 				nodes, assigned = []map[string]any{}, nil
 			}
 			if c.scenario == "relocation_suggested" {
-				relocation = map[string]any{"id": "rel_mock01", "node_id": "node_mock02", "reason": "3 orders expected, nobody nearby", "expires_at": stamp(c.now.Add(5 * time.Minute))}
+				relocation = map[string]any{"id": "rel_mock01", "node_id": "node_mock02", "reason": "3 orders expected, nobody nearby", "orders_waiting": 3, "expires_at": stamp(c.now.Add(5 * time.Minute))}
 			}
 			c.json(200, map[string]any{"nodes": nodes, "assigned_node_id": assigned, "relocation": relocation})
 		}},
@@ -284,7 +286,7 @@ func riderRoutes() []route {
 			c.json(200, map[string]any{"unit": map[string]any{"lot_id": "lot_mock01", "item_id": "item_burger", "expiry": stamp(c.now.Add(4 * time.Hour)), "temp_status": temp}})
 		}},
 		{method: "GET", path: "/riders/me/stock", handle: func(c *call) {
-			c.json(200, map[string]any{"lots": []map[string]any{{"lot_id": "lot_mock01", "item_id": "item_burger", "qty": 6, "expiry": stamp(c.now.Add(4 * time.Hour)), "temp_status": "ok"}}})
+			c.json(200, map[string]any{"lots": []map[string]any{{"lot_id": "lot_mock01", "item_id": "item_burger", "qty": 6, "expiry": stamp(c.now.Add(4 * time.Hour)), "temp_status": "ok", "image_url": "https://example.invalid/mock/burger.jpg"}}})
 		}},
 		{method: "GET", path: "/riders/me/offers", handle: func(c *call) {
 			offers := riderStoryFor(c.scenario, c.now).offers
@@ -358,7 +360,7 @@ func riderRoutes() []route {
 		{method: "GET", path: "/riders/me/restock-suggestions", handle: func(c *call) {
 			suggestions := []map[string]any{}
 			if c.scenario == "restock_suggestion" {
-				suggestions = append(suggestions, map[string]any{"id": "rst_mock01", "hub": map[string]any{"id": "hub_mock01", "name": "Hub 2"},
+				suggestions = append(suggestions, map[string]any{"id": "rst_mock01", "hub": mockHub(),
 					"items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 4, "filled_qty": nil}}, "expires_at": stamp(c.now.Add(10 * time.Minute))})
 			}
 			c.json(200, map[string]any{"suggestions": suggestions})
@@ -386,7 +388,7 @@ func riderRoutes() []route {
 			}
 		}},
 		{method: "GET", path: "/restock/options", handle: func(c *call) {
-			c.json(200, map[string]any{"hubs": []map[string]any{{"id": "hub_mock01", "name": "Hub 2"}}, "items": []map[string]any{{"item_id": "item_burger", "name": "Burger"}}})
+			c.json(200, map[string]any{"hubs": []map[string]any{mockHub()}, "items": []map[string]any{{"item_id": "item_burger", "name": "Burger"}}})
 		}},
 		{method: "GET", path: "/restock/{request_id}", handle: func(c *call) {
 			c.json(200, map[string]any{"request": sampleRestock("packing", c.now, c.scenario == "hub_short")})
@@ -439,4 +441,9 @@ func riderSessionFields(c *call) map[string]any {
 		status = "applicant"
 	}
 	return map[string]any{"rider_id": "rdr_mock0001", "status": status}
+}
+
+// mockHub is the sample hub reference, with its place.
+func mockHub() map[string]any {
+	return map[string]any{"id": "hub_mock01", "name": "Hub 2", "lat": 12.9352, "lng": 77.6245}
 }

@@ -62,17 +62,22 @@ type querier interface {
 func Current(ctx context.Context, q querier, rider string, now time.Time) (any, error) {
 	var id, node, reason string
 	var expires time.Time
-	err := q.QueryRow(ctx, `SELECT v.id::text, v.to_node_id::text, v.reason, v.expires_at FROM relocations v
+	var waiting *int
+	err := q.QueryRow(ctx, `SELECT v.id::text, v.to_node_id::text, v.reason, v.expires_at, v.orders_waiting FROM relocations v
 		JOIN shifts sh ON sh.id = v.shift_id AND sh.ended_at IS NULL
 		WHERE v.rider_id = $1 AND v.state = 'suggested' AND v.expires_at > $2
-			AND NOT EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL)`, rider, now).Scan(&id, &node, &reason, &expires)
+			AND NOT EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = v.rider_id AND f.released_at IS NULL)`, rider, now).Scan(&id, &node, &reason, &expires, &waiting)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": id, "node_id": node, "reason": reason, "expires_at": expires.UTC().Format(time.RFC3339Nano)}, nil
+	var demand any // Null for a suggestion made before the count was kept.
+	if waiting != nil {
+		demand = *waiting
+	}
+	return map[string]any{"id": id, "node_id": node, "reason": reason, "orders_waiting": demand, "expires_at": expires.UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func bump(ctx context.Context, tx pgx.Tx, rider, id string) error {
@@ -443,9 +448,9 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 		who := from.free[0]
 		reason := fmt.Sprintf("%d orders expected, nobody nearby", to.demand)
 		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at, state_changed_at)
-			SELECT $1, sh.id, $2, $3, $4, $5, $6 FROM shifts sh WHERE sh.rider_id = $1 AND sh.ended_at IS NULL RETURNING id::text`,
-			who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at, state_changed_at, orders_waiting)
+			SELECT $1, sh.id, $2, $3, $4, $5, $6, $7 FROM shifts sh WHERE sh.rider_id = $1 AND sh.ended_at IS NULL RETURNING id::text`,
+			who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now, to.demand).Scan(&id); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // The shift ended during this check.
 			}

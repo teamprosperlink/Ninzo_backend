@@ -157,11 +157,17 @@ components:
             properties:
                 id:
                     $ref: '#/components/schemas/Id'
+                lat:
+                    type: number
+                lng:
+                    type: number
                 name:
                     type: string
             required:
                 - id
                 - name
+                - lat
+                - lng
             type: object
         Id:
             description: Opaque identifier. Do not parse it.
@@ -209,6 +215,10 @@ components:
                     type:
                         - string
                         - "null"
+                order_number:
+                    description: Readable order number, a letter and four digits such as A2931.
+                    pattern: ^[A-Z][0-9]{4}$
+                    type: string
                 state:
                     enum:
                         - open
@@ -226,6 +236,7 @@ components:
                 - expires_at
                 - state
                 - fencing_token
+                - order_number
             type: object
         OrderLine:
             properties:
@@ -313,6 +324,12 @@ components:
                     items:
                         type: string
                     type: array
+                ready_in_s:
+                    description: Seconds from now to the hub slot, never below 0. Null without a slot.
+                    minimum: 0
+                    type:
+                        - integer
+                        - "null"
                 shortfall:
                     oneOf:
                         - $ref: '#/components/schemas/RestockShortfall'
@@ -346,6 +363,7 @@ components:
                 - arrive_by
                 - lot_numbers
                 - shortfall
+                - ready_in_s
             type: object
         RestockShortfall:
             description: What the hub could not fill, and what it offers instead.
@@ -358,7 +376,18 @@ components:
                     type: string
                 other_hub:
                     oneOf:
-                        - $ref: '#/components/schemas/HubRef'
+                        - allOf:
+                            - $ref: '#/components/schemas/HubRef'
+                            - properties:
+                                distance_m:
+                                    description: Straight-line metres from the rider's node to this hub. Null if it cannot be worked out.
+                                    minimum: 0
+                                    type:
+                                        - integer
+                                        - "null"
+                              required:
+                                - distance_m
+                              type: object
                         - type: "null"
                 substitute:
                     oneOf:
@@ -415,6 +444,10 @@ components:
                     type: array
                 offer_id:
                     $ref: '#/components/schemas/Id'
+                order_number:
+                    description: Readable order number, a letter and four digits such as A2931.
+                    pattern: ^[A-Z][0-9]{4}$
+                    type: string
                 otp_available:
                     description: True once the customer has the OTP to show. Offline, this value may be stale, so the app must still allow the rider to enter an OTP.
                     type: boolean
@@ -446,6 +479,7 @@ components:
                 - rider_accepted_at
                 - otp_available
                 - handed_over_at
+                - order_number
             type: object
 defaultContentType: application/json
 id: urn:ninzo:rider:stream

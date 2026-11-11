@@ -148,19 +148,19 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `verifyOtp` | `otp_requests`, `riders`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
-| `getRider` | `riders`, `people` | | | |
-| `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
+| `getRider` | `riders`, `people`, `audit_events` | | | |
+| `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs`, `scooters`, `relocations`, `staging_nodes`, `menu_items` | | | |
 | `getVerification` | `rider_verifications` | | | |
 | `startVerification` | `riders` | `rider_verifications`, `audit_events`, `idempotency_keys` | | DigiLocker, a mock for now |
 | `registerRiderDevice` | `devices`, `riders`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeRiderDevice` | `devices` | `devices`, `idempotency_keys` | | |
-| `startShift` | `riders`, `rider_verifications`, `shifts`, `staging_nodes` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
-| `endShift` | `shifts`, `offers` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
-| `listNodes` | `zones`, `staging_nodes`, `scooters`, `relocations` | | Positions | |
+| `startShift` | `riders`, `rider_verifications`, `shifts`, `staging_nodes`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
+| `endShift` | `shifts`, `offers`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
+| `listNodes` | `zones`, `staging_nodes`, `scooters`, `relocations`, `hubs` | | Positions | |
 | `acceptRelocation` | `relocations` | `relocations`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `scanStock` | `rider_events`, `lots`, `scooters`, `scooter_stock`, `restock_requests`, `restock_lots` | `rider_events`, `scooter_stock`, `stock_ledger`, `rider_state`, `audit_events`, `idempotency_keys` | | |
-| `getStock` | `scooters`, `scooter_stock`, `lots` | | | |
-| `listOffers` | `offers`, `order_items`, `gates` | | | |
+| `getStock` | `scooters`, `scooter_stock`, `lots`, `menu_items` | | | |
+| `listOffers` | `offers`, `orders`, `order_items`, `gates` | | | |
 | `acceptOffer` | `offers`, `orders`, `zone_settings`, `location_zones`, `reservations` | `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `declineOffer` | `offers`, `orders` | `offers`, `order_events`, `rider_state`, `scheduled_tasks`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `markReady` | `offers`, `orders`, `zone_settings`, `location_pings` | `offers`, `orders`, `order_events`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Position, fan-out | |
@@ -170,13 +170,13 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `startRiderMaskedCall` | `offers`, `orders`, `customers` | `audit_events`, `idempotency_keys` | | Telephony |
 | `locationPing` | `offers`, `orders`, `location_zones`, `location_pings`, `arrival_reviews` | `location_pings`, `orders`, `order_events`, `rider_state`, `remedies`, `arrival_reviews`, `scheduled_tasks`, `outbox_events` | Position, cells, rate limit, fan-out | |
 | `sendEventBatch` | `rider_events`, `offers`, `orders`, `order_items`, `gates`, `payments`, `location_pings`, `lots`, `scooters`, `scooter_stock`, `reservations`, `restock_requests`, `restock_lots` | `rider_events`, `location_pings`, `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `arrival_reviews`, `problem_reports`, `restock_requests`, `restock_lines`, `scheduled_tasks`, `outbox_events`, `audit_events` | Fan-out | None |
-| `listRestockSuggestions` | `restock_requests`, `restock_lines`, `hubs` | | | |
+| `listRestockSuggestions` | `restock_requests`, `restock_lines`, `hubs`, `shifts`, `staging_nodes` | | | |
 | `confirmRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `restock_lines`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `declineRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `createRestock` | `hubs`, `restock_requests` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
 | `getRestockOptions` | `riders`, `hubs`, `menu_items` | | | |
 | `respondToShortfall` | `shortfalls`, `restock_requests` | `shortfalls`, `restock_requests`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | |
-| `getRestock` | `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs` | | | |
+| `getRestock` | `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs`, `shifts`, `staging_nodes` | | | |
 | `reportProblem` | `rider_events`, `orders` | `rider_events`, `problem_reports`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
 | `getEarnings` | `earnings` | | | |
 
