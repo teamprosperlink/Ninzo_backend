@@ -396,7 +396,8 @@ func (s *Service) Dispatch(ctx context.Context, now time.Time) (int, error) {
 	total += int(tag.RowsAffected())
 	// The timer's length passed before the perimeter: missed, once. The order carries on.
 	tag, err = s.Pool.Exec(ctx, `WITH due AS (
-			SELECT id FROM orders WHERE state = 'TIMER_RUNNING' AND NOT timer_missed AND timer_started_at + make_interval(secs => timer_length_s) <= $1
+			SELECT id FROM orders WHERE state = 'TIMER_RUNNING' AND NOT timer_missed AND timer_stopped_at IS NULL
+				AND timer_started_at + make_interval(secs => timer_length_s) <= $1
 			FOR UPDATE SKIP LOCKED)
 		UPDATE orders o SET seq = o.seq + 1, timer_missed = true, updated_at = now() FROM due WHERE o.id = due.id`, now)
 	if err != nil {

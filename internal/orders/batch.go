@@ -149,7 +149,14 @@ func (s *Service) applyEvent(ctx context.Context, actor identity.Actor, e queued
 		}
 		// A rejected handover may mean the food was already given, so support is told.
 		if e.Type == "handover" && !result.accepted && (result.code == "wrong_otp" || result.code == "order_cancelled" || result.code == "order_reassigned") {
-			if err := outbox.Add(ctx, tx, "support.alert", map[string]any{"rider_id": actor.ID, "event_id": e.ID, "reason": "handover_" + result.code}); err != nil {
+			var ref struct {
+				OrderID string `json:"order_id"`
+			}
+			alert := map[string]any{"rider_id": actor.ID, "event_id": e.ID, "reason": "handover_" + result.code}
+			if json.Unmarshal(e.Payload, &ref) == nil && idPattern.MatchString(ref.OrderID) {
+				alert["order_id"] = ref.OrderID
+			}
+			if err := outbox.Add(ctx, tx, "support.alert", alert); err != nil {
 				return err
 			}
 		}

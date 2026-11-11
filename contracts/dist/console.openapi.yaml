@@ -1817,12 +1817,6 @@ paths:
                   required: false
                   schema:
                     enum:
-                        - pending
-                        - approved
-                        - rejected
-                        - failed
-                        - cancelled
-                        - lapsed
                         - open
                         - arrived_in_time
                         - late
@@ -1866,7 +1860,7 @@ paths:
             x-permission: reviews.read
     /admin/arrival-reviews/{review_id}/decision:
         post:
-            description: 'arrived_in_time stops the timer at the rider''s evidence; late keeps the miss and its credit. Errors: review_closed (409). Permission: reviews.decide.'
+            description: 'arrived_in_time stops the timer at the rider''s evidence and takes back a credit still owed; late keeps the miss and its credit. Errors: review_closed, credit_applied (both 409; credit_applied when the credit was already given). Permission: reviews.decide.'
             operationId: decideArrivalReview
             parameters:
                 - description: The id.

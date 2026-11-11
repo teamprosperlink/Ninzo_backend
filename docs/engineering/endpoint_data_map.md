@@ -250,7 +250,7 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `updateHubStaff` | `hub_staff`, `hubs` | `hub_staff`, `refresh_tokens`, `audit_events`, `idempotency_keys` |  | |
 | `listAuditEvents` | `audit_events` |  |  | |
 | `listArrivalReviews` | `arrival_reviews` |  |  | |
-| `decideArrivalReview` | `arrival_reviews`, `orders` | `arrival_reviews`, `orders`, `remedies`, `order_events`, `audit_events`, `idempotency_keys` |  | |
+| `decideArrivalReview` | `arrival_reviews`, `orders`, `remedies`, `console_users` | `arrival_reviews`, `orders`, `remedies`, `order_events`, `audit_events`, `idempotency_keys` |  | |
 | `listSupportAlerts` | `outbox_events` |  |  | |
 
 ## 5. Background work
