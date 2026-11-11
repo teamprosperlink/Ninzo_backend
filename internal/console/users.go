@@ -40,9 +40,12 @@ var (
 // write answers a change: its reply, or the refusal the contract names.
 func (s *Service) write(w http.ResponseWriter, r *http.Request, status int, reply map[string]any, err error) {
 	var no *refusal
+	var bad *badSetting
 	switch {
 	case err == nil:
 		httpserver.WriteJSON(w, status, reply)
+	case errors.As(err, &bad):
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_setting", bad.message, false)
 	case errors.As(err, &no):
 		httpserver.WriteError(w, http.StatusConflict, no.code, no.message, false)
 	case errors.Is(err, errInvalid):

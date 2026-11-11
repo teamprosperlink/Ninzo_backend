@@ -90,3 +90,5 @@ What is real and what is a stand-in is in `real_and_stand_ins.md`. Every downsid
 |---|---|---|---|---|
 | An admin can create a second admin, or reset one, and so approve their own change through that account, getting round the two-person rule | Everyone | Every user change is audited with who did it; admins are few and named | Accepted for the pilot | #134 |
 | First sign-in is trust on first use: whoever holds the temporary password sets up the authenticator | Console staff | The temporary password is random, shown once, and must be changed; a reset ends open challenges | Accepted | #134 |
+| The kill switch pauses the zone, so an order already running there that needs another scooter (reassignment) finds none and ends as if no scooter were free | Customers in a paused zone | Turning a zone off is rare and approved by two people; the rider already carrying an order finishes it | Accepted for the pilot | #136 |
+| A paused zone also refuses riders being approved or reinstated into it | Rider applicants | Pausing is rare and approved by two people; turn the zone on, then approve | Accepted for the pilot | #136 |

@@ -48,9 +48,10 @@ func newFixture(t *testing.T) *fixture {
 		signedIn := identity.RequireActor(sessions.Signer, identity.TypeConsole)
 		f.svc.MountAuth(r, signedIn)
 		f.svc.MountUsers(r, signedIn)
-		f.svc.MountApprovals(r, Kinds{"flag": ApplyFlag}, signedIn)
+		f.svc.MountApprovals(r, Kinds{"flag": ApplyFlag, "settings": ApplySettings, "kill_switch": ApplyKillSwitch}, signedIn)
 		f.svc.MountFlags(r, signedIn)
 		f.svc.MountRiders(r, signedIn)
+		f.svc.MountZones(r, signedIn)
 	}))
 	t.Cleanup(f.srv.Close)
 	return f

@@ -1587,7 +1587,7 @@ components:
                 name:
                     type: string
                 offer_enabled:
-                    description: The kill switch. False stops new orders in the zone.
+                    description: The kill switch, true while the zone is active. False (paused) stops new orders in the zone.
                     type: boolean
             required:
                 - id
@@ -2680,7 +2680,7 @@ paths:
                 - zones
             x-permission: settings.read
         put:
-            description: 'Creates an approval. Send base_version, the version you read; every zone must stay valid with the change. Errors: invalid_setting (400), approval_pending, stale_version (both 409). Permission: settings.request.'
+            description: 'Creates an approval. Send base_version, the version you read; every zone must stay valid with the change. Errors: invalid_setting (400), approval_pending, stale_version, no_change (all 409). Permission: settings.request.'
             operationId: requestGlobalSettingsChange
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2948,7 +2948,7 @@ paths:
             x-permission: zones.read
     /admin/zones/{zone_id}/kill-switch:
         post:
-            description: 'Creates an approval. Turning it off stops new orders in the zone; orders in progress finish. Errors: approval_pending (409). Permission: zones.kill_switch.'
+            description: 'Creates an approval. Turning it off pauses the zone: new orders stop there; orders in progress finish with their rider, but one that needs another scooter cannot get one. Turning it on needs an area that overlaps no other active zone, checked again on approval. Errors: approval_pending, no_change, zone_has_no_area, zone_overlaps (all 409). Permission: zones.kill_switch.'
             operationId: requestKillSwitch
             parameters:
                 - description: The id.
@@ -3024,7 +3024,7 @@ paths:
                 - zones
             x-permission: settings.read
         put:
-            description: 'Creates an approval. Send base_version, the zone version you read. A null value goes back to the global one. Errors: invalid_setting (400), approval_pending, stale_version (both 409). Permission: settings.request.'
+            description: 'Creates an approval. Send base_version, the zone version you read. A null value goes back to the global one. Errors: invalid_setting (400), approval_pending, stale_version, no_change (all 409). Permission: settings.request.'
             operationId: requestZoneSettingsChange
             parameters:
                 - description: The id.
