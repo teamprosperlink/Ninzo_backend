@@ -248,3 +248,15 @@ func TestThePushWorkerLeavesOtherEvents(t *testing.T) {
 		t.Error("the push worker took a support event")
 	}
 }
+
+func TestARejectedHandoverAlertNamesItsOrder(t *testing.T) {
+	tr := begin(t, nil)
+	wrong := "0000"
+	if tr.otp() == wrong {
+		wrong = "1111"
+	}
+	tr.batch(tr.handoverEvent("evt-alert-order", wrong, 2, tr.clock))
+	if tr.count("SELECT count(*) FROM outbox_events WHERE topic = 'support.alert' AND payload->>'order_id' = $1 AND payload->>'reason' = 'handover_wrong_otp'", tr.order) != 1 {
+		t.Error("the alert must name the order")
+	}
+}

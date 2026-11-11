@@ -277,3 +277,15 @@ func TestEachRiderGetsTheirOwnSignalAlert(t *testing.T) {
 		t.Error("an alert about an earlier rider hid this rider's lost signal")
 	}
 }
+
+func TestALostSignalRaisesOneSupportAlert(t *testing.T) {
+	tr, _ := accepted(t, false)
+	tr.ready(200)
+	tr.at(inZone, 20*time.Second)
+	tr.at(inZone, 3*time.Second)
+	tr.dispatch(tr.clock.Add(3 * time.Minute))
+	tr.dispatch(tr.clock.Add(4 * time.Minute))
+	if tr.count("SELECT count(*) FROM outbox_events WHERE topic = 'support.alert' AND payload->>'reason' = 'signal_lost' AND payload->>'order_id' = $1", tr.order) != 1 {
+		t.Error("a lost signal must raise exactly one support alert, naming the order")
+	}
+}

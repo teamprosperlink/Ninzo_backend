@@ -46,6 +46,7 @@ func main() {
 			svc.MountMenu(r, signedIn...)
 			svc.MountGates(r, signedIn...)
 			svc.MountHubs(r, signedIn...)
+			svc.MountReviews(r, signedIn...)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "console-api:", err)

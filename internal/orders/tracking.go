@@ -274,12 +274,12 @@ func touchOffer(ctx context.Context, tx pgx.Tx, orderID string) error {
 }
 
 // arrive records the rider at the gate, stopping a running timer. The timer was missed if its
-// length had passed. During the minimum wait the customer still sees looking_for_rider, so seq
+// length had passed when it stopped: now, or earlier if an arrival review already stopped it. During the minimum wait the customer still sees looking_for_rider, so seq
 // moves only once that wait is over.
 func arrive(ctx context.Context, tx pgx.Tx, orderID, from, source string, now time.Time) error {
 	if _, err := tx.Exec(ctx, `UPDATE orders SET state = 'ARRIVED', arrived_at = $2, arrival_source = $3,
 			timer_stopped_at = CASE WHEN timer_started_at IS NOT NULL AND timer_stopped_at IS NULL THEN $2 ELSE timer_stopped_at END,
-			timer_missed = timer_missed OR (timer_started_at IS NOT NULL AND $2 >= timer_started_at + make_interval(secs => timer_length_s)),
+			timer_missed = timer_missed OR (timer_started_at IS NOT NULL AND coalesce(timer_stopped_at, $2) >= timer_started_at + make_interval(secs => timer_length_s)),
 			seq = seq + CASE WHEN coalesce(min_wait_until <= $2, false) THEN 1 ELSE 0 END, updated_at = now()
 		WHERE id = $1`, orderID, now, source); err != nil {
 		return err

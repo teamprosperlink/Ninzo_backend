@@ -493,3 +493,24 @@ func TestArrivingExactlyAtTheEndIsMissed(t *testing.T) {
 		t.Error("arriving at the timer's end must count as missed, as the pass does")
 	}
 }
+
+// An arrival review decided arrived_in_time stops the timer at the rider's evidence, while the
+// order still runs. Neither the miss pass nor a later arrival may call it missed again.
+func TestATimerStoppedByAReviewStaysInTime(t *testing.T) {
+	tr := started(t, true)
+	tr.at(inZone, 20*time.Second)
+	tr.at(inZone, 3*time.Second)
+	begun := tr.clock
+	tr.exec("UPDATE orders SET timer_stopped_at = timer_started_at + interval '60 seconds' WHERE id = $1", tr.order) // As decideArrivalReview does.
+	tr.dispatch(begun.Add(95 * time.Second))
+	tr.dispatch(begun.Add(96 * time.Second))
+	if tr.count("SELECT count(*) FROM orders WHERE id = $1 AND timer_missed", tr.order) != 0 {
+		t.Error("the miss pass undid a stopped timer")
+	}
+	tr.clock = begun.Add(120 * time.Second)
+	tr.at(atGate, 0)
+	tr.at(atGateToo, 3*time.Second)
+	if c := tr.customer(); c["customer_stage"] != "arrived" || c["timer"].(map[string]any)["timer_missed"] != false {
+		t.Errorf("arriving after the length must not undo a timer stopped in time: %v", c)
+	}
+}

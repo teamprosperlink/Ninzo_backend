@@ -1567,7 +1567,7 @@ paths:
         description: Only this status.
         schema:
           type: string
-          enum: [pending, approved, rejected, failed, cancelled, lapsed, open, arrived_in_time, late, timed_out]
+          enum: [open, arrived_in_time, late, timed_out]
       - name: cursor
         in: query
         required: false
@@ -1607,7 +1607,7 @@ paths:
       operationId: decideArrivalReview
       summary: Decide a late-arrival review
       description: >-
-        arrived_in_time stops the timer at the rider's evidence; late keeps the miss and its credit. Errors: review_closed (409). Permission: reviews.decide.
+        arrived_in_time stops the timer at the rider's evidence and takes back a credit still owed; late keeps the miss and its credit. Errors: review_closed, credit_applied (both 409; credit_applied when the credit was already given). Permission: reviews.decide.
       x-permission: reviews.decide
       parameters:
       - name: review_id

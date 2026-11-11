@@ -15,6 +15,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
+	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 )
 
 var problemTypes = map[string]bool{"breakdown": true, "accident": true, "gate_closed": true, "customer_absent": true, "unsafe_route": true}
@@ -214,8 +215,16 @@ func (s *Service) problemTx(ctx context.Context, tx pgx.Tx, riderID, kind, order
 
 // signalLost raises one support alert for an order whose rider went quiet after the timer started.
 func signalLost(ctx context.Context, tx pgx.Tx, orderID string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO problem_reports (rider_id, order_id, type, source, outcome)
+	var rider *string
+	err := tx.QueryRow(ctx, `INSERT INTO problem_reports (rider_id, order_id, type, source, outcome)
 		SELECT rider_id, id, 'signal_lost', 'system', 'support_alerted' FROM orders WHERE id = $1
-		ON CONFLICT (order_id, rider_id) WHERE source = 'system' AND type = 'signal_lost' DO NOTHING`, orderID)
-	return err
+		ON CONFLICT (order_id, rider_id) WHERE source = 'system' AND type = 'signal_lost' DO NOTHING RETURNING rider_id::text`, orderID).Scan(&rider)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // Already reported, so support was already told.
+	}
+	if err != nil {
+		return err
+	}
+	// The console's support alerts read these (listSupportAlerts).
+	return outbox.Add(ctx, tx, "support.alert", map[string]any{"reason": "signal_lost", "order_id": orderID, "rider_id": rider})
 }

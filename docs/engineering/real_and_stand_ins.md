@@ -69,3 +69,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Rider review in the console: the queue, approve, suspend, reinstate | Real | Built (#135). Replaces `cmd/riders` for daily use; suspending ends the rider's sessions and shift | | v0.9.0 |
 | Console zones, settings and the kill switch, each change through an approval | Real | Built (#136). Settings changes go through `geo.ChangeSettings`, so every zone stays valid; the kill switch pauses or resumes the zone | | v0.9.0 |
 | Console menu and price history, gate edits with versions, hubs and hub staff | Real | Built (#137). A hub_manager sees and changes only their own hub's staff; migration 0036 records who made each gate version | | v0.9.0 |
+| Console audit log, arrival reviews and support alerts | Real | Built (#138). Secrets and full phone numbers never leave the audit log; a lost signal now raises a support alert; migration 0037 records who settled a review | | v0.9.0 |

@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Audit log, arrival reviews and support alerts (#138)
+- Added: `listAuditEvents` (newest first, filters by time, actor, action and entity; secrets and full phone numbers hidden), `listArrivalReviews` (open first), `decideArrivalReview` (arrived_in_time stops the timer at the rider's evidence and clears the miss; late keeps it and its credit), `listSupportAlerts`.
+- Changed: a refused handover's support alert names its order, and a lost signal now raises a support alert (its problem report already said support was alerted).
+- Added: migration 0037, `arrival_reviews.decided_by` and `decision_reason`. Not applied to Supabase.
+- Evidence: docs/testing/reports/138.md
+
 ### Menu, gates, hubs and hub staff in the console (#137)
 - Added: `listAdminMenu`, `createMenuItem` (added hidden), `updateMenuItem` (a price change keeps its reason in the history), `getPriceHistory`.
 - Added: `listAdminGates`, `updateGate` (a new version with who and why; a moved pin stays in its zone; an erased customer's gate is left alone), `getGateHistory`.
