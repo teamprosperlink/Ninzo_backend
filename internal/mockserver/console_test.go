@@ -303,3 +303,25 @@ func TestARefundCountsWhatWasRefundedBefore(t *testing.T) {
 	}
 	t.Fatal("requestRefund is not in the contract")
 }
+
+// An amount past what an int holds, or outside the contract's range, is refused (#167): the
+// fuzzer once sent one past int64 and got a 201 with a negative amount.
+func TestAmountsOutsideTheRangeAreRefused(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := consoleContract(t)
+	for _, o := range c.operations() {
+		if o.id != "requestRefund" && o.id != "issueCredit" {
+			continue
+		}
+		for i, amount := range []string{"150627966214929711275765137408", "10000001", "0", "-5", "12.5"} {
+			saved := sampleBodies[o.id]
+			sampleBodies[o.id] = `{"amount_paise":` + amount + `,"reason":"Cold food"}`
+			status, body, _ := doRequest(t, srv, c, o, "", fmt.Sprintf("range-%s-%d", o.id, i))
+			sampleBodies[o.id] = saved
+			if status != 400 {
+				t.Errorf("%s with %s: %d, want 400: %s", o.id, amount, status, body)
+			}
+		}
+	}
+}

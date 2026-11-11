@@ -859,6 +859,7 @@ components:
         CreditRequest:
             properties:
                 amount_paise:
+                    maximum: 10000000
                     minimum: 1
                     type: integer
                 reason:
@@ -1902,6 +1903,7 @@ components:
         RefundRequest:
             properties:
                 amount_paise:
+                    maximum: 10000000
                     minimum: 1
                     type: integer
                 reason:

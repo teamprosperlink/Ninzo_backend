@@ -5,6 +5,8 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console amounts have a range (#167)
+- Fixed: the console mock answered 201 with a wrapped-round negative amount for `amount_paise` past an int (found by the fuzzer in CI). `requestRefund` and `issueCredit` now say 1 to 10,000,000 paise in the contract, and the mock refuses anything outside it, or not whole, with 400.
 ### Geo design and research record (#162)
 - Added: `docs/engineering/geo/`, the decision and research record for maps, the H3 grid, OSRM routing, rider placement, matching, routes and ETA, demand, simulation and map providers. A draft for owner review; no code.
 - Added: the owner's notes of 2026-11-11 on the hybrid grid, pre-mapping and the sweet spot, as `docs/context/algorithms/2026-11-11-owner-notes-hybrid-and-premapping.md`.
