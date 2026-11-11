@@ -239,3 +239,19 @@ func TestLoadReportsEveryProblemAtOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestTheConsoleAuthenticatorSwitch(t *testing.T) {
+	c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL}))
+	if err != nil || c.ConsoleTOTPOptional {
+		t.Errorf("the code is required unless asked otherwise: %v %v", c.ConsoleTOTPOptional, err)
+	}
+	if c, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "CONSOLE_TOTP": "optional"})); err != nil || !c.ConsoleTOTPOptional {
+		t.Errorf("optional: %v %v", c.ConsoleTOTPOptional, err)
+	}
+	if _, err := Load(env(map[string]string{"APP_ENV": "local", "DATABASE_URL": localURL, "CONSOLE_TOTP": "off"})); err == nil {
+		t.Error("an unknown value was taken")
+	}
+	if _, err := Load(env(map[string]string{"APP_ENV": "production", "DATABASE_URL": serviceURL, "CONSOLE_TOTP": "optional"})); err == nil {
+		t.Error("production must refuse an optional code")
+	}
+}

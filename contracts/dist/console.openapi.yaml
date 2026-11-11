@@ -609,7 +609,9 @@ components:
                 hub_id:
                     $ref: '#/components/schemas/Id'
                 login_id:
-                    pattern: ^[a-z0-9._-]{3,80}$
+                    description: The user's email address, lower case. The older ID form is still accepted.
+                    maxLength: 254
+                    pattern: ^([a-z0-9._-]{3,80}|[a-z0-9._%+-]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,63})$
                     type: string
                 name:
                     maxLength: 80
@@ -1040,6 +1042,7 @@ components:
         LoginChallenge:
             properties:
                 challenge_id:
+                    description: For enrollTotp and verifyTotp. Still given when totp_required is false, so a user can set up an authenticator.
                     type: string
                 expires_in_s:
                     minimum: 1
@@ -1049,20 +1052,31 @@ components:
                     type: boolean
                 server_time:
                     $ref: '#/components/schemas/ServerTime'
+                session:
+                    description: The session when totp_required is false; otherwise null.
+                    oneOf:
+                        - $ref: '#/components/schemas/ConsoleSession'
+                        - type: "null"
                 totp_enrolled:
                     description: False at first sign-in. Then call enrollTotp before verifyTotp.
+                    type: boolean
+                totp_required:
+                    description: False when the password alone signed in (only before pre-launch, for a user with no authenticator); session then holds the session.
                     type: boolean
             required:
                 - challenge_id
                 - totp_enrolled
+                - totp_required
                 - must_change_password
                 - expires_in_s
+                - session
                 - server_time
             type: object
         LoginRequest:
             properties:
                 login_id:
-                    maxLength: 80
+                    description: The user's email address (or an older login ID). Not case sensitive.
+                    maxLength: 254
                     minLength: 3
                     type: string
                 password:
@@ -3063,7 +3077,7 @@ paths:
             x-permission: settings.request
     /auth/login:
         post:
-            description: 'Step one of two. Returns a challenge for the authenticator code; a session starts only after it. A wrong ID or password is invalid_credentials (401). After 5 wrong passwords or codes in 15 minutes the account locks for 15 minutes, and every sign-in then gets the same invalid_credentials; admins see locked_until. Errors also: rate_limited (429).'
+            description: 'Step one. Returns a challenge for the authenticator code, and a session starts after verifyTotp. Until pre-launch the code is optional on staging: a user who has not set up an authenticator gets totp_required false and the session in this reply (session); one who has is still asked for the code. In production the code is always required. A wrong ID or password is invalid_credentials (401). After 5 wrong passwords or codes in 15 minutes the account locks for 15 minutes, and every sign-in then gets the same invalid_credentials; admins see locked_until. Errors also: rate_limited (429).'
             operationId: consoleLogin
             requestBody:
                 content:

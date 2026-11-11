@@ -49,7 +49,7 @@ paths:
       operationId: consoleLogin
       summary: Sign in with an ID and password
       description: >-
-        Step one of two. Returns a challenge for the authenticator code; a session starts only after it. A wrong ID or password is invalid_credentials (401). After 5 wrong passwords or codes in 15 minutes the account locks for 15 minutes, and every sign-in then gets the same invalid_credentials; admins see locked_until. Errors also: rate_limited (429).
+        Step one. Returns a challenge for the authenticator code, and a session starts after verifyTotp. Until pre-launch the code is optional on staging: a user who has not set up an authenticator gets totp_required false and the session in this reply (session); one who has is still asked for the code. In production the code is always required. A wrong ID or password is invalid_credentials (401). After 5 wrong passwords or codes in 15 minutes the account locks for 15 minutes, and every sign-in then gets the same invalid_credentials; admins see locked_until. Errors also: rate_limited (429).
       security: []
       requestBody:
         required: true
@@ -1724,20 +1724,30 @@ components:
         login_id:
           type: string
           minLength: 3
-          maxLength: 80
+          maxLength: 254
+          description: The user's email address (or an older login ID). Not case sensitive.
         password:
           type: string
           minLength: 1
           maxLength: 200
     LoginChallenge:
       type: object
-      required: [challenge_id, totp_enrolled, must_change_password, expires_in_s, server_time]
+      required: [challenge_id, totp_enrolled, totp_required, must_change_password, expires_in_s, session, server_time]
       properties:
         challenge_id:
           type: string
+          description: For enrollTotp and verifyTotp. Still given when totp_required is false, so a user can set up an authenticator.
         totp_enrolled:
           type: boolean
           description: False at first sign-in. Then call enrollTotp before verifyTotp.
+        totp_required:
+          type: boolean
+          description: False when the password alone signed in (only before pre-launch, for a user with no authenticator); session then holds the session.
+        session:
+          description: The session when totp_required is false; otherwise null.
+          oneOf:
+          - $ref: '#/components/schemas/ConsoleSession'
+          - type: 'null'
         must_change_password:
           type: boolean
           description: True with a temporary password. Change it with changePassword once signed in; until then only that call works.
@@ -1891,7 +1901,9 @@ components:
       properties:
         login_id:
           type: string
-          pattern: ^[a-z0-9._-]{3,80}$
+          maxLength: 254
+          pattern: ^([a-z0-9._-]{3,80}|[a-z0-9._%+-]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,63})$
+          description: The user's email address, lower case. The older ID form is still accepted.
         name:
           type: string
           minLength: 1

@@ -35,7 +35,7 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			svc := &console.Service{Pool: d.DB, Log: d.Log, Sessions: sessions, Sealer: sealer, Limits: limits}
+			svc := &console.Service{Pool: d.DB, Log: d.Log, Sessions: sessions, Sealer: sealer, Limits: limits, TOTPOptional: d.Config.ConsoleTOTPOptional}
 			signedIn := []func(http.Handler) http.Handler{identity.RequireActor(sessions.Signer, identity.TypeConsole), limits.BySession()}
 			svc.MountAuth(r, signedIn...)
 			svc.MountUsers(r, signedIn...)

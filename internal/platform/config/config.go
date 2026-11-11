@@ -46,6 +46,9 @@ type Config struct {
 	Database    dbtarget.Target
 	OTPTestMode bool
 	OTPTestCode Secret
+	// ConsoleTOTPOptional lets console staff with no authenticator sign in with their password
+	// alone (owner, 2026-11-11: until pre-launch). Production refuses it.
+	ConsoleTOTPOptional bool
 	// JWTSigningKey signs access tokens.
 	JWTSigningKey Secret
 	// GoogleClientIDs are the audiences a Google ID token may name. They are public.
@@ -142,6 +145,16 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if c.OTPTestMode && c.Env == EnvProduction {
 		problem("OTP_TEST_MODE must be false in production")
+	}
+	switch getenv("CONSOLE_TOTP") {
+	case "", "required":
+	case "optional":
+		c.ConsoleTOTPOptional = true
+	default:
+		problem("CONSOLE_TOTP must be required or optional")
+	}
+	if c.ConsoleTOTPOptional && c.Env == EnvProduction {
+		problem("CONSOLE_TOTP must be required in production")
 	}
 	c.OTPTestCode = Secret(getenv("OTP_TEST_CODE"))
 	if c.OTPTestMode && !otpCodePattern.MatchString(string(c.OTPTestCode)) {

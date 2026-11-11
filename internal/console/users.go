@@ -23,7 +23,8 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
 )
 
-var loginPattern = regexp.MustCompile(`^[a-z0-9._-]{3,80}$`)
+// loginPattern is an email address (owner, 2026-11-11) or the older ID form, lower case.
+var loginPattern = regexp.MustCompile(`^([a-z0-9._-]{3,80}|[a-z0-9._%+-]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,63})$`)
 
 var roles = map[string]bool{"admin": true, "ops": true, "support": true, "hub_manager": true}
 
@@ -249,7 +250,7 @@ func checkHub(ctx context.Context, tx pgx.Tx, role string, hub *string) error {
 func CreateUser(ctx context.Context, tx pgx.Tx, by, login, name, role string, hub *string) (string, string, error) {
 	login = strings.ToLower(strings.TrimSpace(login))
 	name = strings.TrimSpace(name)
-	if !loginPattern.MatchString(login) || name == "" || utf8.RuneCountInString(name) > 80 || !roles[role] {
+	if len(login) > 254 || !loginPattern.MatchString(login) || name == "" || utf8.RuneCountInString(name) > 80 || !roles[role] {
 		return "", "", errInvalid
 	}
 	if err := checkHub(ctx, tx, role, hub); err != nil {
@@ -268,7 +269,7 @@ func CreateUser(ctx context.Context, tx pgx.Tx, by, login, name, role string, hu
 		login, name, role, hub, hash).Scan(&id)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return "", "", &refusal{"login_id_taken", "That login ID is taken."}
+		return "", "", &refusal{"login_id_taken", "That email or login ID is taken."}
 	}
 	if err != nil {
 		return "", "", err

@@ -19,3 +19,8 @@ Decision 0014 settled that console staff sign in with an ID and password plus TO
 ## Consequences
 - The console developer builds against `/console/v1` on the mock now.
 - Console staff are a new kind of user in identity, with their own sessions.
+
+## Update, 2026-11-11 (#152)
+Owner: console staff sign in with an **email address** and password, then the authenticator code. The field is still `login_id`, so the contract does not break; it accepts an email address as well as the older ID form, so users already made keep working (migration 0038).
+
+Later the same day the owner changed it: **email and password now; the authenticator code comes before launch.** A switch, `CONSOLE_TOTP`, is `optional` on staging: a user with no authenticator signs in with the password alone, and one who has set one up is still asked for it. The default is `required`, and production refuses `optional`, so turning it to required is a go-live step (v1.0.0).
