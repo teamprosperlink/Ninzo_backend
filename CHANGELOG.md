@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Zones, settings and the kill switch (#136)
+- Added: `listZones`, `getGlobalSettings`, `getZoneSettings`, `requestGlobalSettingsChange`, `requestZoneSettingsChange` and `requestKillSwitch` in the console. Every change waits for a second admin.
+- A settings request is checked at once (range, known key, base_version, and every zone still valid) and again when approved; one the settings moved past fails as stale_version.
+- The kill switch pauses or resumes a zone.
+- Evidence: docs/testing/reports/136.md
+
 ### Rider review (#135)
 - Added: `listRiderReviews` (applicants and failed or expired verifications, oldest first, the last four phone digits only) and `decideRider` (approve into a zone once verified, suspend, reinstate). Suspending ends the rider's sessions and open shift.
 - Changed: ending a shift is one function, `shifts.EndShiftTx`, for the rider and the console.

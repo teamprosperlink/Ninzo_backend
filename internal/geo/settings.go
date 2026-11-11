@@ -128,6 +128,12 @@ func latest(ctx context.Context, q querier, zoneID string) (map[string]*int, int
 	return out, *dest[0].(*int), nil
 }
 
+// OwnSettings returns one level's own values and version: the global row when zoneID is empty, or
+// what a zone overrides (version 0 when it has none yet).
+func OwnSettings(ctx context.Context, q querier, zoneID string) (map[string]*int, int, error) {
+	return latest(ctx, q, zoneID)
+}
+
 // LoadSettings returns what a zone runs with now. An empty zoneID gives the global values. Both rows
 // come from one statement, so they are always from the same moment.
 func LoadSettings(ctx context.Context, q querier, zoneID string) (Effective, error) {

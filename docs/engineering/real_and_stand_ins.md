@@ -67,3 +67,4 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Console API | Mock only | Contract and mock (#133). The real console APIs come in parts B to F | | v0.9.0 |
 | Console sign-in (password, then TOTP), console users and roles, permissions on every call, approvals, feature flags | Real | Built (#134). The first admin is made with `cmd/console`; settings, kill switch and refund approvals join in parts D and v0.10.0 | | v0.9.0 |
 | Rider review in the console: the queue, approve, suspend, reinstate | Real | Built (#135). Replaces `cmd/riders` for daily use; suspending ends the rider's sessions and shift | | v0.9.0 |
+| Console zones, settings and the kill switch, each change through an approval | Real | Built (#136). Settings changes go through `geo.ChangeSettings`, so every zone stays valid; the kill switch pauses or resumes the zone | | v0.9.0 |
