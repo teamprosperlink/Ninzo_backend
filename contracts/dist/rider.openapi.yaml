@@ -1712,7 +1712,7 @@ paths:
                 - delivery
     /orders/{order_id}/route:
         get:
-            description: Refresh after a road closure. Keep the last route on screen on a weak signal.
+            description: Refresh after a road closure. Keep the last route on screen on a weak signal. Until the routing engine, this is a straight line from the rider's last position to the gate, with eta_source placeholder and no eta_s, so keep turn-by-turn directions on the phone.
             operationId: getRoute
             parameters:
                 - $ref: '#/components/parameters/OrderId'
@@ -2505,7 +2505,7 @@ paths:
                 - stock
     /riders/me/verification:
         get:
-            description: Only verified riders can start a shift.
+            description: Only verified riders can start a shift. Before anything is started the status is pending with reason not_started; a verification past its expiry is expired.
             operationId: getVerification
             responses:
                 "200":
@@ -2523,7 +2523,7 @@ paths:
                 - profile
     /riders/me/verification/start:
         post:
-            description: A mock until DigiLocker approval. Returns where to go next.
+            description: A stand-in until DigiLocker. It records a pending request, and ops check the documents by hand, so redirect_url and upload_url are null for now. Errors already_verified and verification_in_progress (both 409).
             operationId: startVerification
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'

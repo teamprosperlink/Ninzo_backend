@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider verification and route served (#156)
+- Fixed: `GET /riders/me/verification`, `POST /riders/me/verification/start` and `GET /orders/{order_id}/route` were in the rider contract but only the mock served them, so staging answered 404 (found by the rider app developer, #154).
+- Verification is a stand-in until DigiLocker: start records a pending request (409 `already_verified` or `verification_in_progress` otherwise), and the status follows the shift-start rule. The route is a straight line from the last position to the gate, with a placeholder time.
+- Evidence: docs/testing/reports/156.md
+
 ### Masked calls answer call_not_available (#151)
 - Fixed: `POST /orders/{order_id}/call` in the customer and rider APIs answered 404, because neither mounted it. It now checks the order is the caller's and answers 409 `call_not_available` until a telephony provider is chosen.
 - Fixed: the console's unknown-login reply says email, as the other one does.

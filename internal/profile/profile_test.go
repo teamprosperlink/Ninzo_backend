@@ -488,3 +488,49 @@ func TestKeysBelongToOneUser(t *testing.T) {
 		t.Error("one customer got another's stored reply")
 	}
 }
+
+// Verification is the contract's stand-in until DigiLocker (#156): start records a pending request.
+func TestVerificationStatusAndStart(t *testing.T) {
+	f := newFixture(t)
+	id, token := f.newRider("+919811200001")
+	code, out := f.send(f.rider, "GET", "/riders/me/verification", token, "")
+	if code != 200 || out["status"] != "pending" || out["reason"] != "not_started" {
+		t.Fatalf("nothing started: %d %v", code, out)
+	}
+	checkFields(t, out, "rider", "VerificationResponse")
+	if code, _ := f.send(f.rider, "POST", "/riders/me/verification/start", token, `{"method":"post"}`); code != 400 {
+		t.Errorf("an unknown method: %d", code)
+	}
+	code, out = f.sendKey(f.rider, "POST", "/riders/me/verification/start", token, `{"method":"manual_upload"}`, "verify-start-0001")
+	if code != 200 || out["redirect_url"] != nil || out["upload_url"] != nil {
+		t.Fatalf("%d %v", code, out)
+	}
+	checkFields(t, out, "rider", "VerificationStart")
+	if again, replay := f.sendKey(f.rider, "POST", "/riders/me/verification/start", token, `{"method":"manual_upload"}`, "verify-start-0001"); again != 200 || replay["server_time"] != out["server_time"] {
+		t.Errorf("a replay must give the same answer: %d %v", again, replay)
+	}
+	if f.count("SELECT count(*) FROM rider_verifications WHERE rider_id = $1 AND status = 'pending'", id) != 1 {
+		t.Error("one pending request")
+	}
+	if code, out := f.sendKey(f.rider, "POST", "/riders/me/verification/start", token, `{"method":"digilocker"}`, "verify-start-0002"); code != 409 || out["code"] != "verification_in_progress" {
+		t.Errorf("a second start while checked: %d %v", code, out)
+	}
+	if _, out := f.send(f.rider, "GET", "/riders/me/verification", token, ""); out["status"] != "pending" || out["reason"] != nil {
+		t.Errorf("being checked: %v", out)
+	}
+	// Ops mark it verified; then expired once past its date; a failed one can start again.
+	f.exec("INSERT INTO rider_verifications (rider_id, status, method) VALUES ($1, 'verified', 'manual_upload')", id)
+	if code, out := f.sendKey(f.rider, "POST", "/riders/me/verification/start", token, `{"method":"digilocker"}`, "verify-start-0003"); code != 409 || out["code"] != "already_verified" {
+		t.Errorf("%d %v", code, out)
+	}
+	f.exec("UPDATE rider_verifications SET expires_at = now() - interval '1 day' WHERE rider_id = $1 AND status = 'verified'", id)
+	if _, out := f.send(f.rider, "GET", "/riders/me/verification", token, ""); out["status"] != "expired" {
+		t.Errorf("past its date: %v", out)
+	}
+	if code, _ := f.sendKey(f.rider, "POST", "/riders/me/verification/start", token, `{"method":"digilocker"}`, "verify-start-0004"); code != 200 {
+		t.Errorf("an expired verification can start again: %d", code)
+	}
+	if code, _ := f.send(f.rider, "GET", "/riders/me/verification", "", ""); code != 401 {
+		t.Errorf("signed out: %d", code)
+	}
+}

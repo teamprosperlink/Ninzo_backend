@@ -33,6 +33,7 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.With(idem).Post("/offers/{offer_id}/decline", s.declineOffer)
 		g.With(idem).Post("/offers/{offer_id}/ready", s.markReady)
 		g.Get("/orders/{order_id}", s.riderOrder)
+		g.Get("/orders/{order_id}/route", s.getRoute)
 		g.With(idem).Post("/orders/{order_id}/handover", s.handOver)
 		g.With(idem).Post("/orders/{order_id}/call", s.startRiderCall)
 		g.With(idem).Post("/riders/me/problems", s.reportProblem)
