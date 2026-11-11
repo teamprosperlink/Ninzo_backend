@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider review (#135)
+- Added: `listRiderReviews` (applicants and failed or expired verifications, oldest first, the last four phone digits only) and `decideRider` (approve into a zone once verified, suspend, reinstate). Suspending ends the rider's sessions and open shift.
+- Changed: ending a shift is one function, `shifts.EndShiftTx`, for the rider and the console.
+- Evidence: docs/testing/reports/135.md
+
 ### Console sign-in, users, approvals and flags (#134)
 - Added: `apps/console-api`. Sign-in is an ID and password (PBKDF2), then a TOTP code (RFC 6238) set up at first sign-in; a temporary password must be changed first; 5 failures in 15 minutes lock the account for 15 minutes.
 - Added: console users and roles, a permission check on every call (403 names it), approvals (request, approve by a second admin, reject, cancel, lapse after 24 hours, fail if stale), and feature flags through approvals.

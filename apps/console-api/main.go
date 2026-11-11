@@ -41,6 +41,7 @@ func main() {
 			svc.MountUsers(r, signedIn...)
 			svc.MountApprovals(r, console.Kinds{"flag": console.ApplyFlag}, signedIn...)
 			svc.MountFlags(r, signedIn...)
+			svc.MountRiders(r, signedIn...)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "console-api:", err)

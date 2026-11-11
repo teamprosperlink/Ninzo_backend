@@ -40,6 +40,13 @@ var (
 
 func refuse(code, message string) error { return &refusal{code, message} }
 
+// IsOrderInProgress reports whether ending a shift was refused because the rider has an order
+// they accepted and have not handed over.
+func IsOrderInProgress(err error) bool {
+	var r *refusal
+	return errors.As(err, &r) && r.code == "order_in_progress"
+}
+
 // Service serves the rider's shift and stock.
 type Service struct {
 	Pool *pgxpool.Pool
@@ -243,52 +250,12 @@ func (s *Service) endShift(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		// A suspended rider can still end a shift, so their scooter is freed.
-		sh, scooter, open, err := openShift(r.Context(), tx, actor.ID)
+		sh, open, err := EndShiftTx(r.Context(), tx, actor.ID, identity.TypeRider, actor.ID)
 		if err != nil {
 			return err
 		}
 		if !open {
 			return refuse("no_open_shift", "No shift is open.")
-		}
-		if err := handBack(r.Context(), tx, actor.ID); err != nil {
-			return err
-		}
-		// A move is for this shift. Paid time of an accepted move ends with it.
-		rows, err := tx.Query(r.Context(), "UPDATE relocations SET state = 'cancelled', state_changed_at = now() WHERE rider_id = $1 AND state IN ('suggested', 'accepted') RETURNING id::text",
-			actor.ID)
-		if err != nil {
-			return err
-		}
-		moves, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
-			return err
-		}
-		for _, m := range moves {
-			if err := earnings.RecordRelocation(r.Context(), tx, m); err != nil {
-				return err
-			}
-		}
-		// A suggestion is for the scooter on shift; the next rider gets their own.
-		if _, err := tx.Exec(r.Context(), "UPDATE restock_requests SET state = 'cancelled', state_changed_at = now(), updated_at = now() WHERE rider_id = $1 AND state = 'suggested'",
-			actor.ID); err != nil {
-			return err
-		}
-		var ended time.Time
-		if err := tx.QueryRow(r.Context(), "UPDATE shifts SET ended_at = now() WHERE id = $1 RETURNING ended_at", sh.ID).Scan(&ended); err != nil {
-			return err
-		}
-		e := stamp(ended)
-		sh.EndedAt = &e
-		if _, err := tx.Exec(r.Context(), "UPDATE scooters SET current_rider_id = NULL, updated_at = now() WHERE id = $1", scooter); err != nil {
-			return err
-		}
-		if err := bump(r.Context(), tx, actor.ID); err != nil {
-			return err
-		}
-		if err := audit.Record(r.Context(), tx, audit.Event{
-			ActorType: identity.TypeRider, ActorID: actor.ID, Action: "shift.ended", EntityType: "shift", EntityID: sh.ID,
-		}); err != nil {
-			return err
 		}
 		reply = map[string]any{"shift": sh, "server_time": serverTime()}
 		return idempotency.Save(r.Context(), tx, http.StatusOK, reply)
@@ -298,6 +265,52 @@ func (s *Service) endShift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, reply)
+}
+
+// EndShiftTx ends a rider's open shift: an order still offered goes back, a move ends and its time
+// is paid, a restock suggestion is withdrawn, and the scooter is freed. By is who ended it: the
+// rider, or console staff suspending them. It returns false if no shift was open.
+func EndShiftTx(ctx context.Context, tx pgx.Tx, rider, byType, by string) (shift, bool, error) {
+	sh, scooter, open, err := openShift(ctx, tx, rider)
+	if err != nil || !open {
+		return sh, false, err
+	}
+	if err := handBack(ctx, tx, rider, byType, by); err != nil {
+		return sh, false, err
+	}
+	// A move is for this shift. Paid time of an accepted move ends with it.
+	rows, err := tx.Query(ctx, "UPDATE relocations SET state = 'cancelled', state_changed_at = now() WHERE rider_id = $1 AND state IN ('suggested', 'accepted') RETURNING id::text",
+		rider)
+	if err != nil {
+		return sh, false, err
+	}
+	moves, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return sh, false, err
+	}
+	for _, m := range moves {
+		if err := earnings.RecordRelocation(ctx, tx, m); err != nil {
+			return sh, false, err
+		}
+	}
+	// A suggestion is for the scooter on shift; the next rider gets their own.
+	if _, err := tx.Exec(ctx, "UPDATE restock_requests SET state = 'cancelled', state_changed_at = now(), updated_at = now() WHERE rider_id = $1 AND state = 'suggested'",
+		rider); err != nil {
+		return sh, false, err
+	}
+	var ended time.Time
+	if err := tx.QueryRow(ctx, "UPDATE shifts SET ended_at = now() WHERE id = $1 RETURNING ended_at", sh.ID).Scan(&ended); err != nil {
+		return sh, false, err
+	}
+	e := stamp(ended)
+	sh.EndedAt = &e
+	if _, err := tx.Exec(ctx, "UPDATE scooters SET current_rider_id = NULL, updated_at = now() WHERE id = $1", scooter); err != nil {
+		return sh, false, err
+	}
+	if err := bump(ctx, tx, rider); err != nil {
+		return sh, false, err
+	}
+	return sh, true, audit.Record(ctx, tx, audit.Event{ActorType: byType, ActorID: by, Action: "shift.ended", EntityType: "shift", EntityID: sh.ID})
 }
 
 type node struct {
@@ -543,7 +556,7 @@ func (s *Service) getStock(w http.ResponseWriter, r *http.Request) {
 // handBack refuses to end a shift while the rider has an accepted order, and gives back an open
 // offer, so the order goes to another rider. The order's lock is taken before the offer's, as
 // every change to an order does, and the offer is read again under it.
-func handBack(ctx context.Context, tx pgx.Tx, rider string) error {
+func handBack(ctx context.Context, tx pgx.Tx, rider, byType, by string) error {
 	var offer, order, state string
 	err := tx.QueryRow(ctx, "SELECT id::text, order_id::text FROM offers WHERE rider_id = $1 AND released_at IS NULL", rider).Scan(&offer, &order)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -575,7 +588,7 @@ func handBack(ctx context.Context, tx pgx.Tx, rider string) error {
 	}
 	if tag.RowsAffected() == 1 {
 		_, err = tx.Exec(ctx, `INSERT INTO order_events (order_id, from_state, to_state, actor_type, actor_id, reason)
-			VALUES ($1, 'OFFERED', 'PAYMENT_SECURED', 'rider', $2, 'shift ended')`, order, rider)
+			VALUES ($1, 'OFFERED', 'PAYMENT_SECURED', $2, $3, 'shift ended')`, order, byType, by)
 	}
 	return err
 }

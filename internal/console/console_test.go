@@ -50,6 +50,7 @@ func newFixture(t *testing.T) *fixture {
 		f.svc.MountUsers(r, signedIn)
 		f.svc.MountApprovals(r, Kinds{"flag": ApplyFlag}, signedIn)
 		f.svc.MountFlags(r, signedIn)
+		f.svc.MountRiders(r, signedIn)
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
