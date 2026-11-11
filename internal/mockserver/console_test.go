@@ -41,6 +41,15 @@ func init() {
 		"addHubStaff":                 `{"phone":"+919800000099","name":"Imran","role":"hub_staff"}`,
 		"updateHubStaff":              `{"status":"suspended","reason":"Left the hub"}`,
 		"decideArrivalReview":         `{"decision":"arrived_in_time","reason":"GPS trace shows the gate"}`,
+		"replyTicket":                 `{"text":"Sorry about that. We are sending a refund."}`,
+		"closeTicket":                 `{"reason":"Refund made"}`,
+		"requestRefund":               `{"amount_paise":15000,"reason":"Cold food"}`,
+		"issueReplacement":            `{"items":[{"item_id":"item_burger","qty":1}],"reason":"Wrong item sent"}`,
+		"issueCredit":                 `{"amount_paise":5000,"reason":"Late delivery"}`,
+		"assignIncident":              `{"user_id":"usr_mock01"}`,
+		"addIncidentNote":             `{"text":"Called the rider; the gate was shut."}`,
+		"closeIncident":               `{"reason":"Handled by phone"}`,
+		"expireRestock":               `{"reason":"The hub is closed for the day"}`,
 	} {
 		if _, taken := sampleBodies[id]; taken {
 			panic("a console sample body would replace another app's: " + id)
@@ -246,4 +255,51 @@ func TestEachRefusalNamesTheContractsPermission(t *testing.T) {
 	if named < 30 {
 		t.Errorf("only %d operations have a permission", named)
 	}
+}
+
+// TestARoleWithoutOrdersReadIsRefusedTheOrderSearch checks the mock's role scenarios follow the
+// permission table: a hub_manager has no orders.read, an ops user does.
+func TestARoleWithoutOrdersReadIsRefusedTheOrderSearch(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := consoleContract(t)
+	for _, o := range c.operations() {
+		if o.id != "listAdminOrders" {
+			continue
+		}
+		status, body, _ := doRequest(t, srv, c, o, "role_hub_manager", "role-hub")
+		var got map[string]any
+		_ = json.Unmarshal(body, &got)
+		if status != 403 || got["missing_permission"] != "orders.read" {
+			t.Errorf("hub_manager: %d %s", status, body)
+		}
+		if status, body, _ := doRequest(t, srv, c, o, "role_ops", "role-ops"); status != 200 {
+			t.Errorf("ops: %d %s", status, body)
+		}
+		return
+	}
+	t.Fatal("listAdminOrders is not in the contract")
+}
+
+// TestARefundCountsWhatWasRefundedBefore checks the limit is cumulative per order (#147).
+func TestARefundCountsWhatWasRefundedBefore(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := consoleContract(t)
+	for _, o := range c.operations() {
+		if o.id != "requestRefund" {
+			continue
+		}
+		for amount, want := range map[int]int{15000: 200, 15001: 202, 40000: 202} {
+			saved := sampleBodies[o.id]
+			sampleBodies[o.id] = fmt.Sprintf(`{"amount_paise":%d,"reason":"Cold food"}`, amount)
+			status, body, _ := doRequest(t, srv, c, o, "", fmt.Sprintf("cum-%d", amount))
+			sampleBodies[o.id] = saved
+			if status != want {
+				t.Errorf("%d paise after 5000 refunded: %d, want %d: %s", amount, status, want, body)
+			}
+		}
+		return
+	}
+	t.Fatal("requestRefund is not in the contract")
 }

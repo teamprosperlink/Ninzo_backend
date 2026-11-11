@@ -1,0 +1,16 @@
+meta {
+  name: listIncidents
+  type: http
+  seq: 39
+}
+
+get {
+  url: {{baseUrl}}/admin/incidents
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

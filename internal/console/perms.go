@@ -16,11 +16,14 @@ import (
 var RolePermissions = map[string][]string{
 	"admin": {"users.manage", "approvals.read", "approvals.decide", "riders.review", "flags.manage", "zones.read", "settings.read", "settings.request",
 		"zones.kill_switch", "menu.manage", "gates.read", "gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "audit.read", "reviews.read",
-		"reviews.decide", "alerts.read"},
+		"reviews.decide", "alerts.read", "orders.read", "tickets.manage", "refunds.request", "remedies.issue", "incidents.read", "incidents.manage",
+		"hub_ops.read", "hub_ops.manage", "map.read"},
 	"ops": {"approvals.read", "riders.review", "zones.read", "settings.read", "settings.request", "zones.kill_switch", "menu.manage", "gates.read",
-		"gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "reviews.read", "reviews.decide", "alerts.read"},
-	"support":     {"zones.read", "gates.read", "reviews.read", "reviews.decide", "alerts.read"},
-	"hub_manager": {"hubs.read", "hub_staff.manage"},
+		"gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "reviews.read", "reviews.decide", "alerts.read", "orders.read", "remedies.issue",
+		"incidents.read", "incidents.manage", "hub_ops.read", "hub_ops.manage", "map.read"},
+	"support": {"zones.read", "gates.read", "reviews.read", "reviews.decide", "alerts.read", "orders.read", "tickets.manage", "refunds.request",
+		"remedies.issue", "incidents.read", "incidents.manage", "map.read"},
+	"hub_manager": {"hubs.read", "hub_staff.manage", "hub_ops.read"},
 }
 
 // User is the signed-in console user, as each call reads them.

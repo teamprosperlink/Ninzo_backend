@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console ops and support: contract and mock (#146)
+- Added: 18 console operations in `contracts/console/openapi.yaml` with the mock: orders (`listAdminOrders`, `getOrderTimeline`), support actions (`listTickets`, `getTicket`, `replyTicket`, `closeTicket`, `requestRefund`, `issueReplacement`, `issueCredit`), incidents (`listIncidents`, `getIncident`, `assignIncident`, `addIncidentNote`, `closeIncident`), hub operations (`listHubOps`, `listStuckRestocks`, `expireRestock`) and the live map (`getLiveZone`). No server code yet.
+- Added: permissions `orders.read`, `tickets.manage`, `refunds.request`, `remedies.issue`, `incidents.read`, `incidents.manage`, `hub_ops.read`, `hub_ops.manage`, `map.read`, in the contract's Permission list, the mock and `console.RolePermissions` (decision 0015's roles).
+- A refund is made at once (200) when the console refunds on the order plus any waiting refund approval plus this one are at or below `refund_approval_paise` (20000 paise, Rs 200, from #147); otherwise an approval of kind `refund` waits for a second admin (202).
+- Data map: rows for each, and the planned tables `incidents` and `incident_notes` (v0.10.0).
+
 ### Rider app fields (#158)
 - Added: rider `created_at`, `approved_at` (the newest `rider.approved` or `rider.approve` audit row, null before); shift `node_assigned_at` (the shift start, or the last arrived move in the shift) and `scooter` (`id`, `plate`, `battery_pct`, null until scooter data exists); node `hub_distance_m` (straight line to the nearest active hub, null if none); `order_number` on the rider's order and offer and the customer's order, a letter and four digits such as A2931 (`orders.OrderNumber`); relocation suggestion `orders_waiting`; restock request `ready_in_s`; `lat` and `lng` on every `HubRef`, and `distance_m` on a shortfall's other hub; stock lot `image_url`.
 - Added: migration 0039, `orders.order_no` (identity, existing orders numbered) and `relocations.orders_waiting` (null for older rows). Not applied to Supabase.

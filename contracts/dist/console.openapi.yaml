@@ -272,6 +272,173 @@ components:
                 - items
                 - server_time
             type: object
+        AdminOrder:
+            description: The summary, plus the gate, items, timer fields, remedies and refunds.
+            properties:
+                created_at:
+                    format: date-time
+                    type: string
+                customer:
+                    $ref: '#/components/schemas/OrderCustomer'
+                ended_reason:
+                    type:
+                        - string
+                        - "null"
+                gate:
+                    $ref: '#/components/schemas/OrderGate'
+                id:
+                    $ref: '#/components/schemas/Id'
+                items:
+                    items:
+                        $ref: '#/components/schemas/AdminOrderItem'
+                    type: array
+                order_number:
+                    type: string
+                refunds:
+                    items:
+                        $ref: '#/components/schemas/Refund'
+                    type: array
+                remedies:
+                    items:
+                        $ref: '#/components/schemas/Remedy'
+                    type: array
+                rider:
+                    oneOf:
+                        - $ref: '#/components/schemas/Actor'
+                        - type: "null"
+                state:
+                    $ref: '#/components/schemas/OrderState'
+                timer:
+                    $ref: '#/components/schemas/OrderTimerFields'
+                total:
+                    $ref: '#/components/schemas/Money'
+                zone_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - id
+                - order_number
+                - state
+                - zone_id
+                - customer
+                - rider
+                - total
+                - created_at
+                - ended_reason
+                - gate
+                - items
+                - timer
+                - remedies
+                - refunds
+            type: object
+        AdminOrderItem:
+            properties:
+                item_id:
+                    $ref: '#/components/schemas/Id'
+                name:
+                    type: string
+                qty:
+                    minimum: 1
+                    type: integer
+                unit_price:
+                    $ref: '#/components/schemas/Money'
+            required:
+                - item_id
+                - name
+                - qty
+                - unit_price
+            type: object
+        AdminOrderList:
+            properties:
+                next_cursor:
+                    type:
+                        - string
+                        - "null"
+                orders:
+                    items:
+                        $ref: '#/components/schemas/AdminOrderSummary'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - orders
+                - next_cursor
+                - server_time
+            type: object
+        AdminOrderSummary:
+            properties:
+                created_at:
+                    format: date-time
+                    type: string
+                customer:
+                    $ref: '#/components/schemas/OrderCustomer'
+                ended_reason:
+                    type:
+                        - string
+                        - "null"
+                id:
+                    $ref: '#/components/schemas/Id'
+                order_number:
+                    description: A letter and four digits, such as A1001.
+                    type: string
+                rider:
+                    oneOf:
+                        - $ref: '#/components/schemas/Actor'
+                        - type: "null"
+                state:
+                    $ref: '#/components/schemas/OrderState'
+                total:
+                    $ref: '#/components/schemas/Money'
+                zone_id:
+                    $ref: '#/components/schemas/Id'
+            required:
+                - id
+                - order_number
+                - state
+                - zone_id
+                - customer
+                - rider
+                - total
+                - created_at
+                - ended_reason
+            type: object
+        AdminRestock:
+            properties:
+                ended_reason:
+                    type:
+                        - string
+                        - "null"
+                hub_id:
+                    $ref: '#/components/schemas/Id'
+                id:
+                    $ref: '#/components/schemas/Id'
+                requested_at:
+                    format: date-time
+                    type: string
+                rider:
+                    $ref: '#/components/schemas/Actor'
+                state:
+                    enum:
+                        - confirmed
+                        - hub_accepted
+                        - packing
+                        - partial
+                        - ready
+                        - picked_up
+                        - expired
+                    type: string
+                waiting_s:
+                    description: How long it has waited in its state.
+                    minimum: 0
+                    type: integer
+            required:
+                - id
+                - hub_id
+                - rider
+                - state
+                - waiting_s
+                - requested_at
+                - ended_reason
+            type: object
         Approval:
             properties:
                 change:
@@ -306,7 +473,7 @@ components:
                     format: date-time
                     type: string
                 failure_code:
-                    description: Why an approved change could not be applied, such as stale_version or invalid_setting.
+                    description: Why an approved change could not be applied, such as stale_version or invalid_setting, or for a refund refund_too_large or not_paid.
                     type:
                         - string
                         - "null"
@@ -689,6 +856,19 @@ components:
             required:
                 - reason
             type: object
+        CreditRequest:
+            properties:
+                amount_paise:
+                    minimum: 1
+                    type: integer
+                reason:
+                    maxLength: 500
+                    minLength: 3
+                    type: string
+            required:
+                - amount_paise
+                - reason
+            type: object
         Done:
             properties:
                 server_time:
@@ -887,6 +1067,45 @@ components:
                 - lat
                 - lng
             type: object
+        HubOps:
+            properties:
+                active_staff:
+                    minimum: 0
+                    type: integer
+                hub:
+                    $ref: '#/components/schemas/AdminHub'
+                open_shortfalls:
+                    minimum: 0
+                    type: integer
+                quarantined_lots:
+                    minimum: 0
+                    type: integer
+                queue:
+                    $ref: '#/components/schemas/RestockQueueCounts'
+                stuck:
+                    description: Requests in confirmed, hub_accepted or packing waiting longer than restock_stuck_s.
+                    minimum: 0
+                    type: integer
+            required:
+                - hub
+                - queue
+                - stuck
+                - open_shortfalls
+                - quarantined_lots
+                - active_staff
+            type: object
+        HubOpsList:
+            properties:
+                hubs:
+                    items:
+                        $ref: '#/components/schemas/HubOps'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - hubs
+                - server_time
+            type: object
         HubStaffCreate:
             properties:
                 name:
@@ -1010,6 +1229,130 @@ components:
             example: ord_01HZX3Q7
             minLength: 1
             type: string
+        Incident:
+            properties:
+                assigned_to:
+                    oneOf:
+                        - $ref: '#/components/schemas/Actor'
+                        - type: "null"
+                closed_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                id:
+                    $ref: '#/components/schemas/Id'
+                kind:
+                    enum:
+                        - support_alert
+                        - problem_report
+                        - arrival_review
+                        - ticket
+                        - signal_lost
+                    type: string
+                notes_count:
+                    minimum: 0
+                    type: integer
+                opened_at:
+                    format: date-time
+                    type: string
+                order_id:
+                    type:
+                        - string
+                        - "null"
+                rider_id:
+                    type:
+                        - string
+                        - "null"
+                source_id:
+                    description: The alert, report, review or ticket this came from.
+                    type: string
+                status:
+                    enum:
+                        - open
+                        - assigned
+                        - closed
+                    type: string
+            required:
+                - id
+                - kind
+                - source_id
+                - order_id
+                - rider_id
+                - status
+                - assigned_to
+                - opened_at
+                - closed_at
+                - notes_count
+            type: object
+        IncidentAssign:
+            properties:
+                user_id:
+                    description: A console user, or null to take the assignment away.
+                    oneOf:
+                        - $ref: '#/components/schemas/Id'
+                        - type: "null"
+            required:
+                - user_id
+            type: object
+        IncidentList:
+            properties:
+                incidents:
+                    items:
+                        $ref: '#/components/schemas/Incident'
+                    type: array
+                next_cursor:
+                    type:
+                        - string
+                        - "null"
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - incidents
+                - next_cursor
+                - server_time
+            type: object
+        IncidentNote:
+            properties:
+                text:
+                    maxLength: 2000
+                    minLength: 1
+                    type: string
+            required:
+                - text
+            type: object
+        IncidentNoteEntry:
+            properties:
+                author:
+                    $ref: '#/components/schemas/Actor'
+                created_at:
+                    format: date-time
+                    type: string
+                id:
+                    $ref: '#/components/schemas/Id'
+                text:
+                    type: string
+            required:
+                - id
+                - text
+                - author
+                - created_at
+            type: object
+        IncidentResponse:
+            properties:
+                incident:
+                    $ref: '#/components/schemas/Incident'
+                notes:
+                    items:
+                        $ref: '#/components/schemas/IncidentNoteEntry'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - incident
+                - notes
+                - server_time
+            type: object
         KillSwitch:
             properties:
                 offer_enabled:
@@ -1038,6 +1381,124 @@ components:
                 - zone_id
                 - offer_enabled_before
                 - offer_enabled_after
+            type: object
+        LiveGate:
+            properties:
+                lat:
+                    type: number
+                lng:
+                    type: number
+            required:
+                - lat
+                - lng
+            type: object
+        LiveOrder:
+            properties:
+                gate:
+                    $ref: '#/components/schemas/LiveGate'
+                id:
+                    $ref: '#/components/schemas/Id'
+                order_number:
+                    type: string
+                rider_id:
+                    type:
+                        - string
+                        - "null"
+                state:
+                    $ref: '#/components/schemas/OrderState'
+                timer_started_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+            required:
+                - id
+                - order_number
+                - state
+                - gate
+                - rider_id
+                - timer_started_at
+            type: object
+        LiveRider:
+            properties:
+                id:
+                    $ref: '#/components/schemas/Id'
+                last_ping_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                lat:
+                    type: number
+                lng:
+                    type: number
+                name:
+                    type: string
+                state:
+                    enum:
+                        - idle
+                        - offered
+                        - on_order
+                        - moving
+                        - on_break
+                    type: string
+            required:
+                - id
+                - name
+                - lat
+                - lng
+                - last_ping_at
+                - state
+            type: object
+        LiveScooter:
+            properties:
+                id:
+                    $ref: '#/components/schemas/Id'
+                node_id:
+                    type:
+                        - string
+                        - "null"
+                plate:
+                    type: string
+                rider_id:
+                    type:
+                        - string
+                        - "null"
+                stock_units:
+                    minimum: 0
+                    type: integer
+            required:
+                - id
+                - plate
+                - node_id
+                - rider_id
+                - stock_units
+            type: object
+        LiveZone:
+            properties:
+                incidents_open:
+                    minimum: 0
+                    type: integer
+                orders:
+                    items:
+                        $ref: '#/components/schemas/LiveOrder'
+                    type: array
+                riders:
+                    items:
+                        $ref: '#/components/schemas/LiveRider'
+                    type: array
+                scooters:
+                    items:
+                        $ref: '#/components/schemas/LiveScooter'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - riders
+                - scooters
+                - orders
+                - incidents_open
+                - server_time
             type: object
         LoginChallenge:
             properties:
@@ -1181,6 +1642,105 @@ components:
                 - amount_minor
                 - currency
             type: object
+        OrderCustomer:
+            description: Only the last four phone digits are shown.
+            properties:
+                id:
+                    $ref: '#/components/schemas/Id'
+                phone_last4:
+                    pattern: ^[0-9]{4}$
+                    type: string
+            required:
+                - id
+                - phone_last4
+            type: object
+        OrderGate:
+            description: The gate label and its pin on the map. The customer's address is never shown.
+            properties:
+                label:
+                    type: string
+                lat:
+                    type: number
+                lng:
+                    type: number
+            required:
+                - label
+                - lat
+                - lng
+            type: object
+        OrderState:
+            description: The true order state. Only rider and console contracts expose it. The customer contract must use CustomerStage instead.
+            enum:
+                - CREATED
+                - PAYMENT_PENDING
+                - PAYMENT_SECURED
+                - OFFERED
+                - RIDER_ACCEPTED
+                - PACKED
+                - TIMER_RUNNING
+                - ARRIVED
+                - HANDED_OVER
+                - COMPLETED
+                - CANCELLED
+                - PAYMENT_FAILED
+                - NO_SCOOTER
+                - TIMED_OUT
+                - FAILED
+            type: string
+        OrderTimeline:
+            properties:
+                events:
+                    items:
+                        $ref: '#/components/schemas/TimelineEvent'
+                    type: array
+                order:
+                    $ref: '#/components/schemas/AdminOrder'
+                pings:
+                    $ref: '#/components/schemas/PingSummary'
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - order
+                - events
+                - pings
+                - server_time
+            type: object
+        OrderTimerFields:
+            description: The timer as fixed when the rider accepted.
+            properties:
+                arrival_source:
+                    description: gps or handover.
+                    type:
+                        - string
+                        - "null"
+                perimeter_m:
+                    type:
+                        - integer
+                        - "null"
+                timer_duration_s:
+                    type:
+                        - integer
+                        - "null"
+                timer_missed:
+                    type: boolean
+                timer_started_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                timer_stopped_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+            required:
+                - timer_started_at
+                - timer_stopped_at
+                - timer_duration_s
+                - perimeter_m
+                - timer_missed
+                - arrival_source
+            type: object
         PasswordChange:
             properties:
                 current_password:
@@ -1197,7 +1757,7 @@ components:
                 - new_password
             type: object
         Permission:
-            description: What a call needs; each role's list is in decision 0015. admin has every one; ops has approvals.read, riders.review, zones.read, settings.read, settings.request, zones.kill_switch, menu.manage, gates.read, gates.manage, hubs.read, hubs.manage, hub_staff.manage, reviews.read, reviews.decide, alerts.read; support has zones.read, gates.read, reviews.read, reviews.decide, alerts.read; hub_manager has hubs.read and hub_staff.manage for their own hub.
+            description: What a call needs; each role's list is in decision 0015. admin has every one; ops has approvals.read, riders.review, zones.read, settings.read, settings.request, zones.kill_switch, menu.manage, gates.read, gates.manage, hubs.read, hubs.manage, hub_staff.manage, reviews.read, reviews.decide, alerts.read, orders.read, remedies.issue, incidents.read, incidents.manage, hub_ops.read, hub_ops.manage, map.read; support has zones.read, gates.read, reviews.read, reviews.decide, alerts.read, orders.read, tickets.manage, refunds.request, remedies.issue, incidents.read, incidents.manage, map.read; hub_manager has hubs.read, hub_staff.manage and hub_ops.read, for their own hub. approvals.decide is admin only.
             enum:
                 - users.manage
                 - approvals.read
@@ -1218,7 +1778,36 @@ components:
                 - reviews.read
                 - reviews.decide
                 - alerts.read
+                - orders.read
+                - tickets.manage
+                - refunds.request
+                - remedies.issue
+                - incidents.read
+                - incidents.manage
+                - hub_ops.read
+                - hub_ops.manage
+                - map.read
             type: string
+        PingSummary:
+            properties:
+                count:
+                    minimum: 0
+                    type: integer
+                first_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                last_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+            required:
+                - count
+                - first_at
+                - last_at
+            type: object
         PriceHistory:
             properties:
                 item_id:
@@ -1264,6 +1853,38 @@ components:
             required:
                 - refresh_token
             type: object
+        Refund:
+            properties:
+                amount:
+                    $ref: '#/components/schemas/Money'
+                created_at:
+                    format: date-time
+                    type: string
+                id:
+                    $ref: '#/components/schemas/Id'
+                order_id:
+                    $ref: '#/components/schemas/Id'
+                reason:
+                    type: string
+                requested_by:
+                    oneOf:
+                        - $ref: '#/components/schemas/Actor'
+                        - type: "null"
+                status:
+                    enum:
+                        - pending
+                        - processed
+                        - failed
+                    type: string
+            required:
+                - id
+                - order_id
+                - amount
+                - status
+                - reason
+                - requested_by
+                - created_at
+            type: object
         RefundApprovalChange:
             properties:
                 amount:
@@ -1277,6 +1898,168 @@ components:
                 - kind
                 - order_id
                 - amount
+            type: object
+        RefundRequest:
+            properties:
+                amount_paise:
+                    minimum: 1
+                    type: integer
+                reason:
+                    maxLength: 500
+                    minLength: 3
+                    type: string
+            required:
+                - amount_paise
+                - reason
+            type: object
+        RefundResponse:
+            properties:
+                refund:
+                    $ref: '#/components/schemas/Refund'
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - refund
+                - server_time
+            type: object
+        Remedy:
+            description: Something owed to the customer. created_by is null when the system made it, such as the credit for a missed timer.
+            properties:
+                amount:
+                    oneOf:
+                        - $ref: '#/components/schemas/Money'
+                        - type: "null"
+                created_at:
+                    format: date-time
+                    type: string
+                created_by:
+                    oneOf:
+                        - $ref: '#/components/schemas/Actor'
+                        - type: "null"
+                id:
+                    $ref: '#/components/schemas/Id'
+                items:
+                    oneOf:
+                        - items:
+                            $ref: '#/components/schemas/ReplacementLine'
+                          type: array
+                        - type: "null"
+                kind:
+                    enum:
+                        - credit
+                        - refund
+                        - replacement
+                    type: string
+                reason:
+                    type: string
+                status:
+                    enum:
+                        - owed
+                        - applied
+                        - cancelled
+                    type: string
+            required:
+                - id
+                - kind
+                - amount
+                - items
+                - status
+                - reason
+                - created_by
+                - created_at
+            type: object
+        RemedyResponse:
+            properties:
+                remedy:
+                    $ref: '#/components/schemas/Remedy'
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - remedy
+                - server_time
+            type: object
+        ReplacementLine:
+            properties:
+                item_id:
+                    $ref: '#/components/schemas/Id'
+                qty:
+                    maximum: 20
+                    minimum: 1
+                    type: integer
+            required:
+                - item_id
+                - qty
+            type: object
+        ReplacementRequest:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/ReplacementLine'
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                reason:
+                    maxLength: 500
+                    minLength: 3
+                    type: string
+            required:
+                - items
+                - reason
+            type: object
+        RestockList:
+            properties:
+                next_cursor:
+                    type:
+                        - string
+                        - "null"
+                requests:
+                    items:
+                        $ref: '#/components/schemas/AdminRestock'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - requests
+                - next_cursor
+                - server_time
+            type: object
+        RestockQueueCounts:
+            properties:
+                confirmed:
+                    minimum: 0
+                    type: integer
+                hub_accepted:
+                    minimum: 0
+                    type: integer
+                packing:
+                    minimum: 0
+                    type: integer
+                partial:
+                    minimum: 0
+                    type: integer
+                picked_up:
+                    minimum: 0
+                    type: integer
+                ready:
+                    minimum: 0
+                    type: integer
+            required:
+                - confirmed
+                - hub_accepted
+                - packing
+                - partial
+                - ready
+                - picked_up
+            type: object
+        RestockResponse:
+            properties:
+                restock:
+                    $ref: '#/components/schemas/AdminRestock'
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - restock
+                - server_time
             type: object
         RiderDecision:
             properties:
@@ -1545,6 +2328,157 @@ components:
                 - alerts
                 - next_cursor
                 - server_time
+            type: object
+        Ticket:
+            properties:
+                close_reason:
+                    type:
+                        - string
+                        - "null"
+                closed_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                id:
+                    $ref: '#/components/schemas/Id'
+                messages:
+                    description: Oldest first. Empty in a list; filled when one ticket is read.
+                    items:
+                        $ref: '#/components/schemas/TicketMessage'
+                    type: array
+                opened_at:
+                    format: date-time
+                    type: string
+                order_id:
+                    type:
+                        - string
+                        - "null"
+                status:
+                    enum:
+                        - open
+                        - resolved
+                    type: string
+                subject:
+                    type: string
+                type:
+                    enum:
+                        - missing_item
+                        - cold_food
+                        - wrong_item
+                        - payment
+                        - other
+                    type: string
+            required:
+                - id
+                - order_id
+                - type
+                - status
+                - subject
+                - opened_at
+                - closed_at
+                - close_reason
+                - messages
+            type: object
+        TicketList:
+            properties:
+                next_cursor:
+                    type:
+                        - string
+                        - "null"
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+                tickets:
+                    items:
+                        $ref: '#/components/schemas/Ticket'
+                    type: array
+            required:
+                - tickets
+                - next_cursor
+                - server_time
+            type: object
+        TicketMessage:
+            properties:
+                author_name:
+                    type:
+                        - string
+                        - "null"
+                author_type:
+                    enum:
+                        - customer
+                        - support
+                    type: string
+                created_at:
+                    format: date-time
+                    type: string
+                id:
+                    $ref: '#/components/schemas/Id'
+                text:
+                    type: string
+            required:
+                - id
+                - author_type
+                - author_name
+                - text
+                - created_at
+            type: object
+        TicketReply:
+            properties:
+                text:
+                    maxLength: 2000
+                    minLength: 1
+                    type: string
+            required:
+                - text
+            type: object
+        TicketResponse:
+            properties:
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+                ticket:
+                    $ref: '#/components/schemas/Ticket'
+            required:
+                - ticket
+                - server_time
+            type: object
+        TimelineEvent:
+            properties:
+                actor_name:
+                    type:
+                        - string
+                        - "null"
+                actor_type:
+                    description: Open list, such as customer, rider, console or system.
+                    type: string
+                at:
+                    format: date-time
+                    type: string
+                detail:
+                    additionalProperties: true
+                    description: Only the listed, non-personal fields of the event, such as ids, states and amounts (Money). Never a phone number, an address or a handover code.
+                    type: object
+                kind:
+                    description: Open list, such as order.created or payment.captured.
+                    type: string
+                source:
+                    enum:
+                        - order
+                        - offer
+                        - payment
+                        - refund
+                        - remedy
+                        - problem
+                        - ticket
+                        - review
+                        - audit
+                    type: string
+            required:
+                - at
+                - source
+                - kind
+                - actor_type
+                - actor_name
+                - detail
             type: object
         TokenPair:
             properties:
@@ -2186,6 +3120,79 @@ paths:
             tags:
                 - gates
             x-permission: gates.read
+    /admin/hub-ops:
+        get:
+            description: 'For each hub: its requests by state (confirmed, hub_accepted, packing, partial, ready, picked_up), how many are stuck (waiting longer than the setting restock_stuck_s), open shortfalls, quarantined lots and active staff. A hub_manager sees only their own hub. Permission: hub_ops.read.'
+            operationId: listHubOps
+            parameters:
+                - description: Only hubs in this zone.
+                  in: query
+                  name: zone_id
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/Id'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/HubOpsList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Show how each hub is doing
+            tags:
+                - hub_ops
+            x-permission: hub_ops.read
+    /admin/hub-ops/stuck:
+        get:
+            description: 'Requests in confirmed, hub_accepted or packing that have waited longer than the setting restock_stuck_s, longest first. A hub_manager sees only their own hub. Permission: hub_ops.read.'
+            operationId: listStuckRestocks
+            parameters:
+                - description: From next_cursor.
+                  in: query
+                  name: cursor
+                  required: false
+                  schema:
+                    maxLength: 200
+                    type: string
+                - description: 1 to 100. 50 by default.
+                  in: query
+                  name: limit
+                  required: false
+                  schema:
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RestockList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: List stuck restock requests
+            tags:
+                - hub_ops
+            x-permission: hub_ops.read
     /admin/hub-staff/{staff_id}:
         patch:
             description: 'Role, hub or status, with a reason. Suspending them, or moving them to another hub, ends their sessions. Permission: hub_staff.manage.'
@@ -2420,6 +3427,238 @@ paths:
             tags:
                 - hubs
             x-permission: hub_staff.manage
+    /admin/incidents:
+        get:
+            description: 'One queue of support alerts (a refused handover, a lost signal), problem reports, open arrival reviews and open tickets. There is one incident per order and kind: a lost signal''s problem report and its support alert make one signal_lost incident, not two. An incident whose source is a ticket or an arrival review closes by itself when its source closes. Newest first. Permission: incidents.read.'
+            operationId: listIncidents
+            parameters:
+                - description: Only this status.
+                  in: query
+                  name: status
+                  required: false
+                  schema:
+                    enum:
+                        - open
+                        - assigned
+                        - closed
+                    type: string
+                - description: Only this kind.
+                  in: query
+                  name: kind
+                  required: false
+                  schema:
+                    enum:
+                        - support_alert
+                        - problem_report
+                        - arrival_review
+                        - ticket
+                        - signal_lost
+                    type: string
+                - description: From next_cursor.
+                  in: query
+                  name: cursor
+                  required: false
+                  schema:
+                    maxLength: 200
+                    type: string
+                - description: 1 to 100. 50 by default.
+                  in: query
+                  name: limit
+                  required: false
+                  schema:
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/IncidentList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: List what needs a person
+            tags:
+                - incidents
+            x-permission: incidents.read
+    /admin/incidents/{incident_id}:
+        get:
+            description: 'Notes oldest first. Permission: incidents.read.'
+            operationId: getIncident
+            parameters:
+                - description: The id.
+                  in: path
+                  name: incident_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/IncidentResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Show an incident with its notes
+            tags:
+                - incidents
+            x-permission: incidents.read
+    /admin/incidents/{incident_id}/assign:
+        post:
+            description: 'user_id null takes the assignment away. The user must be active and have incidents.manage. Errors: incident_closed, user_cannot_take (both 409); an unknown user_id is 404. Permission: incidents.manage.'
+            operationId: assignIncident
+            parameters:
+                - description: The id.
+                  in: path
+                  name: incident_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/IncidentAssign'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/IncidentResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Assign an incident to a person
+            tags:
+                - incidents
+            x-permission: incidents.manage
+    /admin/incidents/{incident_id}/close:
+        post:
+            description: 'Closing never changes the source. An incident whose source is an open ticket or an open arrival review cannot be closed here (source_open): close the ticket or decide the review first, and the incident then closes by itself. Support alerts and problem reports have no open state, so closing their incident marks them handled. Errors (both 409): incident_closed, source_open. Permission: incidents.manage.'
+            operationId: closeIncident
+            parameters:
+                - description: The id.
+                  in: path
+                  name: incident_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReasonBody'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/IncidentResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Close an incident
+            tags:
+                - incidents
+            x-permission: incidents.manage
+    /admin/incidents/{incident_id}/notes:
+        post:
+            description: 'Errors: incident_closed (409). Permission: incidents.manage.'
+            operationId: addIncidentNote
+            parameters:
+                - description: The id.
+                  in: path
+                  name: incident_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/IncidentNote'
+                required: true
+            responses:
+                "201":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/IncidentResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Add a note to an incident
+            tags:
+                - incidents
+            x-permission: incidents.manage
     /admin/me:
         get:
             description: The user, their role and their permissions; the console builds its menus from them. The server checks the permission on every call.
@@ -2578,6 +3817,301 @@ paths:
             tags:
                 - menu
             x-permission: menu.manage
+    /admin/orders:
+        get:
+            description: 'Newest first. q is an order number such as A1001, the last four digits of a customer''s or rider''s phone, or an order id. from and to are the order''s created_at. Customers appear as the last four phone digits only. Permission: orders.read.'
+            operationId: listAdminOrders
+            parameters:
+                - description: An order number, the last four phone digits of the customer or rider, or an order id.
+                  in: query
+                  name: q
+                  required: false
+                  schema:
+                    maxLength: 64
+                    minLength: 1
+                    type: string
+                - description: Only this order state.
+                  in: query
+                  name: state
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/OrderState'
+                - description: Only this zone.
+                  in: query
+                  name: zone_id
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - description: Created at or after this time.
+                  in: query
+                  name: from
+                  required: false
+                  schema:
+                    format: date-time
+                    type: string
+                - description: Created before this time.
+                  in: query
+                  name: to
+                  required: false
+                  schema:
+                    format: date-time
+                    type: string
+                - description: From next_cursor.
+                  in: query
+                  name: cursor
+                  required: false
+                  schema:
+                    maxLength: 200
+                    type: string
+                - description: 1 to 100. 50 by default.
+                  in: query
+                  name: limit
+                  required: false
+                  schema:
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AdminOrderList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Find orders
+            tags:
+                - orders
+            x-permission: orders.read
+    /admin/orders/{order_id}/credit:
+        post:
+            description: 'Records a remedy of kind credit, owed to the customer. An order has at most one remedy of each type, so a second credit (including the credit for a missed timer) is refused; for more money use requestRefund. Errors (both 409): not_paid, remedy_exists. Permission: remedies.issue.'
+            operationId: issueCredit
+            parameters:
+                - description: The id.
+                  in: path
+                  name: order_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreditRequest'
+                required: true
+            responses:
+                "201":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RemedyResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Owe the customer a credit
+            tags:
+                - support
+            x-permission: remedies.issue
+    /admin/orders/{order_id}/refund:
+        post:
+            description: 'Up to the amount paid less refunds already made. The limit is cumulative per order: the refunds already made from the console on this order, plus any refund approval still waiting, plus this one. If that total is at or below the setting refund_approval_paise (20000 paise, Rs 200, to start) the refund is made at once (200, the refund); if it is above, an approval of kind refund is created (202) and the refund is made when a second admin approves it. An approved refund is applied only if it still fits: otherwise the approval fails with failure_code refund_too_large or not_paid. Errors (all 409): refund_too_large (more than is left to refund; a fully refunded order answers this, not not_paid), not_paid, approval_pending (a refund approval already waits for this order). Permission: refunds.request.'
+            operationId: requestRefund
+            parameters:
+                - description: The id.
+                  in: path
+                  name: order_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RefundRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RefundResponse'
+                    description: Made at once.
+                "202":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ApprovalResponse'
+                    description: Waiting for a second admin.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Refund an order
+            tags:
+                - support
+            x-permission: refunds.request
+    /admin/orders/{order_id}/replacement:
+        post:
+            description: 'Records a remedy of kind replacement for the items listed. An order has at most one remedy of each type, so a second replacement is refused. Errors (all 409): not_paid, item_not_on_order, remedy_exists. Permission: remedies.issue.'
+            operationId: issueReplacement
+            parameters:
+                - description: The id.
+                  in: path
+                  name: order_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReplacementRequest'
+                required: true
+            responses:
+                "201":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RemedyResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Owe the customer a replacement
+            tags:
+                - support
+            x-permission: remedies.issue
+    /admin/orders/{order_id}/timeline:
+        get:
+            description: 'The order, with its gate label and pin, items, timer fields, remedies and refunds, then its events oldest first (from the order, its offers, payments, refunds, remedies, problem reports, tickets, reviews and the audit log), and a summary of the rider''s pings (count, first and last time; pings are not events). The customer''s phone and address appear only as the last four digits and the gate label. Permission: orders.read.'
+            operationId: getOrderTimeline
+            parameters:
+                - description: The id.
+                  in: path
+                  name: order_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OrderTimeline'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Show an order and everything that happened to it
+            tags:
+                - orders
+            x-permission: orders.read
+    /admin/restock/{request_id}/expire:
+        post:
+            description: 'Allowed only before the request is ready: in confirmed, hub_accepted, packing or partial. Anything already packed goes back to the hub''s stock. The rider is told as when a request expires on its own: their seq rises and a push goes out. Errors: restock_not_expirable (409), in any other state. Permission: hub_ops.manage.'
+            operationId: expireRestock
+            parameters:
+                - description: The id.
+                  in: path
+                  name: request_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReasonBody'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RestockResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Expire a stuck restock request
+            tags:
+                - hub_ops
+            x-permission: hub_ops.manage
     /admin/riders/{rider_id}/decision:
         post:
             description: 'With a reason. Approving needs zone_id and a verified rider. Suspending (also how an applicant is turned down) ends the rider''s sessions and their shift. A rider carrying an order they accepted cannot be suspended until it is handed over. The zone must be active. Errors: not_verified, not_allowed, order_in_progress (all 409). Permission: riders.review.'
@@ -2764,6 +4298,192 @@ paths:
             tags:
                 - reviews
             x-permission: alerts.read
+    /admin/tickets:
+        get:
+            description: 'Newest first. Messages are left out of the list; getTicket has them. Permission: tickets.manage.'
+            operationId: listTickets
+            parameters:
+                - description: Only this status.
+                  in: query
+                  name: status
+                  required: false
+                  schema:
+                    enum:
+                        - open
+                        - resolved
+                    type: string
+                - description: Only this kind of ticket.
+                  in: query
+                  name: type
+                  required: false
+                  schema:
+                    enum:
+                        - missing_item
+                        - cold_food
+                        - wrong_item
+                        - payment
+                        - other
+                    type: string
+                - description: From next_cursor.
+                  in: query
+                  name: cursor
+                  required: false
+                  schema:
+                    maxLength: 200
+                    type: string
+                - description: 1 to 100. 50 by default.
+                  in: query
+                  name: limit
+                  required: false
+                  schema:
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TicketList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: List support tickets
+            tags:
+                - support
+            x-permission: tickets.manage
+    /admin/tickets/{ticket_id}:
+        get:
+            description: 'Messages oldest first. Permission: tickets.manage.'
+            operationId: getTicket
+            parameters:
+                - description: The id.
+                  in: path
+                  name: ticket_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TicketResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Show a ticket with its messages
+            tags:
+                - support
+            x-permission: tickets.manage
+    /admin/tickets/{ticket_id}/close:
+        post:
+            description: 'Sets the status to resolved and keeps the reason with the ticket. Errors: ticket_closed (409), when it is already resolved. Permission: tickets.manage.'
+            operationId: closeTicket
+            parameters:
+                - description: The id.
+                  in: path
+                  name: ticket_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReasonBody'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TicketResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Close a ticket
+            tags:
+                - support
+            x-permission: tickets.manage
+    /admin/tickets/{ticket_id}/messages:
+        post:
+            description: 'The customer sees the reply in the app. Errors: ticket_closed (409). Permission: tickets.manage.'
+            operationId: replyTicket
+            parameters:
+                - description: The id.
+                  in: path
+                  name: ticket_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/TicketReply'
+                required: true
+            responses:
+                "201":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TicketResponse'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Reply to a ticket
+            tags:
+                - support
+            x-permission: tickets.manage
     /admin/users:
         get:
             description: 'Admin only. Permission: users.manage.'
@@ -2999,6 +4719,40 @@ paths:
             tags:
                 - zones
             x-permission: zones.kill_switch
+    /admin/zones/{zone_id}/live:
+        get:
+            description: 'Riders, scooters and orders in the zone, and how many incidents are open. Poll no more often than every 5 seconds; faster gets 429 rate_limited with Retry-After. A live stream may follow. Permission: map.read.'
+            operationId: getLiveZone
+            parameters:
+                - description: The id.
+                  in: path
+                  name: zone_id
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/Id'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LiveZone'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Show a zone live
+            tags:
+                - map
+            x-permission: map.read
     /admin/zones/{zone_id}/settings:
         get:
             description: 'Its own values, and the effective values with the global ones beneath. Permission: settings.read.'
@@ -3285,3 +5039,13 @@ tags:
       name: audit
     - description: Late-arrival reviews and support alerts.
       name: reviews
+    - description: Finding an order and its timeline.
+      name: orders
+    - description: Tickets, refunds and remedies.
+      name: support
+    - description: What needs a person.
+      name: incidents
+    - description: Hub queues and stuck restocks.
+      name: hub_ops
+    - description: The live zone.
+      name: map

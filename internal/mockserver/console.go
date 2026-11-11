@@ -2,6 +2,7 @@ package mockserver
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -16,7 +17,7 @@ var consoleScenarios = map[string]string{
 	"no_permission":             "Every admin call returns 403 with the missing permission",
 	"role_ops":                  "The signed-in user is ops, not admin",
 	"role_hub_manager":          "The signed-in user is a hub_manager for one hub",
-	"approval_pending":          "Settings, kill-switch and flag requests fail with approval_pending; the list shows one waiting",
+	"approval_pending":          "Settings, kill-switch, flag and refund requests fail with approval_pending; the list shows one waiting",
 	"own_change":                "Approving fails with own_change: the same person asked for it",
 	"kill_switch_off":           "A zone's offer is off",
 	"rider_verification_failed": "The rider review queue has a rider whose verification failed",
@@ -39,6 +40,18 @@ var consoleScenarios = map[string]string{
 	"not_allowed":               "A rider decision fails with not_allowed",
 	"rate_limited":              "Sign-in fails with rate_limited",
 	"account_locked_user":       "The user list shows a user locked after failed sign-ins",
+	"orders_empty":              "The order search finds nothing",
+	"refund_needs_approval":     "A refund of any size waits for a second admin: 202 with a pending approval",
+	"refund_too_large":          "A refund fails with refund_too_large: more than was paid less earlier refunds",
+	"not_paid":                  "A refund, replacement or credit fails with not_paid",
+	"item_not_on_order":         "A replacement fails with item_not_on_order",
+	"ticket_closed":             "Replying to or closing a ticket fails with ticket_closed",
+	"incident_closed":           "Assigning, noting or closing an incident fails with incident_closed",
+	"restock_not_expirable":     "Expiring a restock request fails with restock_not_expirable: it is already ready or past it",
+	"remedy_exists":             "A credit or replacement fails with remedy_exists: the order already has one of that type",
+	"source_open":               "Closing an incident fails with source_open: its ticket or arrival review is still open",
+	"user_cannot_take":          "Assigning an incident fails with user_cannot_take: the user is inactive or lacks incidents.manage",
+	"poll_too_fast":             "The live zone answers 429 rate_limited: polled faster than every 5 seconds",
 }
 
 const consoleUserID = "usr_mock01"
@@ -56,11 +69,14 @@ func consoleUser(role string, now time.Time) map[string]any {
 var rolePermissions = map[string][]string{
 	"admin": {"users.manage", "approvals.read", "approvals.decide", "riders.review", "flags.manage", "zones.read", "settings.read", "settings.request",
 		"zones.kill_switch", "menu.manage", "gates.read", "gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "audit.read", "reviews.read",
-		"reviews.decide", "alerts.read"},
+		"reviews.decide", "alerts.read", "orders.read", "tickets.manage", "refunds.request", "remedies.issue", "incidents.read", "incidents.manage",
+		"hub_ops.read", "hub_ops.manage", "map.read"},
 	"ops": {"approvals.read", "riders.review", "zones.read", "settings.read", "settings.request", "zones.kill_switch", "menu.manage", "gates.read",
-		"gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "reviews.read", "reviews.decide", "alerts.read"},
-	"support":     {"zones.read", "gates.read", "reviews.read", "reviews.decide", "alerts.read"},
-	"hub_manager": {"hubs.read", "hub_staff.manage"},
+		"gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "reviews.read", "reviews.decide", "alerts.read", "orders.read", "remedies.issue",
+		"incidents.read", "incidents.manage", "hub_ops.read", "hub_ops.manage", "map.read"},
+	"support": {"zones.read", "gates.read", "reviews.read", "reviews.decide", "alerts.read", "orders.read", "tickets.manage", "refunds.request",
+		"remedies.issue", "incidents.read", "incidents.manage", "map.read"},
+	"hub_manager": {"hubs.read", "hub_staff.manage", "hub_ops.read"},
 }
 
 func userReply(role string, now time.Time) map[string]any {
@@ -138,9 +154,86 @@ func hubStaffMember(role, status string) map[string]any {
 	return map[string]any{"id": "stf_mock01", "hub_id": hubID, "name": "Asha", "phone_last4": "0091", "role": role, "status": status}
 }
 
+func adminOrderSummary(number, id, state string, now time.Time) map[string]any {
+	var ended any
+	if state == "COMPLETED" {
+		ended = "handed_over"
+	}
+	return map[string]any{"id": id, "order_number": number, "state": state, "zone_id": "zone_mock01", "customer": map[string]any{"id": "cus_mock0001", "phone_last4": "4321"},
+		"rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi"}, "total": money(14900), "created_at": stamp(now.Add(-20 * time.Minute)), "ended_reason": ended}
+}
+
+func adminRemedy(kind string, now time.Time) map[string]any {
+	var amount, items any
+	if kind == "credit" {
+		amount = money(5000)
+	} else {
+		items = []map[string]any{{"item_id": "item_burger", "qty": 1}}
+	}
+	return map[string]any{"id": "rem_mock01", "kind": kind, "amount": amount, "items": items, "status": "owed", "reason": "Cold food",
+		"created_by": map[string]any{"id": consoleUserID, "name": "Asha K"}, "created_at": stamp(now)}
+}
+
+func adminOrder(id string, now time.Time) map[string]any {
+	o := adminOrderSummary("A1001", id, "COMPLETED", now)
+	o["gate"] = map[string]any{"label": "Tower B main gate", "lat": 12.9352, "lng": 77.6245}
+	o["items"] = []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1, "unit_price": money(14900)}}
+	o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-12 * time.Minute)), "timer_stopped_at": stamp(now.Add(-11 * time.Minute)), "timer_duration_s": 90,
+		"perimeter_m": 350, "timer_missed": false, "arrival_source": "handover"}
+	o["remedies"] = []map[string]any{adminRemedy("credit", now)}
+	o["refunds"] = []map[string]any{{"id": "rfd_mock01", "order_id": id, "amount": money(5000), "status": "processed", "reason": "Cold food",
+		"requested_by": map[string]any{"id": consoleUserID, "name": "Asha K"}, "created_at": stamp(now.Add(-5 * time.Minute))}}
+	return o
+}
+
+func adminTicket(status string, now time.Time) map[string]any {
+	var closedAt any
+	if status == "resolved" {
+		closedAt = stamp(now)
+	}
+	return map[string]any{"id": "tkt_mock01", "order_id": orderID, "type": "cold_food", "status": status, "subject": "The food was cold", "opened_at": stamp(now.Add(-8 * time.Minute)),
+		"closed_at": closedAt, "close_reason": nil, "messages": []map[string]any{{"id": "msg_mock01", "author_type": "customer", "author_name": nil,
+			"text": "The burger arrived cold.", "created_at": stamp(now.Add(-8 * time.Minute))}}}
+}
+
+func adminIncident(kind, status string, now time.Time) map[string]any {
+	var assigned, closedAt any
+	if status == "assigned" || status == "closed" {
+		assigned = map[string]any{"id": consoleUserID, "name": "Asha K"}
+	}
+	if status == "closed" {
+		closedAt = stamp(now)
+	}
+	return map[string]any{"id": "inc_mock01", "kind": kind, "source_id": "alt_mock01", "order_id": orderID, "rider_id": "rdr_mock0001", "status": status,
+		"assigned_to": assigned, "opened_at": stamp(now.Add(-6 * time.Minute)), "closed_at": closedAt, "notes_count": 1}
+}
+
+func incidentReply(kind, status string, now time.Time) map[string]any {
+	return map[string]any{"incident": adminIncident(kind, status, now), "notes": []map[string]any{{"id": "inn_mock01", "text": "Called the rider; the gate was shut.",
+		"author": map[string]any{"id": consoleUserID, "name": "Asha K"}, "created_at": stamp(now.Add(-2 * time.Minute))}}}
+}
+
+func adminHubOps(hub map[string]any, stuck int, busy bool) map[string]any {
+	queue := map[string]any{"confirmed": 0, "hub_accepted": 0, "packing": 0, "partial": 0, "ready": 0, "picked_up": 0}
+	if busy {
+		queue = map[string]any{"confirmed": 1, "hub_accepted": 2, "packing": 1, "partial": 0, "ready": 1, "picked_up": 0}
+	}
+	return map[string]any{"hub": hub, "queue": queue, "stuck": stuck, "open_shortfalls": 1, "quarantined_lots": 0, "active_staff": 2}
+}
+
+func adminRestock(state string, waited int, ended any, now time.Time) map[string]any {
+	return map[string]any{"id": "rst_mock01", "hub_id": hubID, "rider": map[string]any{"id": "rdr_mock0001", "name": "Ravi"}, "state": state, "waiting_s": waited,
+		"requested_at": stamp(now.Add(-time.Duration(waited) * time.Second)), "ended_reason": ended}
+}
+
 func consoleRoutes() []route {
 	denied := func(c *call) bool {
 		switch c.scenario {
+		case "role_ops", "role_hub_manager":
+			if perm := consolePermission(c); perm != "console" && !slices.Contains(rolePermissions[consoleRole(c)], perm) {
+				c.json(403, map[string]any{"code": "forbidden", "message": "Your role cannot do this.", "retryable": false, "missing_permission": perm})
+				return true
+			}
 		case "no_permission":
 			c.json(403, map[string]any{"code": "forbidden", "message": "Your role cannot do this.", "retryable": false, "missing_permission": consolePermission(c)})
 			return true
@@ -521,6 +614,232 @@ func consoleRoutes() []route {
 				page(c, "alerts", []map[string]any{{"id": "alt_mock01", "kind": "handover_wrong_otp", "order_id": orderID, "rider_id": "rdr_mock0001", "created_at": stamp(c.now)}})
 			}
 		}},
+		{method: "GET", path: "/admin/orders", handle: func(c *call) {
+			if denied(c) {
+				return
+			}
+			for _, k := range []string{"from", "to"} {
+				if v := c.r.URL.Query().Get(k); v != "" {
+					if _, err := time.Parse(time.RFC3339, v); err != nil {
+						c.fail(400, "invalid_request", k+" must be a date-time.", false)
+						return
+					}
+				}
+			}
+			orders := []map[string]any{adminOrderSummary("A1002", "ord_mock0002", "TIMER_RUNNING", c.now), adminOrderSummary("A1001", orderID, "COMPLETED", c.now)}
+			if c.scenario == "orders_empty" {
+				orders = []map[string]any{}
+			}
+			page(c, "orders", orders)
+		}},
+		{method: "GET", path: "/admin/orders/{order_id}/timeline", handle: func(c *call) {
+			if denied(c) {
+				return
+			}
+			ev := func(ago time.Duration, source, kind, actorType string, actor any, detail map[string]any) map[string]any {
+				return map[string]any{"at": stamp(c.now.Add(-ago)), "source": source, "kind": kind, "actor_type": actorType, "actor_name": actor, "detail": detail}
+			}
+			c.json(200, map[string]any{"order": adminOrder(c.param("order_id"), c.now), "events": []map[string]any{
+				ev(20*time.Minute, "order", "order.created", "customer", nil, map[string]any{"state": "CREATED"}),
+				ev(19*time.Minute, "payment", "payment.captured", "system", nil, map[string]any{"amount": money(14900)}),
+				ev(18*time.Minute, "offer", "offer.accepted", "rider", "Ravi", map[string]any{"offer_id": "ofr_mock0001"}),
+				ev(12*time.Minute, "order", "order.timer_started", "system", nil, map[string]any{"perimeter_m": 350}),
+				ev(11*time.Minute, "order", "order.handed_over", "rider", "Ravi", map[string]any{"arrival_source": "handover"}),
+				ev(8*time.Minute, "ticket", "ticket.opened", "customer", nil, map[string]any{"ticket_id": "tkt_mock01"}),
+				ev(5*time.Minute, "refund", "refund.processed", "console", "Asha K", map[string]any{"refund_id": "rfd_mock01", "amount": money(5000)}),
+				ev(4*time.Minute, "audit", "refund.requested", "console", "Asha K", map[string]any{"reason": "Cold food"}),
+			}, "pings": map[string]any{"count": 212, "first_at": stamp(c.now.Add(-18 * time.Minute)), "last_at": stamp(c.now.Add(-11 * time.Minute))}})
+		}},
+		{method: "GET", path: "/admin/tickets", handle: func(c *call) {
+			if denied(c) {
+				return
+			}
+			t := adminTicket("open", c.now)
+			t["messages"] = []map[string]any{}
+			page(c, "tickets", []map[string]any{t})
+		}},
+		{method: "GET", path: "/admin/tickets/{ticket_id}", handle: func(c *call) {
+			if !denied(c) {
+				c.json(200, map[string]any{"ticket": adminTicket("open", c.now)})
+			}
+		}},
+		{method: "POST", path: "/admin/tickets/{ticket_id}/messages", handle: func(c *call) {
+			if denied(c) || fail(c, "ticket_closed") {
+				return
+			}
+			if _, ok := needsBody(c, "text"); ok {
+				t := adminTicket("open", c.now)
+				t["messages"] = append(t["messages"].([]map[string]any), map[string]any{"id": "msg_mock02", "author_type": "support", "author_name": "Asha K",
+					"text": "Sorry about that. We are sending a refund.", "created_at": stamp(c.now)})
+				c.json(201, map[string]any{"ticket": t})
+			}
+		}},
+		{method: "POST", path: "/admin/tickets/{ticket_id}/close", handle: func(c *call) {
+			if denied(c) || fail(c, "ticket_closed") {
+				return
+			}
+			if body, ok := reason(c); ok {
+				t := adminTicket("resolved", c.now)
+				t["close_reason"] = body["reason"]
+				c.json(200, map[string]any{"ticket": t})
+			}
+		}},
+		{method: "POST", path: "/admin/orders/{order_id}/refund", handle: func(c *call) {
+			if denied(c) || fail(c, "refund_too_large", "not_paid", "approval_pending") {
+				return
+			}
+			body, ok := needsBody(c, "amount_paise", "reason")
+			if !ok {
+				return
+			}
+			amount, _ := body["amount_paise"].(float64)
+			if amount < 1 || amount != float64(int(amount)) {
+				c.fail(400, "invalid_request", "amount_paise must be a whole number of paise, at least 1.", false)
+				return
+			}
+			// The setting refund_approval_paise (#147), cumulative per order: refunds already made from
+			// the console (the sample order has 5000), plus this one, at or below it is made at once.
+			const refundApprovalPaise, alreadyRefunded = 20000, 5000
+			if alreadyRefunded+amount > refundApprovalPaise || c.scenario == "refund_needs_approval" {
+				a := sampleApproval("refund", "pending", c.now)
+				a["change"] = map[string]any{"kind": "refund", "order_id": c.param("order_id"), "amount": money(int(amount))}
+				a["summary"] = fmt.Sprintf("Order %s: refund %d paise", c.param("order_id"), int(amount))
+				c.json(202, map[string]any{"approval": a})
+				return
+			}
+			c.json(200, map[string]any{"refund": map[string]any{"id": "rfd_mock01", "order_id": c.param("order_id"), "amount": money(int(amount)), "status": "pending",
+				"reason": body["reason"], "requested_by": map[string]any{"id": consoleUserID, "name": "Asha K"}, "created_at": stamp(c.now)}})
+		}},
+		{method: "POST", path: "/admin/orders/{order_id}/replacement", handle: func(c *call) {
+			if denied(c) || fail(c, "not_paid", "item_not_on_order", "remedy_exists") {
+				return
+			}
+			body, ok := needsBody(c, "items", "reason")
+			if !ok {
+				return
+			}
+			if items, _ := body["items"].([]any); len(items) == 0 {
+				c.fail(400, "invalid_request", "Send at least one item.", false)
+				return
+			}
+			r := adminRemedy("replacement", c.now)
+			r["items"] = body["items"]
+			r["reason"] = body["reason"]
+			c.json(201, map[string]any{"remedy": r})
+		}},
+		{method: "POST", path: "/admin/orders/{order_id}/credit", handle: func(c *call) {
+			if denied(c) || fail(c, "not_paid", "remedy_exists") {
+				return
+			}
+			body, ok := needsBody(c, "amount_paise", "reason")
+			if !ok {
+				return
+			}
+			amount, _ := body["amount_paise"].(float64)
+			if amount < 1 {
+				c.fail(400, "invalid_request", "amount_paise must be at least 1.", false)
+				return
+			}
+			r := adminRemedy("credit", c.now)
+			r["amount"] = money(int(amount))
+			r["reason"] = body["reason"]
+			c.json(201, map[string]any{"remedy": r})
+		}},
+		{method: "GET", path: "/admin/incidents", handle: func(c *call) {
+			if denied(c) {
+				return
+			}
+			page(c, "incidents", []map[string]any{adminIncident("support_alert", "open", c.now), adminIncident("ticket", "assigned", c.now)})
+		}},
+		{method: "GET", path: "/admin/incidents/{incident_id}", handle: func(c *call) {
+			if !denied(c) {
+				c.json(200, incidentReply("ticket", "assigned", c.now))
+			}
+		}},
+		{method: "POST", path: "/admin/incidents/{incident_id}/assign", handle: func(c *call) {
+			if denied(c) || fail(c, "incident_closed", "user_cannot_take") {
+				return
+			}
+			body := map[string]any{}
+			if err := decodeJSON(c.r, &body); err != nil {
+				c.fail(400, "invalid_request", "The body must be JSON.", false)
+				return
+			}
+			user, present := body["user_id"]
+			if !present {
+				c.fail(400, "invalid_request", "Missing field: user_id (null takes the assignment away).", false)
+				return
+			}
+			if user == nil {
+				c.json(200, incidentReply("support_alert", "open", c.now))
+				return
+			}
+			c.json(200, incidentReply("support_alert", "assigned", c.now))
+		}},
+		{method: "POST", path: "/admin/incidents/{incident_id}/notes", handle: func(c *call) {
+			if denied(c) || fail(c, "incident_closed") {
+				return
+			}
+			if body, ok := needsBody(c, "text"); ok {
+				reply := incidentReply("support_alert", "assigned", c.now)
+				reply["notes"] = append(reply["notes"].([]map[string]any), map[string]any{"id": "inn_mock02", "text": body["text"],
+					"author": map[string]any{"id": consoleUserID, "name": "Asha K"}, "created_at": stamp(c.now)})
+				reply["incident"].(map[string]any)["notes_count"] = 2
+				c.json(201, reply)
+			}
+		}},
+		{method: "POST", path: "/admin/incidents/{incident_id}/close", handle: func(c *call) {
+			if denied(c) || fail(c, "incident_closed", "source_open") {
+				return
+			}
+			if _, ok := reason(c); ok {
+				c.json(200, incidentReply("support_alert", "closed", c.now))
+			}
+		}},
+		{method: "GET", path: "/admin/hub-ops", handle: func(c *call) {
+			if denied(c) {
+				return
+			}
+			hubs := []map[string]any{adminHubOps(adminHub("active"), 1, true)}
+			if consoleRole(c) != "hub_manager" {
+				other := adminHub("active")
+				other["id"], other["name"] = "hub_mock02", "Indiranagar hub"
+				hubs = append(hubs, adminHubOps(other, 0, false))
+			}
+			c.json(200, map[string]any{"hubs": hubs})
+		}},
+		{method: "GET", path: "/admin/hub-ops/stuck", handle: func(c *call) {
+			if !denied(c) {
+				page(c, "requests", []map[string]any{adminRestock("packing", 540, nil, c.now)})
+			}
+		}},
+		{method: "POST", path: "/admin/restock/{request_id}/expire", handle: func(c *call) {
+			if denied(c) || fail(c, "restock_not_expirable") {
+				return
+			}
+			if _, ok := reason(c); ok {
+				c.json(200, map[string]any{"restock": adminRestock("expired", 600, "expired_by_console", c.now)})
+			}
+		}},
+		{method: "GET", path: "/admin/zones/{zone_id}/live", handle: func(c *call) {
+			if denied(c) {
+				return
+			}
+			if c.scenario == "poll_too_fast" {
+				c.fail(429, "rate_limited", "Poll the live zone no more often than every 5 seconds.", true)
+				return
+			}
+			c.json(200, map[string]any{
+				"riders": []map[string]any{
+					{"id": "rdr_mock0001", "name": "Ravi", "lat": 12.9355, "lng": 77.6240, "last_ping_at": stamp(c.now.Add(-3 * time.Second)), "state": "moving"},
+					{"id": "rdr_mock0003", "name": "Meena", "lat": 12.9371, "lng": 77.6262, "last_ping_at": stamp(c.now.Add(-9 * time.Second)), "state": "idle"}},
+				"scooters": []map[string]any{
+					{"id": "scr_mock01", "plate": "KA01AB1234", "node_id": nil, "rider_id": "rdr_mock0001", "stock_units": 4},
+					{"id": "scr_mock02", "plate": "KA01AB5678", "node_id": "node_mock01", "rider_id": "rdr_mock0003", "stock_units": 6}},
+				"orders": []map[string]any{{"id": "ord_mock0002", "order_number": "A1002", "state": "TIMER_RUNNING", "gate": map[string]any{"lat": 12.9352, "lng": 77.6245},
+					"rider_id": "rdr_mock0001", "timer_started_at": stamp(c.now.Add(-40 * time.Second))}},
+				"incidents_open": 2})
+		}},
 	}
 }
 
@@ -549,6 +868,25 @@ func settingsChange(denied func(*call) bool, fail func(*call, ...string) bool) f
 func consolePermission(c *call) string {
 	path := c.r.URL.Path
 	switch {
+	case contains(path, "/admin/orders") && contains(path, "/refund"):
+		return "refunds.request"
+	case contains(path, "/admin/orders") && (contains(path, "/replacement") || contains(path, "/credit")):
+		return "remedies.issue"
+	case contains(path, "/admin/orders"):
+		return "orders.read"
+	case contains(path, "/admin/tickets"):
+		return "tickets.manage"
+	case contains(path, "/admin/incidents"):
+		if c.r.Method == "GET" {
+			return "incidents.read"
+		}
+		return "incidents.manage"
+	case contains(path, "/admin/hub-ops"):
+		return "hub_ops.read"
+	case contains(path, "/admin/restock"):
+		return "hub_ops.manage"
+	case contains(path, "/live"):
+		return "map.read"
 	case contains(path, "/admin/users"):
 		return "users.manage"
 	case contains(path, "/approve") || contains(path, "/reject"):

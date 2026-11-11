@@ -1,0 +1,16 @@
+meta {
+  name: listHubOps
+  type: http
+  seq: 37
+}
+
+get {
+  url: {{baseUrl}}/admin/hub-ops
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

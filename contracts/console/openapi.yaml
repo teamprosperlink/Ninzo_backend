@@ -41,6 +41,16 @@ tags:
   description: The audit log.
 - name: reviews
   description: Late-arrival reviews and support alerts.
+- name: orders
+  description: Finding an order and its timeline.
+- name: support
+  description: Tickets, refunds and remedies.
+- name: incidents
+  description: What needs a person.
+- name: hub_ops
+  description: Hub queues and stuck restocks.
+- name: map
+  description: The live zone.
 paths:
   /auth/login:
     post:
@@ -1688,6 +1698,829 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/orders:
+    get:
+      tags:
+      - orders
+      operationId: listAdminOrders
+      summary: Find orders
+      description: >-
+        Newest first. q is an order number such as A1001, the last four digits of a customer's or rider's phone, or an order id. from and to are the order's created_at. Customers appear as the last four phone digits only. Permission: orders.read.
+      x-permission: orders.read
+      parameters:
+      - name: q
+        in: query
+        required: false
+        description: An order number, the last four phone digits of the customer or rider, or an order id.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+      - name: state
+        in: query
+        required: false
+        description: Only this order state.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/OrderState
+      - name: zone_id
+        in: query
+        required: false
+        description: Only this zone.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - name: from
+        in: query
+        required: false
+        description: Created at or after this time.
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        description: Created before this time.
+        schema:
+          type: string
+          format: date-time
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/orders/{order_id}/timeline:
+    get:
+      tags:
+      - orders
+      operationId: getOrderTimeline
+      summary: Show an order and everything that happened to it
+      description: >-
+        The order, with its gate label and pin, items, timer fields, remedies and refunds, then its events oldest first (from the order, its offers, payments, refunds, remedies, problem reports, tickets, reviews and the audit log), and a summary of the rider's pings (count, first and last time; pings are not events). The customer's phone and address appear only as the last four digits and the gate label. Permission: orders.read.
+      x-permission: orders.read
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderTimeline'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/tickets:
+    get:
+      tags:
+      - support
+      operationId: listTickets
+      summary: List support tickets
+      description: >-
+        Newest first. Messages are left out of the list; getTicket has them. Permission: tickets.manage.
+      x-permission: tickets.manage
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Only this status.
+        schema:
+          type: string
+          enum: [open, resolved]
+      - name: type
+        in: query
+        required: false
+        description: Only this kind of ticket.
+        schema:
+          type: string
+          enum: [missing_item, cold_food, wrong_item, payment, other]
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/tickets/{ticket_id}:
+    get:
+      tags:
+      - support
+      operationId: getTicket
+      summary: Show a ticket with its messages
+      description: >-
+        Messages oldest first. Permission: tickets.manage.
+      x-permission: tickets.manage
+      parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/tickets/{ticket_id}/messages:
+    post:
+      tags:
+      - support
+      operationId: replyTicket
+      summary: Reply to a ticket
+      description: >-
+        The customer sees the reply in the app. Errors: ticket_closed (409). Permission: tickets.manage.
+      x-permission: tickets.manage
+      parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketReply'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/tickets/{ticket_id}/close:
+    post:
+      tags:
+      - support
+      operationId: closeTicket
+      summary: Close a ticket
+      description: >-
+        Sets the status to resolved and keeps the reason with the ticket. Errors: ticket_closed (409), when it is already resolved. Permission: tickets.manage.
+      x-permission: tickets.manage
+      parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonBody'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/orders/{order_id}/refund:
+    post:
+      tags:
+      - support
+      operationId: requestRefund
+      summary: Refund an order
+      description: >-
+        Up to the amount paid less refunds already made. The limit is cumulative per order: the refunds already made from the console on this order, plus any refund approval still waiting, plus this one. If that total is at or below the setting refund_approval_paise (20000 paise, Rs 200, to start) the refund is made at once (200, the refund); if it is above, an approval of kind refund is created (202) and the refund is made when a second admin approves it. An approved refund is applied only if it still fits: otherwise the approval fails with failure_code refund_too_large or not_paid. Errors (all 409): refund_too_large (more than is left to refund; a fully refunded order answers this, not not_paid), not_paid, approval_pending (a refund approval already waits for this order). Permission: refunds.request.
+      x-permission: refunds.request
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '200':
+          description: Made at once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '202':
+          description: Waiting for a second admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/orders/{order_id}/replacement:
+    post:
+      tags:
+      - support
+      operationId: issueReplacement
+      summary: Owe the customer a replacement
+      description: >-
+        Records a remedy of kind replacement for the items listed. An order has at most one remedy of each type, so a second replacement is refused. Errors (all 409): not_paid, item_not_on_order, remedy_exists. Permission: remedies.issue.
+      x-permission: remedies.issue
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplacementRequest'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemedyResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/orders/{order_id}/credit:
+    post:
+      tags:
+      - support
+      operationId: issueCredit
+      summary: Owe the customer a credit
+      description: >-
+        Records a remedy of kind credit, owed to the customer. An order has at most one remedy of each type, so a second credit (including the credit for a missed timer) is refused; for more money use requestRefund. Errors (both 409): not_paid, remedy_exists. Permission: remedies.issue.
+      x-permission: remedies.issue
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditRequest'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemedyResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/incidents:
+    get:
+      tags:
+      - incidents
+      operationId: listIncidents
+      summary: List what needs a person
+      description: >-
+        One queue of support alerts (a refused handover, a lost signal), problem reports, open arrival reviews and open tickets. There is one incident per order and kind: a lost signal's problem report and its support alert make one signal_lost incident, not two. An incident whose source is a ticket or an arrival review closes by itself when its source closes. Newest first. Permission: incidents.read.
+      x-permission: incidents.read
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Only this status.
+        schema:
+          type: string
+          enum: [open, assigned, closed]
+      - name: kind
+        in: query
+        required: false
+        description: Only this kind.
+        schema:
+          type: string
+          enum: [support_alert, problem_report, arrival_review, ticket, signal_lost]
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/incidents/{incident_id}:
+    get:
+      tags:
+      - incidents
+      operationId: getIncident
+      summary: Show an incident with its notes
+      description: >-
+        Notes oldest first. Permission: incidents.read.
+      x-permission: incidents.read
+      parameters:
+      - name: incident_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/incidents/{incident_id}/assign:
+    post:
+      tags:
+      - incidents
+      operationId: assignIncident
+      summary: Assign an incident to a person
+      description: >-
+        user_id null takes the assignment away. The user must be active and have incidents.manage. Errors: incident_closed, user_cannot_take (both 409); an unknown user_id is 404. Permission: incidents.manage.
+      x-permission: incidents.manage
+      parameters:
+      - name: incident_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentAssign'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/incidents/{incident_id}/notes:
+    post:
+      tags:
+      - incidents
+      operationId: addIncidentNote
+      summary: Add a note to an incident
+      description: >-
+        Errors: incident_closed (409). Permission: incidents.manage.
+      x-permission: incidents.manage
+      parameters:
+      - name: incident_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentNote'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/incidents/{incident_id}/close:
+    post:
+      tags:
+      - incidents
+      operationId: closeIncident
+      summary: Close an incident
+      description: >-
+        Closing never changes the source. An incident whose source is an open ticket or an open arrival review cannot be closed here (source_open): close the ticket or decide the review first, and the incident then closes by itself. Support alerts and problem reports have no open state, so closing their incident marks them handled. Errors (both 409): incident_closed, source_open. Permission: incidents.manage.
+      x-permission: incidents.manage
+      parameters:
+      - name: incident_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonBody'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/hub-ops:
+    get:
+      tags:
+      - hub_ops
+      operationId: listHubOps
+      summary: Show how each hub is doing
+      description: >-
+        For each hub: its requests by state (confirmed, hub_accepted, packing, partial, ready, picked_up), how many are stuck (waiting longer than the setting restock_stuck_s), open shortfalls, quarantined lots and active staff. A hub_manager sees only their own hub. Permission: hub_ops.read.
+      x-permission: hub_ops.read
+      parameters:
+      - name: zone_id
+        in: query
+        required: false
+        description: Only hubs in this zone.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubOpsList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/hub-ops/stuck:
+    get:
+      tags:
+      - hub_ops
+      operationId: listStuckRestocks
+      summary: List stuck restock requests
+      description: >-
+        Requests in confirmed, hub_accepted or packing that have waited longer than the setting restock_stuck_s, longest first. A hub_manager sees only their own hub. Permission: hub_ops.read.
+      x-permission: hub_ops.read
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/restock/{request_id}/expire:
+    post:
+      tags:
+      - hub_ops
+      operationId: expireRestock
+      summary: Expire a stuck restock request
+      description: >-
+        Allowed only before the request is ready: in confirmed, hub_accepted, packing or partial. Anything already packed goes back to the hub's stock. The rider is told as when a request expires on its own: their seq rises and a push goes out. Errors: restock_not_expirable (409), in any other state. Permission: hub_ops.manage.
+      x-permission: hub_ops.manage
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonBody'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/zones/{zone_id}/live:
+    get:
+      tags:
+      - map
+      operationId: getLiveZone
+      summary: Show a zone live
+      description: >-
+        Riders, scooters and orders in the zone, and how many incidents are open. Poll no more often than every 5 seconds; faster gets 429 rate_limited with Retry-After. A live stream may follow. Permission: map.read.
+      x-permission: map.read
+      parameters:
+      - name: zone_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveZone'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
 components:
   securitySchemes:
     bearerAuth:
@@ -1708,11 +2541,15 @@ components:
         What a call needs; each role's list is in decision 0015. admin has every one; ops has
         approvals.read, riders.review, zones.read, settings.read, settings.request, zones.kill_switch,
         menu.manage, gates.read, gates.manage, hubs.read, hubs.manage, hub_staff.manage, reviews.read,
-        reviews.decide, alerts.read; support has zones.read, gates.read, reviews.read, reviews.decide,
-        alerts.read; hub_manager has hubs.read and hub_staff.manage for their own hub.
+        reviews.decide, alerts.read, orders.read, remedies.issue, incidents.read, incidents.manage,
+        hub_ops.read, hub_ops.manage, map.read; support has zones.read, gates.read, reviews.read,
+        reviews.decide, alerts.read, orders.read, tickets.manage, refunds.request, remedies.issue,
+        incidents.read, incidents.manage, map.read; hub_manager has hubs.read, hub_staff.manage and
+        hub_ops.read, for their own hub. approvals.decide is admin only.
       enum: [users.manage, approvals.read, approvals.decide, riders.review, flags.manage, zones.read, settings.read,
         settings.request, zones.kill_switch, menu.manage, gates.read, gates.manage, hubs.read, hubs.manage,
-        hub_staff.manage, audit.read, reviews.read, reviews.decide, alerts.read]
+        hub_staff.manage, audit.read, reviews.read, reviews.decide, alerts.read, orders.read, tickets.manage,
+        refunds.request, remedies.issue, incidents.read, incidents.manage, hub_ops.read, hub_ops.manage, map.read]
     Role:
       type: string
       description: admin runs users, settings and approvals; ops runs zones, hubs, riders and reviews; support handles customers and reviews; hub_manager runs one hub.
@@ -2059,7 +2896,7 @@ components:
           description: Why it was rejected or cancelled.
         failure_code:
           type: ['string', 'null']
-          description: Why an approved change could not be applied, such as stale_version or invalid_setting.
+          description: Why an approved change could not be applied, such as stale_version or invalid_setting, or for a refund refund_too_large or not_paid.
         expires_at:
           type: string
           format: date-time
@@ -2780,5 +3617,637 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PricePoint'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminOrderSummary:
+      type: object
+      required: [id, order_number, state, zone_id, customer, rider, total, created_at, ended_reason]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_number:
+          type: string
+          description: A letter and four digits, such as A1001.
+        state:
+          $ref: ../shared/common.yaml#/components/schemas/OrderState
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        customer:
+          $ref: '#/components/schemas/OrderCustomer'
+        rider:
+          oneOf:
+          - $ref: '#/components/schemas/Actor'
+          - type: 'null'
+        total:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        created_at:
+          type: string
+          format: date-time
+        ended_reason:
+          type: ['string', 'null']
+    OrderCustomer:
+      type: object
+      description: Only the last four phone digits are shown.
+      required: [id, phone_last4]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        phone_last4:
+          type: string
+          pattern: '^[0-9]{4}$'
+    AdminOrderItem:
+      type: object
+      required: [item_id, name, qty, unit_price]
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+        unit_price:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+    OrderGate:
+      type: object
+      description: The gate label and its pin on the map. The customer's address is never shown.
+      required: [label, lat, lng]
+      properties:
+        label:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+    OrderTimerFields:
+      type: object
+      description: The timer as fixed when the rider accepted.
+      required: [timer_started_at, timer_stopped_at, timer_duration_s, perimeter_m, timer_missed, arrival_source]
+      properties:
+        timer_started_at:
+          type: ['string', 'null']
+          format: date-time
+        timer_stopped_at:
+          type: ['string', 'null']
+          format: date-time
+        timer_duration_s:
+          type: ['integer', 'null']
+        perimeter_m:
+          type: ['integer', 'null']
+        timer_missed:
+          type: boolean
+        arrival_source:
+          type: ['string', 'null']
+          description: gps or handover.
+    ReplacementLine:
+      type: object
+      required: [item_id, qty]
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        qty:
+          type: integer
+          minimum: 1
+          maximum: 20
+    Remedy:
+      type: object
+      description: Something owed to the customer. created_by is null when the system made it, such as the credit for a missed timer.
+      required: [id, kind, amount, items, status, reason, created_by, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        kind:
+          type: string
+          enum: [credit, refund, replacement]
+        amount:
+          oneOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Money
+          - type: 'null'
+        items:
+          oneOf:
+          - type: array
+            items:
+              $ref: '#/components/schemas/ReplacementLine'
+          - type: 'null'
+        status:
+          type: string
+          enum: [owed, applied, cancelled]
+        reason:
+          type: string
+        created_by:
+          oneOf:
+          - $ref: '#/components/schemas/Actor'
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    Refund:
+      type: object
+      required: [id, order_id, amount, status, reason, requested_by, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        amount:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        status:
+          type: string
+          enum: [pending, processed, failed]
+        reason:
+          type: string
+        requested_by:
+          oneOf:
+          - $ref: '#/components/schemas/Actor'
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    AdminOrder:
+      type: object
+      description: The summary, plus the gate, items, timer fields, remedies and refunds.
+      required: [id, order_number, state, zone_id, customer, rider, total, created_at, ended_reason, gate, items, timer, remedies, refunds]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_number:
+          type: string
+        state:
+          $ref: ../shared/common.yaml#/components/schemas/OrderState
+        zone_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        customer:
+          $ref: '#/components/schemas/OrderCustomer'
+        rider:
+          oneOf:
+          - $ref: '#/components/schemas/Actor'
+          - type: 'null'
+        total:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        created_at:
+          type: string
+          format: date-time
+        ended_reason:
+          type: ['string', 'null']
+        gate:
+          $ref: '#/components/schemas/OrderGate'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderItem'
+        timer:
+          $ref: '#/components/schemas/OrderTimerFields'
+        remedies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Remedy'
+        refunds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Refund'
+    AdminOrderList:
+      type: object
+      required: [orders, next_cursor, server_time]
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderSummary'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TimelineEvent:
+      type: object
+      required: [at, source, kind, actor_type, actor_name, detail]
+      properties:
+        at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: [order, offer, payment, refund, remedy, problem, ticket, review, audit]
+        kind:
+          type: string
+          description: Open list, such as order.created or payment.captured.
+        actor_type:
+          type: string
+          description: Open list, such as customer, rider, console or system.
+        actor_name:
+          type: ['string', 'null']
+        detail:
+          type: object
+          additionalProperties: true
+          description: Only the listed, non-personal fields of the event, such as ids, states and amounts (Money). Never a phone number, an address or a handover code.
+    PingSummary:
+      type: object
+      required: [count, first_at, last_at]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        first_at:
+          type: ['string', 'null']
+          format: date-time
+        last_at:
+          type: ['string', 'null']
+          format: date-time
+    OrderTimeline:
+      type: object
+      required: [order, events, pings, server_time]
+      properties:
+        order:
+          $ref: '#/components/schemas/AdminOrder'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEvent'
+        pings:
+          $ref: '#/components/schemas/PingSummary'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TicketMessage:
+      type: object
+      required: [id, author_type, author_name, text, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        author_type:
+          type: string
+          enum: [customer, support]
+        author_name:
+          type: ['string', 'null']
+        text:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Ticket:
+      type: object
+      required: [id, order_id, type, status, subject, opened_at, closed_at, close_reason, messages]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_id:
+          type: ['string', 'null']
+        type:
+          type: string
+          enum: [missing_item, cold_food, wrong_item, payment, other]
+        status:
+          type: string
+          enum: [open, resolved]
+        subject:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: ['string', 'null']
+          format: date-time
+        close_reason:
+          type: ['string', 'null']
+        messages:
+          type: array
+          description: Oldest first. Empty in a list; filled when one ticket is read.
+          items:
+            $ref: '#/components/schemas/TicketMessage'
+    TicketList:
+      type: object
+      required: [tickets, next_cursor, server_time]
+      properties:
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TicketResponse:
+      type: object
+      required: [ticket, server_time]
+      properties:
+        ticket:
+          $ref: '#/components/schemas/Ticket'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    TicketReply:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    RefundRequest:
+      type: object
+      required: [amount_paise, reason]
+      properties:
+        amount_paise:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    RefundResponse:
+      type: object
+      required: [refund, server_time]
+      properties:
+        refund:
+          $ref: '#/components/schemas/Refund'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ReplacementRequest:
+      type: object
+      required: [items, reason]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ReplacementLine'
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    CreditRequest:
+      type: object
+      required: [amount_paise, reason]
+      properties:
+        amount_paise:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    RemedyResponse:
+      type: object
+      required: [remedy, server_time]
+      properties:
+        remedy:
+          $ref: '#/components/schemas/Remedy'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    Incident:
+      type: object
+      required: [id, kind, source_id, order_id, rider_id, status, assigned_to, opened_at, closed_at, notes_count]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        kind:
+          type: string
+          enum: [support_alert, problem_report, arrival_review, ticket, signal_lost]
+        source_id:
+          type: string
+          description: The alert, report, review or ticket this came from.
+        order_id:
+          type: ['string', 'null']
+        rider_id:
+          type: ['string', 'null']
+        status:
+          type: string
+          enum: [open, assigned, closed]
+        assigned_to:
+          oneOf:
+          - $ref: '#/components/schemas/Actor'
+          - type: 'null'
+        opened_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: ['string', 'null']
+          format: date-time
+        notes_count:
+          type: integer
+          minimum: 0
+    IncidentNoteEntry:
+      type: object
+      required: [id, text, author, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        text:
+          type: string
+        author:
+          $ref: '#/components/schemas/Actor'
+        created_at:
+          type: string
+          format: date-time
+    IncidentList:
+      type: object
+      required: [incidents, next_cursor, server_time]
+      properties:
+        incidents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    IncidentResponse:
+      type: object
+      required: [incident, notes, server_time]
+      properties:
+        incident:
+          $ref: '#/components/schemas/Incident'
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncidentNoteEntry'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    IncidentAssign:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          oneOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
+          description: A console user, or null to take the assignment away.
+    IncidentNote:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    RestockQueueCounts:
+      type: object
+      required: [confirmed, hub_accepted, packing, partial, ready, picked_up]
+      properties:
+        confirmed:
+          type: integer
+          minimum: 0
+        hub_accepted:
+          type: integer
+          minimum: 0
+        packing:
+          type: integer
+          minimum: 0
+        partial:
+          type: integer
+          minimum: 0
+        ready:
+          type: integer
+          minimum: 0
+        picked_up:
+          type: integer
+          minimum: 0
+    HubOps:
+      type: object
+      required: [hub, queue, stuck, open_shortfalls, quarantined_lots, active_staff]
+      properties:
+        hub:
+          $ref: '#/components/schemas/AdminHub'
+        queue:
+          $ref: '#/components/schemas/RestockQueueCounts'
+        stuck:
+          type: integer
+          minimum: 0
+          description: Requests in confirmed, hub_accepted or packing waiting longer than restock_stuck_s.
+        open_shortfalls:
+          type: integer
+          minimum: 0
+        quarantined_lots:
+          type: integer
+          minimum: 0
+        active_staff:
+          type: integer
+          minimum: 0
+    HubOpsList:
+      type: object
+      required: [hubs, server_time]
+      properties:
+        hubs:
+          type: array
+          items:
+            $ref: '#/components/schemas/HubOps'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminRestock:
+      type: object
+      required: [id, hub_id, rider, state, waiting_s, requested_at, ended_reason]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        hub_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        rider:
+          $ref: '#/components/schemas/Actor'
+        state:
+          type: string
+          enum: [confirmed, hub_accepted, packing, partial, ready, picked_up, expired]
+        waiting_s:
+          type: integer
+          minimum: 0
+          description: How long it has waited in its state.
+        requested_at:
+          type: string
+          format: date-time
+        ended_reason:
+          type: ['string', 'null']
+    RestockList:
+      type: object
+      required: [requests, next_cursor, server_time]
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminRestock'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RestockResponse:
+      type: object
+      required: [restock, server_time]
+      properties:
+        restock:
+          $ref: '#/components/schemas/AdminRestock'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    LiveRider:
+      type: object
+      required: [id, name, lat, lng, last_ping_at, state]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        last_ping_at:
+          type: ['string', 'null']
+          format: date-time
+        state:
+          type: string
+          enum: [idle, offered, on_order, moving, on_break]
+    LiveScooter:
+      type: object
+      required: [id, plate, node_id, rider_id, stock_units]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        plate:
+          type: string
+        node_id:
+          type: ['string', 'null']
+        rider_id:
+          type: ['string', 'null']
+        stock_units:
+          type: integer
+          minimum: 0
+    LiveGate:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+    LiveOrder:
+      type: object
+      required: [id, order_number, state, gate, rider_id, timer_started_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_number:
+          type: string
+        state:
+          $ref: ../shared/common.yaml#/components/schemas/OrderState
+        gate:
+          $ref: '#/components/schemas/LiveGate'
+        rider_id:
+          type: ['string', 'null']
+        timer_started_at:
+          type: ['string', 'null']
+          format: date-time
+    LiveZone:
+      type: object
+      required: [riders, scooters, orders, incidents_open, server_time]
+      properties:
+        riders:
+          type: array
+          items:
+            $ref: '#/components/schemas/LiveRider'
+        scooters:
+          type: array
+          items:
+            $ref: '#/components/schemas/LiveScooter'
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/LiveOrder'
+        incidents_open:
+          type: integer
+          minimum: 0
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime

@@ -1,0 +1,24 @@
+meta {
+  name: issueCredit
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{baseUrl}}/admin/orders/mock_id/credit
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-issueCredit-0001
+}
+
+body:json {
+  {
+    "amount_paise": 1,
+    "reason": "mock_value"
+  }
+}

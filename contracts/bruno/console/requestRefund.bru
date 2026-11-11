@@ -1,0 +1,24 @@
+meta {
+  name: requestRefund
+  type: http
+  seq: 51
+}
+
+post {
+  url: {{baseUrl}}/admin/orders/mock_id/refund
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-requestRefund-0001
+}
+
+body:json {
+  {
+    "amount_paise": 1,
+    "reason": "mock_value"
+  }
+}

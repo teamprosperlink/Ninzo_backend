@@ -61,6 +61,8 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `support` | `ticket_messages` | Messages on a ticket | v0.6.0 |
 | `support` | `problem_reports` | Rider problem buttons | v0.6.0 |
 | `support` | `arrival_reviews` | Late arrivals awaiting review, with their 10-minute limit | v0.6.0 |
+| `support` | `incidents` | One queue of what needs a person: a support alert, problem report, open arrival review or open ticket, each with its assignee and status. A background task opens them from the source rows | v0.10.0 |
+| `support` | `incident_notes` | Notes staff add to an incident | v0.10.0 |
 | `support` | `earnings` | Per-order pay, incentives and paid repositioning time | v0.7.0 |
 | `restock` | `restock_requests` | Requests and their states | v0.7.0 |
 | `restock` | `restock_lines` | Items and filled quantities | v0.7.0 |
@@ -206,7 +208,7 @@ The partner (hub) app's endpoints (#122). Every hub path acts on the signed-in s
 
 ## 4.2 Console API
 
-The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; until then only the contract and mock exist.
+The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; until then only the contract and mock exist. The last 18 rows (orders, support actions, incidents, hub operations and the live map) are v0.10.0 (#146 to #150), and read `incidents` and `incident_notes`, which arrive in v0.10.0.
 
 | Endpoint | Reads | Writes | Redis | Outside calls |
 |---|---|---|---|---|
@@ -252,6 +254,30 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `listArrivalReviews` | `arrival_reviews` |  |  | |
 | `decideArrivalReview` | `arrival_reviews`, `orders`, `remedies`, `console_users` | `arrival_reviews`, `orders`, `remedies`, `order_events`, `audit_events`, `idempotency_keys` |  | |
 | `listSupportAlerts` | `outbox_events` |  |  | |
+| `listAdminOrders` | `orders`, `people`, `customers`, `riders`, `zones` |  |  | |
+| `getOrderTimeline` | `orders`, `order_items`, `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets`, `arrival_reviews`, `audit_events`, `location_pings`, `gates`, `riders`, `people` |  |  | |
+| `listTickets` | `support_tickets` |  |  | |
+| `getTicket` | `support_tickets`, `ticket_messages`, `people` |  |  | |
+| `replyTicket` | `support_tickets` | `ticket_messages`, `outbox_events`, `audit_events`, `idempotency_keys` |  | FCM, through `deliver_outbox` |
+| `closeTicket` | `support_tickets` | `support_tickets`, `incidents`, `audit_events`, `idempotency_keys` |  | |
+| `requestRefund` | `orders`, `payments`, `refunds`, `zone_settings`, `approvals`, `console_users` | `refunds`, `approvals`, `order_events`, `scheduled_tasks`, `audit_events`, `idempotency_keys` |  | Razorpay, through `send_refund`. Above `refund_approval_paise` only an approval is written, and `approveChange` makes the refund |
+| `issueReplacement` | `orders`, `order_items`, `payments` | `remedies`, `order_events`, `outbox_events`, `audit_events`, `idempotency_keys` |  | |
+| `issueCredit` | `orders`, `payments` | `remedies`, `order_events`, `outbox_events`, `audit_events`, `idempotency_keys` |  | |
+| `listIncidents` | `incidents`, `console_users` |  |  | |
+| `getIncident` | `incidents`, `incident_notes`, `console_users` |  |  | |
+| `assignIncident` | `incidents`, `console_users` | `incidents`, `audit_events`, `idempotency_keys` |  | |
+| `addIncidentNote` | `incidents`, `console_users` | `incident_notes`, `audit_events`, `idempotency_keys` |  | |
+| `closeIncident` | `incidents`, `outbox_events`, `support_tickets`, `arrival_reviews` | `incidents`, `outbox_events`, `audit_events`, `idempotency_keys` |  | |
+| `listHubOps` | `hubs`, `hub_staff`, `restock_requests`, `shortfalls`, `lots`, `zone_settings`, `console_users` |  |  | |
+| `listStuckRestocks` | `restock_requests`, `hubs`, `riders`, `people`, `zone_settings`, `console_users` |  |  | |
+| `expireRestock` | `restock_requests`, `restock_lots`, `zone_settings`, `console_users` | `restock_requests`, `restock_lots`, `hub_state`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` |  | FCM, through `deliver_outbox`. Only before `ready`; packed lots go back to the hub's stock |
+| `getLiveZone` | `zones`, `riders`, `people`, `shifts`, `rider_state`, `location_pings`, `scooters`, `scooter_stock`, `staging_nodes`, `orders`, `gates`, `incidents` |  | Latest rider position | |
+
+**Planned new columns (v0.10.0), for the server to add by migration:**
+- `refunds`: `reason` and `requested_by` (the console user). A console refund needs its own `reason_code` per refund, because of `UNIQUE (payment_id, reason_code)`, so two partial refunds on one payment do not collide.
+- `remedies`: `items` (the replacement's lines) and `created_by` (null when the system made it). An order has at most one remedy of each type (`UNIQUE (order_id, type)`), so `issueCredit` and `issueReplacement` answer `remedy_exists` for a second.
+- `support_tickets`: `closed_at` and `close_reason`. Statuses stay `open` and `resolved`; closing sets `resolved`.
+- `incidents`: one row per order and kind (a lost signal's problem report and support alert make one `signal_lost` incident).
 
 ## 5. Background work
 `cmd/worker` runs these from `scheduled_tasks`, or from `outbox_events`. A restart loses nothing, because they are rows and not memory. Each one must be safe to run twice.
@@ -274,6 +300,7 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `deliver_outbox` | `outbox_events`, `devices` | `outbox_events`, `earnings`, `availability_notifications` | Polling. Sends pushes, and records pay when an order is handed over | FCM, SMS gateway |
 | `suggest_relocations` | `scooters`, `staging_nodes`, `orders`, `zone_settings` | `relocations`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
 | `suggest_restocks` | `scooters`, `scooter_stock`, `lots`, `zone_settings` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events` | On a timer, from v0.7.0 | |
+| `open_incidents` | `outbox_events`, `problem_reports`, `arrival_reviews`, `support_tickets`, `incidents` | `incidents`, `outbox_events` | v0.10.0. On new support alerts, problem reports, open arrival reviews and open tickets: opens one incident per order and kind (a lost signal's report and alert make one `signal_lost` incident), and closes an incident when its ticket or review closes | |
 | `purge_platform_rows` | `idempotency_keys`, `outbox_events`, `refresh_tokens`, `otp_requests` | `idempotency_keys`, `outbox_events`, `refresh_tokens`, `otp_requests` | Daily. Deletes keys older than 24 hours, delivered events older than 7 days, refresh tokens 30 days after they expire or end, and codes older than a day | |
 | `create_ping_partitions` | `location_pings` | `location_pings` | Daily. Drops nothing until retention is decided. `ninzo_service` cannot create tables, so this needs a narrow function made by a migration, in v0.5.0 | |
 
