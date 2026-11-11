@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-11 | #152 | console sign-in with email; authenticator optional until pre-launch | See PR | PASS | [reports/152.md](reports/152.md) |
 | 2026-11-11 | #138 | `v0.9.0` audit log, arrival reviews and support alerts | See PR | PASS | [reports/138.md](reports/138.md) |
 | 2026-11-11 | #137 | `v0.9.0` menu and prices, gates, hubs and hub staff | See PR | PASS | [reports/137.md](reports/137.md) |
 | 2026-11-11 | #136 | `v0.9.0` zones, settings and the kill switch | See PR | PASS | [reports/136.md](reports/136.md) |

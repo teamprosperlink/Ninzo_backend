@@ -529,3 +529,68 @@ func TestDeactivationRevokesRefreshTokens(t *testing.T) {
 		t.Errorf("%d refresh tokens survive deactivation", n)
 	}
 }
+
+func TestSigningInWithAnEmail(t *testing.T) {
+	f := newFixture(t)
+	_, temp := f.user("asha.k@ninzo.in", "admin")
+	token := f.signIn("asha.k@ninzo.in", temp)
+	// The email is not case sensitive at sign-in.
+	if code, out := f.call("POST", "/auth/login", "", `{"login_id":"Asha.K@Ninzo.IN","password":"`+temp+`-changed-now"}`); code != 200 || out["totp_enrolled"] != true {
+		t.Errorf("%d %v", code, out)
+	}
+	code, out := f.call("POST", "/admin/users", token, `{"login_id":"ravi@ninzo.in","name":"Ravi","role":"ops"}`)
+	if code != 201 || out["user"].(map[string]any)["login_id"] != "ravi@ninzo.in" {
+		t.Fatalf("%d %v", code, out)
+	}
+	if code, out := f.call("POST", "/admin/users", token, `{"login_id":"RAVI@NINZO.IN","name":"Again","role":"ops"}`); code != 409 || out["code"] != "login_id_taken" {
+		t.Errorf("the same email in capitals is taken: %d %v", code, out)
+	}
+	for _, bad := range []string{"ravi@", "@ninzo.in", "ravi@ninzo", "ravi k@ninzo.in", "ravi@" + strings.Repeat("a", 250) + ".in"} {
+		if code, _ := f.call("POST", "/admin/users", token, `{"login_id":"`+bad+`","name":"Bad","role":"ops"}`); code != 400 {
+			t.Errorf("%q: %d", bad, code)
+		}
+	}
+	// The database holds the same rule, whoever writes.
+	if _, err := f.pool.Exec(context.Background(), "INSERT INTO console_users (login_id, name, role, password_hash) VALUES ('not an email@', 'X', 'ops', 'x')"); err == nil {
+		t.Error("the database took a bad login")
+	}
+}
+
+func TestTheCodeIsOptionalUntilPreLaunch(t *testing.T) {
+	f := newFixture(t)
+	f.svc.TOTPOptional = true
+	_, temp := f.user("team@ninzo.in", "admin")
+	code, out := f.call("POST", "/auth/login", "", `{"login_id":"team@ninzo.in","password":"`+temp+`"}`)
+	session, _ := out["session"].(map[string]any)
+	if code != 200 || out["totp_required"] != false || session == nil || session["role"] != "admin" || session["must_change_password"] != true {
+		t.Fatalf("the password alone signs in: %d %v", code, out)
+	}
+	token := session["access_token"].(string)
+	if code, out := f.call("GET", "/admin/users", token, ""); code != 403 || out["code"] != "password_change_required" {
+		t.Errorf("the temporary password must still go first: %d %v", code, out)
+	}
+	if code, _ := f.call("POST", "/me/password", token, `{"current_password":"`+temp+`","new_password":"a-long-enough-password"}`); code != 200 {
+		t.Fatal("the password change")
+	}
+	if code, _ := f.call("GET", "/admin/users", token, ""); code != 200 {
+		t.Errorf("after the change: %d", code)
+	}
+	if f.count("SELECT count(*) FROM audit_events WHERE action = 'session.started' AND reason LIKE 'password only%'") != 1 {
+		t.Error("a password-only sign-in must be audited as one")
+	}
+	// A user who set up an authenticator is still asked for it.
+	_, out = f.call("POST", "/auth/login", "", `{"login_id":"team@ninzo.in","password":"a-long-enough-password"}`)
+	secret := f.secret(out["challenge_id"].(string), false, "team@ninzo.in")
+	f.now = f.now.Add(31 * time.Second)
+	f.call("POST", "/auth/totp/verify", "", `{"challenge_id":"`+out["challenge_id"].(string)+`","code":"`+TOTPCode(secret, StepOf(f.now))+`"}`)
+	code, out = f.call("POST", "/auth/login", "", `{"login_id":"team@ninzo.in","password":"a-long-enough-password"}`)
+	if code != 200 || out["totp_required"] != true || out["session"] != nil || out["totp_enrolled"] != true {
+		t.Errorf("once set up, the code is asked for: %d %v", code, out)
+	}
+	// With the switch off (the default, and production), the password alone never signs in.
+	f.svc.TOTPOptional = false
+	_, other := f.user("ops@ninzo.in", "ops")
+	if _, out := f.call("POST", "/auth/login", "", `{"login_id":"ops@ninzo.in","password":"`+other+`"}`); out["totp_required"] != true || out["session"] != nil {
+		t.Errorf("%v", out)
+	}
+}

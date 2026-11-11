@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console sign-in with an email address (#152)
+- Changed: the console `login_id` accepts an email address (owner, 2026-11-11); the older ID form still works.
+- Changed: the authenticator code is optional until pre-launch (`CONSOLE_TOTP=optional` on staging; production refuses it). The login reply gains `totp_required` and, when false, `session`.
+- Added: migration 0038, the wider `console_users.login_id` check. Not applied to Supabase.
+- Evidence: docs/testing/reports/152.md
+
 ### Audit log, arrival reviews and support alerts (#138)
 - Added: `listAuditEvents` (newest first, filters by time, actor, action and entity; secrets and full phone numbers hidden), `listArrivalReviews` (open first), `decideArrivalReview` (arrived_in_time stops the timer at the rider's evidence and clears the miss; late keeps it and its credit), `listSupportAlerts`.
 - Changed: a refused handover's support alert names its order, and a lost signal now raises a support alert (its problem report already said support was alerted).

@@ -48,7 +48,10 @@ type Service struct {
 	Sealer   Sealer
 	Issuer   string // Shown in authenticator apps. "Ninzo" by default.
 	Limits   *identity.Limits
-	now      func() time.Time
+	// TOTPOptional: a user with no authenticator signs in with the password alone. Off in
+	// production (config refuses it); on for staging until pre-launch.
+	TOTPOptional bool
+	now          func() time.Time
 }
 
 func (s *Service) clock() time.Time {
@@ -100,7 +103,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		LoginID  string `json:"login_id"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.LoginID == "" || body.Password == "" || len(body.LoginID) > 80 || len(body.Password) > 200 {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.LoginID == "" || body.Password == "" || len(body.LoginID) > 254 || len(body.Password) > 200 {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send login_id and password.", false)
 		return
 	}
@@ -119,8 +122,9 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	right := CheckPassword(hash, body.Password)
-	var token string
+	var token, role string
 	var enrolled, mustChange, refused bool
+	var pair identity.Pair
 	err = database.InTx(r.Context(), s.Pool, func(tx pgx.Tx) error {
 		var current string
 		var active bool
@@ -147,17 +151,37 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.Exec(r.Context(), "UPDATE console_users SET failed_logins = 0, failed_since = NULL, locked_until = NULL WHERE id = $1", id); err != nil {
 			return err
 		}
-		_, err := tx.Exec(r.Context(), "INSERT INTO console_challenges (token_hash, user_id, expires_at) VALUES ($1, $2, $3)", hashToken(token), id, now.Add(challengeLife))
-		return err
+		if _, err := tx.Exec(r.Context(), "INSERT INTO console_challenges (token_hash, user_id, expires_at) VALUES ($1, $2, $3)", hashToken(token), id, now.Add(challengeLife)); err != nil {
+			return err
+		}
+		if !s.TOTPOptional || enrolled {
+			return nil // The code is still needed: verifyTotp starts the session.
+		}
+		// No authenticator yet, and it is not required: the password alone starts the session.
+		if err := tx.QueryRow(r.Context(), "SELECT role FROM console_users WHERE id = $1", id).Scan(&role); err != nil {
+			return err
+		}
+		var actor identity.Actor
+		var err error
+		if pair, actor, err = s.Sessions.Start(r.Context(), tx, identity.TypeConsole, id); err != nil {
+			return err
+		}
+		return audit.Record(r.Context(), tx, audit.Event{ActorType: identity.TypeConsole, ActorID: id, Action: "session.started", EntityType: "session", EntityID: actor.ChainID,
+			Reason: "password only: the authenticator is not required yet"})
 	})
 	switch {
 	case err != nil:
 		s.unavailable(w, r, err)
 	case refused:
-		httpserver.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "That ID or password is wrong, or the account is locked for a while.", false)
+		httpserver.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "That email or password is wrong, or the account is locked for a while.", false)
 	default:
-		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"challenge_id": token, "totp_enrolled": enrolled, "must_change_password": mustChange,
-			"expires_in_s": int(challengeLife.Seconds()), "server_time": serverTime()})
+		reply := map[string]any{"challenge_id": token, "totp_enrolled": enrolled, "totp_required": pair.AccessToken == "", "must_change_password": mustChange,
+			"expires_in_s": int(challengeLife.Seconds()), "session": nil, "server_time": serverTime()}
+		if pair.AccessToken != "" {
+			reply["session"] = map[string]any{"access_token": pair.AccessToken, "refresh_token": pair.RefreshToken, "expires_in_s": pair.ExpiresInS,
+				"user_id": id, "role": role, "must_change_password": mustChange, "server_time": serverTime()}
+		}
+		httpserver.WriteJSON(w, http.StatusOK, reply)
 	}
 }
 

@@ -22,6 +22,7 @@ var consoleScenarios = map[string]string{
 	"rider_verification_failed": "The rider review queue has a rider whose verification failed",
 	"rider_not_verified":        "Approving a rider fails with not_verified",
 	"login_id_taken":            "Adding a user fails with login_id_taken",
+	"password_only":             "Login signs in with the password alone (totp_required false, with session), as on staging until pre-launch",
 	"last_admin":                "Demoting or deactivating fails with last_admin",
 	"name_taken":                "Adding a menu item or hub fails with name_taken",
 	"outside_zone":              "A gate edit fails with outside_zone",
@@ -169,17 +170,23 @@ func consoleRoutes() []route {
 			}
 			switch c.scenario {
 			case "invalid_credentials":
-				c.fail(401, "invalid_credentials", "That ID or password is wrong.", false)
+				c.fail(401, "invalid_credentials", "That email or password is wrong.", false)
 				return
 			case "account_locked":
-				c.fail(401, "invalid_credentials", "That ID or password is wrong, or the account is locked for a while.", false)
+				c.fail(401, "invalid_credentials", "That email or password is wrong, or the account is locked for a while.", false)
 				return
 			case "rate_limited":
 				c.fail(429, "rate_limited", "Too many requests.", true)
 				return
 			}
-			c.json(200, map[string]any{"challenge_id": "chl_mock01", "totp_enrolled": c.scenario != "totp_not_enrolled",
-				"must_change_password": c.scenario == "must_change_password", "expires_in_s": 300})
+			reply := map[string]any{"challenge_id": "chl_mock01", "totp_enrolled": c.scenario != "totp_not_enrolled", "totp_required": c.scenario != "password_only",
+				"must_change_password": c.scenario == "must_change_password", "expires_in_s": 300, "session": nil}
+			if c.scenario == "password_only" {
+				reply["totp_enrolled"] = false
+				reply["session"] = map[string]any{"access_token": "mock-access-token", "refresh_token": "mock-refresh-token", "expires_in_s": 900,
+					"user_id": consoleUserID, "role": "admin", "must_change_password": false, "server_time": time.Now().UTC().Format(time.RFC3339Nano)}
+			}
+			c.json(200, reply)
 		}},
 		{method: "POST", path: "/auth/totp/enroll", open: true, noIdempotent: true, handle: func(c *call) {
 			if _, ok := needsBody(c, "challenge_id"); !ok {
