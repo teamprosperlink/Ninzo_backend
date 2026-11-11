@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Geo design and research record (#162)
+- Added: `docs/engineering/geo/`, the decision and research record for maps, the H3 grid, OSRM routing, rider placement, matching, routes and ETA, demand, simulation and map providers. A draft for owner review; no code.
+- Added: the owner's notes of 2026-11-11 on the hybrid grid, pre-mapping and the sweet spot, as `docs/context/algorithms/2026-11-11-owner-notes-hybrid-and-premapping.md`.
+- Evidence: docs/testing/reports/162.md
+
 ### Console ops and support: contract and mock (#146)
 - Added: 18 console operations in `contracts/console/openapi.yaml` with the mock: orders (`listAdminOrders`, `getOrderTimeline`), support actions (`listTickets`, `getTicket`, `replyTicket`, `closeTicket`, `requestRefund`, `issueReplacement`, `issueCredit`), incidents (`listIncidents`, `getIncident`, `assignIncident`, `addIncidentNote`, `closeIncident`), hub operations (`listHubOps`, `listStuckRestocks`, `expireRestock`) and the live map (`getLiveZone`). No server code yet.
 - Added: permissions `orders.read`, `tickets.manage`, `refunds.request`, `remedies.issue`, `incidents.read`, `incidents.manage`, `hub_ops.read`, `hub_ops.manage`, `map.read`, in the contract's Permission list, the mock and `console.RolePermissions` (decision 0015's roles).

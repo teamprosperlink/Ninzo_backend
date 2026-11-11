@@ -41,6 +41,8 @@ Each version is a GitHub Milestone, each phase is an Issue, and each sub-phase i
 |---|---|---|---|---|
 | v1.0.0 | Pilot ready | Razorpay, real SMS and Apple sign-in, once credentials arrive; load and failure tests; security scan; monitoring; live keys and go-live steps | All P1 features shipped per Definition of Done | planned |
 
+**`v1.0.0` geo work** (owner, 2026-11-11): road times from OSRM, the H3 grid and cell sets per gate, live rider data, rider placement, matching, routes and ETA, demand, and a simulator. Workstreams, order and options: `docs/engineering/geo/README.md` (#162).
+
 Status values: planned · in progress · released.
 
 ## Parts for v0.7.0 to v0.10.0

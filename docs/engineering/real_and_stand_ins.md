@@ -26,7 +26,7 @@ Update this page in the same PR as any change to a row. The shared Doc points ap
 | Scooter battery (`battery_pct` on the rider's shift) | Stand-in | Always null. There is no scooter data yet | Scooter telemetry, when the pilot scooters report it | When the scooters report |
 | Restock `ready_in_s` | Stand-in | Counts down to the hub's queue slot, which the hub simulator sets. Null without a slot, 0 once the slot has passed | The real hub's packing time, from the hub app (v0.8.0) | With the hub app |
 | **Reach in availability** | Stand-in | Straight-line distance from the scooter's staging node, at a placeholder speed | Rider GPS, then real road times from a routing engine | GPS v0.5.0, roads after the road test |
-| H3 map grid | Not built | Not needed at pilot size, where PostGIS is exact | H3 cells, if demand data needs them | After real traffic |
+| H3 map grid | Not built | PostGIS is exact at pilot size. Whether the pilot uses H3, a PostGIS hexagon grid or plain geometry is open (G18 in `docs/engineering/geo/`) | Road-time cell sets per gate (`docs/engineering/geo/w2-map-grid-and-distribution.md`) | v1.0.0 geo work |
 | Matching riders to orders | Not built | | Nearest rider on shift with the whole basket, then ranking | v0.5.0 |
 | Orders and holds on one scooter | Real | Built (#78), on staging (#82) | | v0.4.0 |
 | Cancel window, retry, gate change and refund rules | Real | Built (#80), on staging (#82). Refunds of the test payment are marked processed at once, as no money moved | Razorpay refunds stay pending until Razorpay says processed | v0.4.0 |
