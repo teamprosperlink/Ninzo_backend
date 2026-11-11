@@ -21,6 +21,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/notify"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
@@ -38,6 +39,7 @@ func (r *refusal) Error() string { return "shifts: " + r.code }
 var (
 	errNotFound = errors.New("shifts: not found")
 	errBlocked  = errors.New("shifts: blocked")
+	errInvalid  = errors.New("shifts: invalid request")
 )
 
 func refuse(code, message string) error { return &refusal{code, message} }
@@ -53,9 +55,11 @@ func IsOrderInProgress(err error) bool {
 type Service struct {
 	Pool *pgxpool.Pool
 	Log  *slog.Logger
+	now  func() time.Time // Tests set the clock. Nil means the real one.
 }
 
-// MountRider adds startShift, endShift, listNodes, scanStock and getStock.
+// MountRider adds startShift, endShift, listNodes, scanStock, getStock, startBreak, endBreak,
+// submitStockCount, listRiderShifts and getShiftSummary.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
@@ -65,6 +69,11 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.Get("/nodes", s.listNodes)
 		g.With(idem).Post("/riders/me/stock/scan", s.scanStock)
 		g.Get("/riders/me/stock", s.getStock)
+		g.With(idem).Post("/riders/me/breaks/start", s.startBreak)
+		g.With(idem).Post("/riders/me/breaks/end", s.endBreak)
+		g.With(idem).Post("/riders/me/stock/count", s.submitStockCount)
+		g.Get("/riders/me/shifts", s.listRiderShifts)
+		g.Get("/riders/me/shifts/{shift_id}/summary", s.getShiftSummary)
 	})
 }
 
@@ -83,6 +92,8 @@ func (s *Service) fail(w http.ResponseWriter, r *http.Request, err error) {
 		identity.WriteBlocked(w)
 	case errors.Is(err, errNotFound):
 		httpserver.WriteError(w, http.StatusNotFound, "not_found", "Not found.", false)
+	case errors.Is(err, errInvalid):
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Check the request and send it again.", false)
 	default:
 		s.Log.Error("shifts: request failed", "request_id", httpserver.RequestID(r.Context()), "error", err.Error())
 		httpserver.WriteError(w, http.StatusInternalServerError, "internal_error", "Try again shortly.", true)
@@ -141,8 +152,8 @@ type shift struct {
 	// on this shift. Both are filled by Fill.
 	NodeAssignedAt string         `json:"node_assigned_at"`
 	Scooter        map[string]any `json:"scooter"`
-	// Breaks and the shift's device are in the contract (#157); they stay null until the server
-	// side is built (#159).
+	// BreakStartedAt and BreakEndsAt are set while the rider is on a break; DeviceID is the phone the
+	// shift was started on, if startShift was told.
 	BreakStartedAt *string `json:"break_started_at"`
 	BreakEndsAt    *string `json:"break_ends_at"`
 	DeviceID       *string `json:"device_id"`
@@ -168,11 +179,30 @@ func Fill(ctx context.Context, q querier, shiftID string, started time.Time) (as
 
 // openShift returns the rider's open shift and its scooter, locked.
 func openShift(ctx context.Context, tx pgx.Tx, riderID string) (shift, string, bool, error) {
+	return loadOpen(ctx, tx, riderID, " FOR UPDATE")
+}
+
+// OpenShift returns the rider's open shift as the apps read it, with no lock, or false if none is
+// open. It is the one place that builds a shift for getRiderState.
+func OpenShift(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, riderID string) (map[string]any, bool, error) {
+	sh, _, open, err := loadOpen(ctx, q, riderID, "")
+	if err != nil || !open {
+		return nil, false, err
+	}
+	return map[string]any{"id": sh.ID, "node_id": sh.NodeID, "started_at": sh.StartedAt, "ended_at": nil,
+		"node_assigned_at": sh.NodeAssignedAt, "scooter": sh.Scooter,
+		"break_started_at": sh.BreakStartedAt, "break_ends_at": sh.BreakEndsAt, "device_id": sh.DeviceID}, true, nil
+}
+
+func loadOpen(ctx context.Context, q querier, riderID, lock string) (shift, string, bool, error) {
 	var sh shift
 	var scooter string
 	var started time.Time
-	err := tx.QueryRow(ctx, `SELECT id::text, node_id::text, scooter_id::text, started_at FROM shifts
-		WHERE rider_id = $1 AND ended_at IS NULL FOR UPDATE`, riderID).Scan(&sh.ID, &sh.NodeID, &scooter, &started)
+	var breakStart, breakEnd *time.Time
+	err := q.QueryRow(ctx, `SELECT id::text, node_id::text, scooter_id::text, started_at, break_started_at, break_ends_at, device_id::text FROM shifts
+		WHERE rider_id = $1 AND ended_at IS NULL`+lock, riderID).Scan(&sh.ID, &sh.NodeID, &scooter, &started, &breakStart, &breakEnd, &sh.DeviceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sh, "", false, nil
 	}
@@ -180,20 +210,34 @@ func openShift(ctx context.Context, tx pgx.Tx, riderID string) (shift, string, b
 		return sh, "", false, err
 	}
 	sh.StartedAt = stamp(started)
-	sh.NodeAssignedAt, sh.Scooter, err = Fill(ctx, tx, sh.ID, started)
+	sh.BreakStartedAt, sh.BreakEndsAt = optStamp(breakStart), optStamp(breakEnd)
+	sh.NodeAssignedAt, sh.Scooter, err = Fill(ctx, q, sh.ID, started)
 	return sh, scooter, err == nil, err
+}
+
+// optStamp is a time as the apps read it, or nil.
+func optStamp(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := stamp(*t)
+	return &s
 }
 
 func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
 	var body struct {
-		NodeID string `json:"node_id"`
+		NodeID   string  `json:"node_id"`
+		DeviceID *string `json:"device_id"`
+		TakeOver bool    `json:"take_over"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !idPattern.MatchString(body.NodeID) {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send node_id.", false)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !idPattern.MatchString(body.NodeID) ||
+		(body.DeviceID != nil && !idPattern.MatchString(*body.DeviceID)) || (body.TakeOver && body.DeviceID == nil) {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send node_id, and a device_id with take_over.", false)
 		return
 	}
 	var reply map[string]any
+	unknownDevice := false
 	err := database.InTx(r.Context(), s.Pool, func(tx pgx.Tx) error {
 		if err := identity.CheckSession(r.Context(), tx, actor); err != nil {
 			return err
@@ -201,6 +245,20 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 		rd, err := readRider(r.Context(), tx, actor.ID)
 		if err != nil {
 			return err
+		}
+		// The device must be one this rider registered, so a shift never names another person's phone.
+		var device any
+		if body.DeviceID != nil {
+			var known bool
+			if err := tx.QueryRow(r.Context(), "SELECT EXISTS (SELECT 1 FROM devices WHERE id = $1 AND actor_type = 'rider' AND actor_id = $2)",
+				*body.DeviceID, actor.ID).Scan(&known); err != nil {
+				return err
+			}
+			if !known {
+				unknownDevice = true
+				return nil
+			}
+			device = *body.DeviceID
 		}
 		if rd.status != "active" {
 			return refuse("rider_not_approved", "Ninzo has not approved this rider yet.")
@@ -221,7 +279,28 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if _, _, open, err := openShift(r.Context(), tx, actor.ID); err != nil || open {
+		if current, _, open, err := openShift(r.Context(), tx, actor.ID); err != nil || open {
+			if err == nil && body.TakeOver {
+				// A new phone, or a reinstall: this rider's open shift moves to it. The same phone again
+				// changes nothing.
+				if current.DeviceID == nil || *current.DeviceID != *body.DeviceID {
+					if _, err := tx.Exec(r.Context(), "UPDATE shifts SET device_id = $2 WHERE id = $1", current.ID, device); err != nil {
+						return err
+					}
+					if err := bump(r.Context(), tx, actor.ID); err != nil {
+						return err
+					}
+					if err := audit.Record(r.Context(), tx, audit.Event{
+						ActorType: identity.TypeRider, ActorID: actor.ID, Action: "shift.taken_over", EntityType: "shift", EntityID: current.ID,
+						Before: map[string]any{"device_id": current.DeviceID}, After: map[string]any{"device_id": *body.DeviceID},
+					}); err != nil {
+						return err
+					}
+					current.DeviceID = body.DeviceID
+				}
+				reply = map[string]any{"shift": current, "server_time": serverTime()}
+				return idempotency.Save(r.Context(), tx, http.StatusOK, reply)
+			}
 			if err == nil {
 				err = refuse("shift_already_open", "A shift is already open.")
 			}
@@ -250,11 +329,12 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 		}
 		var sh shift
 		var started time.Time
-		if err := tx.QueryRow(r.Context(), `INSERT INTO shifts (rider_id, node_id, scooter_id) VALUES ($1, $2, $3)
-			RETURNING id::text, node_id::text, started_at`, actor.ID, body.NodeID, scooter).Scan(&sh.ID, &sh.NodeID, &started); err != nil {
+		if err := tx.QueryRow(r.Context(), `INSERT INTO shifts (rider_id, node_id, scooter_id, device_id) VALUES ($1, $2, $3, $4)
+			RETURNING id::text, node_id::text, started_at`, actor.ID, body.NodeID, scooter, device).Scan(&sh.ID, &sh.NodeID, &started); err != nil {
 			return err
 		}
 		sh.StartedAt = stamp(started)
+		sh.DeviceID = body.DeviceID
 		if sh.NodeAssignedAt, sh.Scooter, err = Fill(r.Context(), tx, sh.ID, started); err != nil {
 			return err
 		}
@@ -272,6 +352,10 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	if unknownDevice {
+		httpserver.WriteError(w, http.StatusBadRequest, "unknown_device", "That phone is not registered for this rider. Register it first.", false)
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, reply)
@@ -334,12 +418,22 @@ func EndShiftTx(ctx context.Context, tx pgx.Tx, rider, byType, by string) (shift
 		rider); err != nil {
 		return sh, false, err
 	}
+	// Ending the shift ends a break, and the stock left on the scooter is kept for the summary.
+	if _, err := tx.Exec(ctx, "UPDATE shift_breaks SET ended_at = greatest(now(), started_at), ended_by = 'shift_end' WHERE shift_id = $1 AND ended_at IS NULL", sh.ID); err != nil {
+		return sh, false, err
+	}
 	var ended time.Time
-	if err := tx.QueryRow(ctx, "UPDATE shifts SET ended_at = now() WHERE id = $1 RETURNING ended_at", sh.ID).Scan(&ended); err != nil {
+	if err := tx.QueryRow(ctx, `UPDATE shifts SET ended_at = now(), break_started_at = NULL, break_ends_at = NULL, returned_items = (
+			SELECT coalesce(jsonb_agg(jsonb_build_object('item_id', t.item_id, 'name', t.name, 'qty', t.qty) ORDER BY t.name, t.item_id), '[]'::jsonb)
+			FROM (SELECT l.item_id::text AS item_id, m.name, sum(ss.on_hand)::int AS qty
+				FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id JOIN menu_items m ON m.id = l.item_id
+				WHERE ss.scooter_id = shifts.scooter_id AND ss.on_hand > 0 GROUP BY l.item_id, m.name) t)
+		WHERE id = $1 RETURNING ended_at`, sh.ID).Scan(&ended); err != nil {
 		return sh, false, err
 	}
 	e := stamp(ended)
 	sh.EndedAt = &e
+	sh.BreakStartedAt, sh.BreakEndsAt = nil, nil
 	if _, err := tx.Exec(ctx, "UPDATE scooters SET current_rider_id = NULL, updated_at = now() WHERE id = $1", scooter); err != nil {
 		return sh, false, err
 	}
@@ -691,5 +785,12 @@ func pickUp(ctx context.Context, tx pgx.Tx, rider, request string) error {
 		ON CONFLICT (hub_id) DO UPDATE SET seq = hub_state.seq + 1, updated_at = now()`, hub); err != nil {
 		return err
 	}
-	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
+	if err := outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request}); err != nil {
+		return err
+	}
+	title, body := "Restock collected", "Your cassette is on the scooter."
+	if state == "picked_up" {
+		title, body = "Restock partly collected", "Scan the rest of your cassette onto the scooter."
+	}
+	return notify.Record(ctx, tx, rider, "restock", title, body, "")
 }

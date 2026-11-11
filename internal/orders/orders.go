@@ -496,12 +496,12 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 	// lost after the timer or the wait deadline.
 	timer := map[string]any{"timer_started_at": nil, "timer_duration_s": nil, "timer_stopped_at": nil, "timer_missed": false}
 	var otp any
-	var started, stopped, released *time.Time
+	var started, stopped, released, waitingSince *time.Time
 	var length *int
 	var missed bool
 	var code *string
-	if err := q.QueryRow(ctx, "SELECT timer_started_at, timer_stopped_at, timer_length_s, timer_missed, handover_otp, otp_released_at FROM orders WHERE id = $1", orderID).
-		Scan(&started, &stopped, &length, &missed, &code, &released); err != nil {
+	if err := q.QueryRow(ctx, "SELECT timer_started_at, timer_stopped_at, timer_length_s, timer_missed, handover_otp, otp_released_at, rider_waiting_since FROM orders WHERE id = $1", orderID).
+		Scan(&started, &stopped, &length, &missed, &code, &released, &waitingSince); err != nil {
 		return nil, err
 	}
 	if started != nil {
@@ -538,6 +538,11 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		}
 		rider = map[string]any{"first_name": first}
 	}
+	// Only the time, and only once the rider is shown to the customer.
+	var waiting any
+	if riderShown(stage) {
+		waiting = stamp(waitingSince)
+	}
 	var endedReason any
 	if ended != nil {
 		endedReason = *ended
@@ -551,7 +556,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		// No rider is ever shown before v0.5.0, so these stay at their "not yet" values.
 		"eta_source": "placeholder", "eta_s": nil, "eta_offer": etaOffer, "rider": rider,
 		"timer":  timer,
-		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano), "rider_waiting_since": nil, "order_number": OrderNumber(orderNo),
+		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano), "rider_waiting_since": waiting, "order_number": OrderNumber(orderNo),
 	}, nil
 }
 

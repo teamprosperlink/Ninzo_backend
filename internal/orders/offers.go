@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/availability"
+	"github.com/teamprosperlink/Ninzo_backend/internal/notify"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 )
 
@@ -59,8 +60,9 @@ func basketOf(ctx context.Context, tx pgx.Tx, orderID string) (map[string]int, e
 	return basket, err
 }
 
-// freeRider is the rider on an open shift with this scooter, if they are active and have no live
-// offer. One order per rider (decision 0011).
+// freeRider is the rider on an open shift with this scooter, if they are active, not on a break and
+// have no live offer. One order per rider (decision 0011). The shift row is locked, as startBreak
+// locks it, so a break and an offer cannot both start at the same moment (#159).
 func freeRider(ctx context.Context, tx pgx.Tx, scooter string) (string, bool, error) {
 	var rider string
 	err := tx.QueryRow(ctx, `SELECT sh.rider_id::text FROM shifts sh
@@ -68,7 +70,9 @@ func freeRider(ctx context.Context, tx pgx.Tx, scooter string) (string, bool, er
 		JOIN riders r ON r.id = sh.rider_id AND r.status = 'active'
 		JOIN people p ON p.id = r.person_id AND p.status = 'active'
 		WHERE sh.scooter_id = $1 AND sh.ended_at IS NULL
-			AND NOT EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = sh.rider_id AND f.released_at IS NULL)`, scooter).Scan(&rider)
+			AND sh.break_started_at IS NULL
+			AND NOT EXISTS (SELECT 1 FROM offers f WHERE f.rider_id = sh.rider_id AND f.released_at IS NULL)
+		FOR UPDATE OF sh`, scooter).Scan(&rider)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
@@ -202,6 +206,9 @@ func dispatch(ctx context.Context, tx pgx.Tx, orderID string, now time.Time) err
 		return err
 	}
 	if err := outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "offer"}); err != nil {
+		return err
+	}
+	if err := notify.Record(ctx, tx, rider, "offer", "New order offer", "An order is waiting for your answer.", orderID); err != nil {
 		return err
 	}
 	return bumpRider(ctx, tx, rider)
