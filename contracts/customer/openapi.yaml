@@ -1593,6 +1593,7 @@ components:
         - handover_otp
         - created_at
         - order_number
+        - rider_waiting_since
       properties:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
@@ -1670,6 +1671,12 @@ components:
             - string
             - 'null'
           description: Set at the arrived stage, or in the signal-lost case in contracts/README.md. The customer shows it, and the rider submits it. Null in a replayed response, because the code is never stored, so get it from GET or the stream.
+        rider_waiting_since:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the rider said they were waiting at the gate. Null until then. It shows no rider detail beyond the time.
         created_at:
           type: string
           format: date-time

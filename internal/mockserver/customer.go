@@ -40,6 +40,7 @@ var customerScenarios = map[string]string{
 	"timer_missed":             "The timer ended before 100 m. timer_missed is true, with a credit remedy",
 	"signal_lost":              "The timer ended, and the rider's signal is lost, so the customer has the OTP",
 	"arrived":                  "The order is at arrived, with the handover OTP",
+	"rider_waiting":            "The order is at arrived, and the rider has said they are waiting at the gate: rider_waiting_since is set",
 	"cancelled":                "The order has ended, cancelled by the customer inside the window, and refunded",
 	"cancelled_after_deadline": "The order has ended, cancelled after wait_deadline, and refunded",
 	"timed_out":                "The order has ended, timed out, and refunded",

@@ -24,9 +24,11 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `identity` | `riders` | Rider profiles, including applicants. `zone_id` is added in v0.3.0, when `zones` exists | v0.2.0 |
 | `identity` | `rider_credentials` | Not used: riders sign in by OTP only. Kept for the phone-lost options | v0.2.0 |
 | `identity` | `rider_verifications` | Document status | v0.2.0 |
+| `identity` | `verification_documents` | The status of each rider document, with the reason for a rejection | v0.10.0 |
 | `identity` | `otp_requests` | Hashed codes, their purpose, and attempts | v0.2.0 |
 | `identity` | `refresh_tokens` | Hashed refresh tokens and their chains | v0.2.0 |
 | `notify` | `devices` | Push tokens | v0.2.0 |
+| `notify` | `rider_notifications` | What was pushed to a rider, kept 30 days | v0.10.0 |
 | `geo` | `zones` | Service areas | v0.3.0 |
 | `geo` | `zone_settings` | Timer length, perimeter, waits and limits, by version. One global row, overridden per zone | v0.3.0 |
 | `geo` | `gates` | Delivery gates | v0.3.0 |
@@ -41,11 +43,13 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `inventory` | `lots` | Labelled batches, with expiry and status | v0.3.0 |
 | `inventory` | `scooter_stock` | `on_hand` and `reserved`, per scooter and lot. See section 7 | v0.3.0 |
 | `inventory` | `stock_ledger` | Append-only record of every stock change | v0.3.0 |
+| `inventory` | `stock_counts` | A rider's hand count against what the server expected, with the reason the scanner was not used | v0.10.0 |
 | `inventory` | `reservations` | Short holds on units | v0.4.0 |
 | `tracking` | `shifts` | Rider shifts | v0.3.0 |
 | `tracking` | `rider_state` | Each rider's `seq`, written by every change the rider can see | v0.3.0 |
 | `tracking` | `rider_events` | The final result of a rider's queued or direct action, by `event_id` | v0.3.0 |
 | `tracking` | `location_pings` | Pings, kept as evidence. Partitioned by day. Kept in full through testing | v0.5.0 |
+| `tracking` | `shift_breaks` | Breaks inside a shift: start, end and who ended it | v0.10.0 |
 | `orders` | `orders` | See section 1.1 | v0.4.0 |
 | `orders` | `order_items` | Items, with the price fixed at creation | v0.4.0 |
 | `orders` | `order_events` | Append-only true history of each order | v0.4.0 |
@@ -81,6 +85,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 - **`orders`:** state, customer stage and `customer_seq`. `cancel_until`, `min_wait_until`, `wait_deadline`. `timer_started_at`, `timer_stopped_at`, `timer_missed`. **Fixed when the rider accepts, so a console change cannot affect it:** `timer_duration_s`, `perimeter_m`, `location_zone_id` and its version. `arrival_source` (`gps` or `handover`). `handover_otp`, `otp_attempts`, `ended_reason`. The `Idempotency-Key` that created it.
 - **`offers`:** order, rider, state, `fencing_token`, `expires_at`, `rider_accepted_at`, `ended_reason`. This is one rider's view, so a rider who was reassigned sees their own ending, never another rider's progress.
 - **`handover_otp`:** unlike sign-in codes, this is kept readable, because the customer must be able to see it. It is cleared once the order is handed over or has ended.
+- **Added for the rider app (#157, built in v0.10.0 by #159):** `riders.preferred_area`, `shifts.device_id`, `orders.rider_waiting_since`, and the tables `rider_notifications`, `shift_breaks`, `stock_counts` and `verification_documents`. `max_break_s` is a `zone_settings` value. Until v0.10.0 the endpoints exist only in the contract and the mock.
 
 **Changes from the earlier lists:**
 - Added `scooters`, `location_zones`, `zone_settings`, `hubs`, `scheduled_tasks`, `rider_state`, `rider_events`, `devices`, `relocations`, `earnings`, `problem_reports`, `ticket_messages`, `remedies`, `arrival_reviews`, `eta_offers` and `restock_lots`, which the contracts need.
@@ -152,11 +157,11 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getRider` | `riders`, `people`, `audit_events` | | | |
 | `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs`, `scooters`, `relocations`, `staging_nodes`, `menu_items` | | | |
-| `getVerification` | `rider_verifications` | | | |
+| `getVerification` | `rider_verifications`, `verification_documents` | | | |
 | `startVerification` | `riders` | `rider_verifications`, `audit_events`, `idempotency_keys` | | DigiLocker, a mock for now |
 | `registerRiderDevice` | `devices`, `riders`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeRiderDevice` | `devices` | `devices`, `idempotency_keys` | | |
-| `startShift` | `riders`, `rider_verifications`, `shifts`, `staging_nodes`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
+| `startShift` | `riders`, `rider_verifications`, `devices`, `shifts`, `staging_nodes`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `endShift` | `shifts`, `offers`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `listNodes` | `zones`, `staging_nodes`, `scooters`, `relocations`, `hubs` | | Positions | |
 | `acceptRelocation` | `relocations` | `relocations`, `rider_state`, `audit_events`, `idempotency_keys` | | |
@@ -181,6 +186,15 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `getRestock` | `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs`, `shifts`, `staging_nodes` | | | |
 | `reportProblem` | `rider_events`, `orders` | `rider_events`, `problem_reports`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
 | `getEarnings` | `earnings` | | | |
+| `updateRider` | `riders` | `riders`, `audit_events`, `idempotency_keys` | | |
+| `listRiderNotifications` | `rider_notifications` | | | |
+| `listRiderShifts` | `shifts`, `shift_breaks`, `offers`, `orders` | | | |
+| `getShiftSummary` | `shifts`, `shift_breaks`, `offers`, `orders`, `order_items`, `menu_items`, `scooter_stock`, `stock_ledger`, `earnings` | | | |
+| `startBreak` | `shifts`, `shift_breaks`, `offers`, `orders`, `zone_settings` | `shift_breaks`, `rider_state`, `scheduled_tasks`, `audit_events`, `idempotency_keys` | Fan-out | |
+| `endBreak` | `shifts`, `shift_breaks` | `shift_breaks`, `rider_state`, `scheduled_tasks`, `audit_events`, `idempotency_keys` | Fan-out | |
+| `cancelRestock` | `restock_requests` | `restock_requests`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
+| `markWaitingAtGate` | `offers`, `orders`, `location_pings` | `orders`, `order_events`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | Push, to the customer |
+| `submitStockCount` | `shifts`, `scooters`, `scooter_stock`, `menu_items` | `stock_counts`, `audit_events`, `idempotency_keys` | | |
 
 ## 4.1 Partner API
 

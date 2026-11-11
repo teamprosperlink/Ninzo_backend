@@ -297,6 +297,10 @@ Every action is queued first with a unique `event_id`. A direct request uses tha
 | Location, older than one already applied | Accepted | Kept as evidence, and does not change the order |
 | Location, with a `device_time` more than 30 seconds before it arrived (**Proposed**) | Accepted | Evidence only. It never starts or stops a timer, so a flush of old pings cannot do both at once |
 
+Direct only, never in the offline batch: `submitStockCount` (the hand count), `startBreak`, `endBreak`, `cancelRestock`, `markWaitingAtGate` and `updateRider`.
+
+A break start, end or automatic end, and waiting at the gate, raise the rider's `seq`, so the app fetches `getRiderState` as for any other change. There is no new stream message.
+
 ### Signal lost at the gate
 A rider with no signal sends no pings, so the server cannot detect arrival. The customer must still be able to get the food (**Proposed**):
 

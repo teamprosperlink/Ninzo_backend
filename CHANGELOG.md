@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider operations: contract and mock (#157)
+- Added to the rider contract: `updateRider` (PATCH /riders/me, name and `preferred_area`), `listRiderNotifications`, `listRiderShifts` (both cursor-paged), `getShiftSummary`, `startBreak`, `endBreak`, `cancelRestock`, `markWaitingAtGate`, `submitStockCount`; `device_id` (optional) on `startShift`.
+- Added fields: `Rider.preferred_area`, `Shift.break_started_at`, `break_ends_at` and `device_id`, `RiderOrder.waiting_since`, `VerificationResponse.documents`, and the customer order's `rider_waiting_since`. All required, null where nothing is set.
+- Mock: a route for each, and the scenarios `no_open_shift`, `order_in_progress`, `on_break`, `restock_not_cancellable`, `not_arrived`, `rider_waiting` (rider and customer), `shift_on_other_phone`, `documents_rejected`.
+- Changed: the allowed-field lists for the customer order and the rider order now include `rider_waiting_since` and `waiting_since`. The data map names the planned tables `rider_notifications`, `shift_breaks`, `stock_counts` and `verification_documents` for v0.10.0. Server side: #159.
 ### Console amounts have a range (#167)
 - Fixed: the console mock answered 201 with a wrapped-round negative amount for `amount_paise` past an int (found by the fuzzer in CI). `requestRefund` and `issueCredit` now say 1 to 10,000,000 paise in the contract, and the mock refuses anything outside it, or not whole, with 400.
 ### Geo design and research record (#162)

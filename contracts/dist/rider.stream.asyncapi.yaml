@@ -466,6 +466,12 @@ components:
                     description: A fixed label built from this order's timer length. It does not count down.
                     example: 1.5 mins
                     type: string
+                waiting_since:
+                    description: When the rider said they were waiting at the gate (markWaitingAtGate). Null until then.
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
             required:
                 - id
                 - offer_id
@@ -480,6 +486,7 @@ components:
                 - otp_available
                 - handed_over_at
                 - order_number
+                - waiting_since
             type: object
 defaultContentType: application/json
 id: urn:ninzo:rider:stream

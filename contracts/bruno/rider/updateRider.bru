@@ -1,0 +1,24 @@
+meta {
+  name: updateRider
+  type: http
+  seq: 43
+}
+
+patch {
+  url: {{baseUrl}}/riders/me
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-updateRider-0001
+}
+
+body:json {
+  {
+    "name": "Ravi Kumar",
+    "preferred_area": "Indiranagar"
+  }
+}
