@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Masked calls answer call_not_available (#151)
+- Fixed: `POST /orders/{order_id}/call` in the customer and rider APIs answered 404, because neither mounted it. It now checks the order is the caller's and answers 409 `call_not_available` until a telephony provider is chosen.
+- Fixed: the console's unknown-login reply says email, as the other one does.
+- Evidence: docs/testing/reports/151.md
+
 ### Console sign-in with an email address (#152)
 - Changed: the console `login_id` accepts an email address (owner, 2026-11-11); the older ID form still works.
 - Changed: the authenticator code is optional until pre-launch (`CONSOLE_TOTP=optional` on staging; production refuses it). The login reply gains `totp_required` and, when false, `session`.
