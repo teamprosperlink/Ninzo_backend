@@ -8,7 +8,7 @@ import (
 // consoleScenarios lists every console scenario, from the ops console KT doc and decision 0014.
 var consoleScenarios = map[string]string{
 	"invalid_credentials":       "Login fails with invalid_credentials",
-	"account_locked":            "Login fails with account_locked after repeated failures",
+	"account_locked":            "The account is locked after repeated failures: login answers invalid_credentials, as for a wrong password",
 	"totp_not_enrolled":         "Login says totp_enrolled false, so the console sets up the authenticator first",
 	"must_change_password":      "Login and the session say must_change_password, after a temporary password",
 	"invalid_totp":              "The authenticator code fails with invalid_totp",
@@ -172,7 +172,7 @@ func consoleRoutes() []route {
 				c.fail(401, "invalid_credentials", "That ID or password is wrong.", false)
 				return
 			case "account_locked":
-				c.json(403, map[string]any{"code": "account_locked", "message": "Too many failed sign-ins. Try again in 15 minutes.", "retryable": true, "missing_permission": "account_active"})
+				c.fail(401, "invalid_credentials", "That ID or password is wrong, or the account is locked for a while.", false)
 				return
 			case "rate_limited":
 				c.fail(429, "rate_limited", "Too many requests.", true)

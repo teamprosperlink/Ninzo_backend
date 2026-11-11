@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-11 | #134 | `v0.9.0` console sign-in, users, approvals and flags | See PR | PASS | [reports/134.md](reports/134.md) |
 | 2026-11-11 | #133 | `v0.9.0` console contract and mock | See PR | PASS | [reports/133.md](reports/133.md) |
 | 2026-11-11 | #127 | `v0.8.0` the real hub flow, local only | See PR | PASS | [reports/127.md](reports/127.md) |
 | 2026-11-11 | #126 | `v0.8.0` hub offline sync, local only | See PR | PASS | [reports/126.md](reports/126.md) |

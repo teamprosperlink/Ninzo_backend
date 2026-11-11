@@ -23,6 +23,8 @@ var (
 	ruleCodeVerifyHour    = ratelimit.Rule{Name: "otp_verify_ip_hour", Limit: 200, Window: time.Hour}
 	ruleGoogleMinute      = ratelimit.Rule{Name: "google_ip_min", Limit: 30, Window: time.Minute}
 	ruleRefreshMinute     = ratelimit.Rule{Name: "refresh_ip_min", Limit: 120, Window: time.Minute}
+	ruleConsoleMinute     = ratelimit.Rule{Name: "console_signin_ip_min", Limit: 20, Window: time.Minute}
+	ruleConsoleHour       = ratelimit.Rule{Name: "console_signin_ip_hour", Limit: 100, Window: time.Hour}
 	// One token: a used token repeated in a loop adds a row each time.
 	ruleRefreshToken = ratelimit.Rule{Name: "refresh_token_min", Limit: 20, Window: time.Minute}
 	// One phone from one address. A stranger reaches this long before the wider otpPerHour, so they
@@ -108,6 +110,11 @@ func (l *Limits) byAddress(rules ...ratelimit.Rule) func(http.Handler) http.Hand
 }
 
 // ByPings limits one session's location pings. Use it after RequireActor.
+// ConsoleSignIn limits the console's sign-in steps by address.
+func (l *Limits) ConsoleSignIn() func(http.Handler) http.Handler {
+	return l.byAddress(ruleConsoleMinute, ruleConsoleHour)
+}
+
 func (l *Limits) ByPings() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

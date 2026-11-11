@@ -84,3 +84,9 @@ What is real and what is a stand-in is in `real_and_stand_ins.md`. Every downsid
 | A handover queued offline before midnight and synced after it counts on the next day, as pay uses the server's time | Riders | Only near midnight; the order is still paid | Accepted | #109 |
 | A handover with nothing handed (the customer fully refunded) still pays the rider the order rate, and a later refund never takes pay back | Riders, ops | Rates are test values until the console | Owner decision | #118 |
 | Rates are test values, and there are no payouts | Riders | The admin sets rates in the console (v0.9.0) | Until v0.9.0 | #109 |
+
+## Console
+| Downside | Who it affects | What limits it today | Status | Source |
+|---|---|---|---|---|
+| An admin can create a second admin, or reset one, and so approve their own change through that account, getting round the two-person rule | Everyone | Every user change is audited with who did it; admins are few and named | Accepted for the pilot | #134 |
+| First sign-in is trust on first use: whoever holds the temporary password sets up the authenticator | Console staff | The temporary password is random, shown once, and must be changed; a reset ends open challenges | Accepted | #134 |
