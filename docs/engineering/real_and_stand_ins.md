@@ -71,3 +71,5 @@ Every customer and rider endpoint in the contracts answers on the mock, with sce
 | Console menu and price history, gate edits with versions, hubs and hub staff | Real | Built (#137). A hub_manager sees and changes only their own hub's staff; migration 0036 records who made each gate version | | v0.9.0 |
 | Console audit log, arrival reviews and support alerts | Real | Built (#138). Secrets and full phone numbers never leave the audit log; a lost signal now raises a support alert; migration 0037 records who settled a review | | v0.9.0 |
 | Masked calls (customer to rider, rider to customer) | Stand-in | Every call answers 409 `call_not_available` (#151). Needs a telephony provider (`TELEPHONY_*`) | | v1.0.0 |
+| Rider document verification (getVerification, startVerification) | Stand-in | Start records a pending request; ops check the documents by hand and mark them with `cmd/riders` (#156) | DigiLocker | v1.0.0 |
+| The rider's route to the gate (getRoute) | Stand-in | A straight line from the last position to the gate, eta_source placeholder (#156) | OSRM road routes | v1.0.0 |

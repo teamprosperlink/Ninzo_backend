@@ -532,3 +532,34 @@ func TestMaskedCallsAreNotAvailableYet(t *testing.T) {
 		t.Errorf("an order that is not the customer's: %d", code)
 	}
 }
+
+// The route is a straight line until the routing engine (#156), with no time shown.
+func TestTheRouteIsAStraightLineForNow(t *testing.T) {
+	tr := started(t, true)
+	tr.at(far, 20*time.Second)
+	code, out := tr.call("GET", "/orders/"+tr.order+"/route", tr.tok, "")
+	if code != 200 || out["eta_source"] != "placeholder" || out["eta_s"] != nil {
+		t.Fatalf("%d %v", code, out)
+	}
+	var gLat, gLng float64
+	if err := tr.pool.QueryRow(context.Background(), "SELECT h.lat, h.lng FROM orders o JOIN gate_history h ON h.id = o.gate_history_id WHERE o.id = $1", tr.order).Scan(&gLat, &gLng); err != nil {
+		t.Fatal(err)
+	}
+	if want := encodePolyline([][2]float64{{far[0], far[1]}, {gLat, gLng}}); out["polyline"] != want {
+		t.Errorf("from the last ping to the gate: %v, want %s", out["polyline"], want)
+	}
+	if code, _ := tr.call("GET", "/orders/00000000-0000-0000-0000-000000000009/route", tr.tok, ""); code != 404 {
+		t.Errorf("an order the rider never accepted: %d", code)
+	}
+	_, otherTok := tr.signIn(tr.scooterOnShift("SC-ROUTE-2"))
+	if code, _ := tr.call("GET", "/orders/"+tr.order+"/route", otherTok, ""); code != 404 {
+		t.Errorf("another rider's order: %d", code)
+	}
+}
+
+func TestPolylineEncoding(t *testing.T) {
+	// Google's own example: (38.5, -120.2), (40.7, -120.95), (43.252, -126.453).
+	if got := encodePolyline([][2]float64{{38.5, -120.2}, {40.7, -120.95}, {43.252, -126.453}}); got != "_p~iF~ps|U_ulLnnqC_mqNvxq`@" {
+		t.Errorf("%s", got)
+	}
+}

@@ -227,7 +227,7 @@ paths:
       - profile
       operationId: getVerification
       summary: Get document verification status
-      description: Only verified riders can start a shift.
+      description: Only verified riders can start a shift. Before anything is started the status is pending with reason not_started; a verification past its expiry is expired.
       responses:
         '200':
           description: The status.
@@ -245,7 +245,7 @@ paths:
       - profile
       operationId: startVerification
       summary: Start document verification
-      description: A mock until DigiLocker approval. Returns where to go next.
+      description: A stand-in until DigiLocker. It records a pending request, and ops check the documents by hand, so redirect_url and upload_url are null for now. Errors already_verified and verification_in_progress (both 409).
       parameters:
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
@@ -781,7 +781,7 @@ paths:
       - delivery
       operationId: getRoute
       summary: Get the route to the gate
-      description: Refresh after a road closure. Keep the last route on screen on a weak signal.
+      description: Refresh after a road closure. Keep the last route on screen on a weak signal. Until the routing engine, this is a straight line from the rider's last position to the gate, with eta_source placeholder and no eta_s, so keep turn-by-turn directions on the phone.
       parameters:
       - $ref: '#/components/parameters/OrderId'
       responses:

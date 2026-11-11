@@ -64,7 +64,9 @@ func (s *Service) MountCustomer(r chi.Router, signedIn ...Middleware) {
 	})
 }
 
-// MountRider adds getRider, registerRiderDevice and removeRiderDevice.
+// MountRider adds getRider, registerRiderDevice, removeRiderDevice, getVerification and
+// startVerification. Until DigiLocker, starting only records a pending request; ops check the
+// documents by hand and mark them (cmd/riders).
 func (s *Service) MountRider(r chi.Router, signedIn ...Middleware) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
@@ -72,6 +74,8 @@ func (s *Service) MountRider(r chi.Router, signedIn ...Middleware) {
 		g.Get("/riders/me", s.getRider)
 		g.With(idem).Post("/riders/me/devices", s.registerDevice)
 		g.With(idem).Delete("/riders/me/devices/{device_id}", s.removeDevice)
+		g.Get("/riders/me/verification", s.getVerification)
+		g.With(idem).Post("/riders/me/verification/start", s.startVerification)
 	})
 }
 
