@@ -606,7 +606,7 @@ paths:
       operationId: listRiderReviews
       summary: List riders waiting for a decision
       description: >-
-        Applicants and riders whose verification failed or expired, oldest first. Admin and ops. Permission: riders.review.
+        Applicants, and active riders whose latest verification failed or expired (including a verification past its expiry), oldest first. Suspended riders are not listed. Admin and ops. Permission: riders.review.
       x-permission: riders.review
       parameters:
       - name: cursor
@@ -648,7 +648,7 @@ paths:
       operationId: decideRider
       summary: Approve, suspend or reinstate a rider
       description: >-
-        With a reason. Approving needs zone_id and a verified rider. Suspending (also how an applicant is turned down) ends the rider's sessions and their shift. Errors: not_verified, not_allowed (both 409). Permission: riders.review.
+        With a reason. Approving needs zone_id and a verified rider. Suspending (also how an applicant is turned down) ends the rider's sessions and their shift. A rider carrying an order they accepted cannot be suspended until it is handed over. The zone must be active. Errors: not_verified, not_allowed, order_in_progress (all 409). Permission: riders.review.
       x-permission: riders.review
       parameters:
       - name: rider_id
