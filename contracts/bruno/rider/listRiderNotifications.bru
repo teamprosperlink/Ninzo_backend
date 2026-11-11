@@ -1,0 +1,16 @@
+meta {
+  name: listRiderNotifications
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/riders/me/notifications
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

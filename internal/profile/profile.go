@@ -295,7 +295,7 @@ func (s *Service) getRider(w http.ResponseWriter, r *http.Request) {
 	}
 	// A suspended rider can still read this, so the app can say why they cannot work.
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"rider": map[string]any{"id": id, "name": name, "status": status, "zone_id": zone,
+		"rider": map[string]any{"id": id, "name": name, "status": status, "zone_id": zone, "preferred_area": nil, // until updateRider (#159)
 			"created_at": created.UTC().Format(time.RFC3339Nano), "approved_at": optionalStamp(approved)},
 		"server_time": serverTime(),
 	})

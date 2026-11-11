@@ -198,6 +198,57 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+    patch:
+      tags:
+      - profile
+      operationId: updateRider
+      summary: Update the rider's own profile
+      description: "Changes the name and the area the rider would like to work in. preferred_area is free
+        text, what an applicant says they want; the rider's zone itself stays an ops decision at approval.
+        Send only the fields to change. Error: invalid_request (400), for a name outside 1 to 80 characters or
+        a preferred_area over 80. The only 409 is idempotency_in_progress. Direct only: not in the offline event batch."
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              example:
+                name: Ravi Kumar
+                preferred_area: Indiranagar
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                preferred_area:
+                  type: string
+                  maxLength: 80
+                  description: Free text. Not a zone.
+      responses:
+        '200':
+          description: The updated rider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
   /riders/me/state:
     get:
       tags:
@@ -374,7 +425,11 @@ paths:
       summary: Start a shift
       description: 'A suspended rider gets 403. Errors, all 409: rider_not_approved, rider_not_verified,
         shift_already_open, shift_limit_reached, no_scooter_at_node. A free scooter waiting at the
-        node becomes the rider''s for the shift. A node outside the rider''s zone gets 404.'
+        node becomes the rider''s for the shift. A node outside the rider''s zone gets 404.
+        device_id must be one this rider registered with registerRiderDevice, or the call gets 400 unknown_device.
+        A rider whose open shift shows another device (a reinstall, or a new phone) sends take_over: true: the
+        open shift of this rider then gets the new device_id and is returned (200) instead of shift_already_open.
+        take_over needs device_id. endShift works from any of the rider''s phones.'
       parameters:
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
@@ -388,6 +443,13 @@ paths:
               properties:
                 node_id:
                   $ref: ../shared/common.yaml#/components/schemas/Id
+                device_id:
+                  description: The id from registerRiderDevice for this phone, which must be one this rider registered (400 unknown_device otherwise). It is kept on the shift, so the app can tell when the shift is open on another phone.
+                  $ref: ../shared/common.yaml#/components/schemas/Id
+                take_over:
+                  type: boolean
+                  default: false
+                  description: Send true to move this rider's open shift to this phone. The shift gets the new device_id and is returned instead of shift_already_open. Needs device_id.
       responses:
         '200':
           description: Started.
@@ -427,6 +489,222 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShiftResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/notifications:
+    get:
+      tags:
+      - profile
+      operationId: listRiderNotifications
+      summary: List what was pushed to the rider
+      description: 'What the server pushed to this rider, newest first, kept for 30 days. kind is an open list, including offer, restock, relocation, shift, support. A notification never carries the customer phone or address.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/Cursor
+      - $ref: ../shared/common.yaml#/components/parameters/Limit
+      responses:
+        '200':
+          description: One page, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderNotificationList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/shifts:
+    get:
+      tags:
+      - shift
+      operationId: listRiderShifts
+      summary: "List the rider's earlier shifts"
+      description: "The rider's shifts, newest first. online_s is the shift's length minus its breaks, worked out by the server; an open shift is counted to now. from and to are optional dates in the zone's local time and keep only shifts that started in that range. A from after to is 400 invalid_request."
+      parameters:
+      - name: from
+        in: query
+        required: false
+        description: First day to include, in the zone's local time.
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: false
+        description: Last day to include, in the zone's local time.
+        schema:
+          type: string
+          format: date
+      - $ref: ../shared/common.yaml#/components/parameters/Cursor
+      - $ref: ../shared/common.yaml#/components/parameters/Limit
+      responses:
+        '200':
+          description: One page, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/shifts/{shift_id}/summary:
+    get:
+      tags:
+      - shift
+      operationId: getShiftSummary
+      summary: Get the summary of one shift
+      description: 'Orders handed over, average time from accept to handover, what was sold, what came back to the hub
+        at shift end, and what the shift earned. The shift id comes from startShift or listRiderShifts. A shift that
+        belongs to another rider gets 404. On an open shift the figures count up to now, and items_returned is empty until the shift ends.'
+      parameters:
+      - $ref: '#/components/parameters/ShiftId'
+      responses:
+        '200':
+          description: The summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftSummary'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/breaks/start:
+    post:
+      tags:
+      - shift
+      operationId: startBreak
+      summary: Start a break
+      description: 'Pauses offers until the break ends. The rider needs an open shift. Errors, all 409: order_in_progress (an order is live), offer_open (an offer is waiting for an answer, so answer it first), no_open_shift, on_break. A restock in progress does not stop a break. The longest break is a console setting (max_break_s), and after it the break ends on its own: break_ends_at on the shift is when. Ending the shift ends a break. A break start, end or automatic end raises the rider seq. Direct only: it is not in the offline event batch.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: The shift, now on break.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/breaks/end:
+    post:
+      tags:
+      - shift
+      operationId: endBreak
+      summary: End a break
+      description: 'Offers can come again. Error: no_open_shift (409). Ending when no break is running returns the shift unchanged.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: The shift, no longer on break.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /riders/me/stock/count:
+    post:
+      tags:
+      - stock
+      operationId: submitStockCount
+      summary: Record a hand count of the stock
+      description: 'For when the scanner fails: records what the rider counted against what the server expects on the scooter. It does not change the stock. Only the lines sent are compared. An item not on the scooter has expected 0. The same item_id twice is 400 invalid_request. mismatches counts the lines where counted differs from expected. Ops see the mismatches. Needs an open shift: no_open_shift (409). Direct only: it is not in the offline event batch.'
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - lines
+              - reason
+              properties:
+                lines:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required:
+                    - item_id
+                    - qty
+                    properties:
+                      item_id:
+                        $ref: ../shared/common.yaml#/components/schemas/Id
+                      qty:
+                        type: integer
+                        minimum: 0
+                        description: What the rider counted by hand.
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Why the scanner was not used.
+      responses:
+        '200':
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockCountResponse'
         '400':
           $ref: ../shared/common.yaml#/components/responses/BadRequest
         '401':
@@ -863,6 +1141,39 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/InternalError
         '503':
           $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /orders/{order_id}/waiting:
+    post:
+      tags:
+      - delivery
+      operationId: markWaitingAtGate
+      summary: Tell the customer the rider is waiting at the gate
+      description: 'For an order this rider accepted, once the server knows the rider is at the gate: the order is ARRIVED, or the handover code was released after a lost signal (as for handOver). Sets waiting_since on the order, raises the rider seq and the customer order seq, and pushes the customer. Calling it again keeps the first time. Errors, all 409: not_arrived (before the rider is at the gate), order_cancelled, order_reassigned, handover_not_allowed (the order is finished or already handed over). Direct only: it is not in the offline event batch. This does not report arrival.'
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: The order, with waiting_since set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
   /orders/{order_id}/call:
     post:
       tags:
@@ -1082,6 +1393,51 @@ paths:
       responses:
         '200':
           description: Declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestockResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+        '503':
+          $ref: ../shared/common.yaml#/components/responses/ServiceUnavailable
+  /restock/{request_id}/cancel:
+    post:
+      tags:
+      - restock
+      operationId: cancelRestock
+      summary: Cancel a confirmed restock
+      description: 'For a request the rider confirmed, before the hub accepts it. The body is optional. Once the hub has accepted, it gets 409 restock_not_cancellable. So does a suggestion (decline it with declineRestock) and an expired request. A request that is already cancelled returns the same request again (200). Direct only: it is not in the offline event batch.'
+      parameters:
+      - $ref: '#/components/parameters/RestockRequestId'
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: Cancelled.
           content:
             application/json:
               schema:
@@ -1368,6 +1724,13 @@ components:
       description: The order.
       schema:
         $ref: ../shared/common.yaml#/components/schemas/Id
+    ShiftId:
+      name: shift_id
+      in: path
+      required: true
+      description: The shift.
+      schema:
+        $ref: ../shared/common.yaml#/components/schemas/Id
     RestockRequestId:
       name: request_id
       in: path
@@ -1437,9 +1800,16 @@ components:
       - zone_id
       - created_at
       - approved_at
+      - preferred_area
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
+        preferred_area:
+          description: The area the rider says they want to work in, free text up to 80 characters. Null until set. The zone itself is an ops decision.
+          type:
+          - string
+          - 'null'
+          maxLength: 80
         name:
           description: Null until an applicant fills it in.
           type:
@@ -1478,6 +1848,7 @@ components:
       required:
       - status
       - reason
+      - documents
       - server_time
       properties:
         status:
@@ -1491,8 +1862,34 @@ components:
           type:
           - string
           - 'null'
+        documents:
+          description: The status of each document, with the reason for a rejection. Empty until documents are recorded.
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationDocument'
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    VerificationDocument:
+      type: object
+      required:
+      - type
+      - status
+      - reason
+      properties:
+        type:
+          type: string
+          description: Open list, including aadhaar, driving_licence, rc, insurance, photo.
+        status:
+          type: string
+          enum:
+          - pending
+          - verified
+          - rejected
+        reason:
+          description: Open list, including name_mismatch, photo_retake, expired, unreadable, other. Null unless rejected.
+          type:
+          - string
+          - 'null'
     VerificationStart:
       type: object
       required:
@@ -1531,9 +1928,29 @@ components:
       - ended_at
       - node_assigned_at
       - scooter
+      - break_started_at
+      - break_ends_at
+      - device_id
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
+        break_started_at:
+          description: When the current break began. Null when the rider is not on a break.
+          type:
+          - string
+          - 'null'
+          format: date-time
+        break_ends_at:
+          description: When the current break ends on its own, at the console's longest break (max_break_s). Null when the rider is not on a break.
+          type:
+          - string
+          - 'null'
+          format: date-time
+        device_id:
+          description: The device the shift was started from. Null if startShift did not send one. The app compares it with its own device id.
+          anyOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
         node_id:
           $ref: ../shared/common.yaml#/components/schemas/Id
         started_at:
@@ -1576,6 +1993,188 @@ components:
       properties:
         shift:
           $ref: '#/components/schemas/Shift'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderNotification:
+      type: object
+      required:
+      - id
+      - kind
+      - title
+      - body
+      - order_id
+      - created_at
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        kind:
+          type: string
+          description: Open list, including offer, restock, relocation, shift, support.
+        title:
+          type: string
+        body:
+          type: string
+        order_id:
+          description: The order this is about. Null when it is not about an order.
+          anyOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    RiderNotificationList:
+      type: object
+      required:
+      - notifications
+      - next_cursor
+      - server_time
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiderNotification'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Pass as cursor to get the next page. Null on the last page.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ShiftEntry:
+      type: object
+      required:
+      - id
+      - node_id
+      - started_at
+      - ended_at
+      - online_s
+      - break_s
+      - orders_handed_over
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        node_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        online_s:
+          type: integer
+          minimum: 0
+          description: The shift's length minus its breaks.
+        break_s:
+          type: integer
+          minimum: 0
+        orders_handed_over:
+          type: integer
+          minimum: 0
+    ShiftList:
+      type: object
+      required:
+      - shifts
+      - next_cursor
+      - server_time
+      properties:
+        shifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShiftEntry'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Pass as cursor to get the next page. Null on the last page.
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ShiftSummary:
+      type: object
+      required:
+      - shift_id
+      - started_at
+      - ended_at
+      - online_s
+      - break_s
+      - orders_handed_over
+      - avg_delivery_s
+      - items_sold
+      - items_returned
+      - earnings
+      - server_time
+      properties:
+        shift_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        online_s:
+          type: integer
+          minimum: 0
+        break_s:
+          type: integer
+          minimum: 0
+        orders_handed_over:
+          type: integer
+          minimum: 0
+        avg_delivery_s:
+          description: Average seconds from accept to handover. Null with no order handed over.
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        items_sold:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        items_returned:
+          description: Units that went back to the hub at shift end.
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        earnings:
+          $ref: ../shared/common.yaml#/components/schemas/Money
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    StockCountLine:
+      type: object
+      required:
+      - item_id
+      - expected
+      - counted
+      properties:
+        item_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        expected:
+          type: integer
+          minimum: 0
+          description: What the server expects on the scooter.
+        counted:
+          type: integer
+          minimum: 0
+    StockCountResponse:
+      type: object
+      required:
+      - counted
+      - mismatches
+      - server_time
+      properties:
+        counted:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockCountLine'
+        mismatches:
+          type: integer
+          minimum: 0
+          description: How many lines differ from what was expected.
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
     RiderState:
@@ -1869,9 +2468,16 @@ components:
       - otp_available
       - handed_over_at
       - order_number
+      - waiting_since
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
+        waiting_since:
+          description: When the rider said they were waiting at the gate (markWaitingAtGate). Null until then.
+          type:
+          - string
+          - 'null'
+          format: date-time
         offer_id:
           $ref: ../shared/common.yaml#/components/schemas/Id
         fencing_token:

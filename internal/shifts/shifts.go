@@ -141,6 +141,11 @@ type shift struct {
 	// on this shift. Both are filled by Fill.
 	NodeAssignedAt string         `json:"node_assigned_at"`
 	Scooter        map[string]any `json:"scooter"`
+	// Breaks and the shift's device are in the contract (#157); they stay null until the server
+	// side is built (#159).
+	BreakStartedAt *string `json:"break_started_at"`
+	BreakEndsAt    *string `json:"break_ends_at"`
+	DeviceID       *string `json:"device_id"`
 }
 
 // Fill adds node_assigned_at and the scooter to a shift read from the database. The battery is null

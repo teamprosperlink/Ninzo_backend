@@ -1,0 +1,17 @@
+meta {
+  name: startBreak
+  type: http
+  seq: 38
+}
+
+post {
+  url: {{baseUrl}}/riders/me/breaks/start
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-startBreak-0001
+}

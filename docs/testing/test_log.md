@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-11 | #157 | the rider app's new operations, contract and mock | See PR | PASS | [reports/157.md](reports/157.md) |
 | 2026-11-11 | #162 | geo design and research record (docs only) | See PR | PASS | [reports/162.md](reports/162.md) |
 | 2026-11-11 | #164 | `v0.10.0` console ops contract and mock | See PR | PASS | [reports/164.md](reports/164.md) |
 | 2026-11-11 | #158 | the rider app's fields | See PR | PASS | [reports/158.md](reports/158.md) |

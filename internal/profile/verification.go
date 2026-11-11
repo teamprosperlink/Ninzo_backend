@@ -41,7 +41,7 @@ func (s *Service) getVerification(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": status, "reason": reason, "server_time": serverTime()})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": status, "reason": reason, "documents": []any{}, "server_time": serverTime()}) // documents: #159
 }
 
 func (s *Service) startVerification(w http.ResponseWriter, r *http.Request) {

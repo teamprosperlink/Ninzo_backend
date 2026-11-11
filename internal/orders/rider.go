@@ -193,7 +193,8 @@ func riderOrderView(ctx context.Context, q querier, f offerRow) (map[string]any,
 	}
 	return map[string]any{"id": f.orderID, "offer_id": f.id, "fencing_token": f.token, "state": state, "seq": seq, "ended_reason": ended,
 		"items": items, "gate": gate, "timer_label": timerLabel(length), "rider_accepted_at": stamp(f.acceptedAt),
-		"otp_available": f.otpAvailable, "handed_over_at": stamp(f.handedOverAt), "order_number": OrderNumber(f.orderNo)}, nil
+		"otp_available": f.otpAvailable, "handed_over_at": stamp(f.handedOverAt), "order_number": OrderNumber(f.orderNo),
+		"waiting_since": nil}, nil // waiting_since: null until waiting at the gate is built (#159).
 }
 
 func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +222,9 @@ func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		shift = map[string]any{"id": id, "node_id": node, "started_at": started.UTC().Format(time.RFC3339Nano), "ended_at": nil,
-			"node_assigned_at": assigned, "scooter": scooter}
+			"node_assigned_at": assigned, "scooter": scooter,
+			// In the contract (#157); null until breaks and the device check are built (#159).
+			"break_started_at": nil, "break_ends_at": nil, "device_id": nil}
 	case !errors.Is(err, pgx.ErrNoRows):
 		s.fail(w, r, err)
 		return

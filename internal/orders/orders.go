@@ -551,7 +551,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		// No rider is ever shown before v0.5.0, so these stay at their "not yet" values.
 		"eta_source": "placeholder", "eta_s": nil, "eta_offer": etaOffer, "rider": rider,
 		"timer":  timer,
-		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano), "order_number": OrderNumber(orderNo),
+		"remedy": remedy, "handover_otp": otp, "created_at": created.UTC().Format(time.RFC3339Nano), "rider_waiting_since": nil, "order_number": OrderNumber(orderNo),
 	}, nil
 }
 

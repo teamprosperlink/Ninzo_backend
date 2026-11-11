@@ -1,0 +1,16 @@
+meta {
+  name: getShiftSummary
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/riders/me/shifts/mock_id/summary
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

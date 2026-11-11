@@ -1,0 +1,21 @@
+meta {
+  name: cancelRestock
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/restock/mock_id/cancel
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-cancelRestock-0001
+}
+
+body:json {
+  {}
+}

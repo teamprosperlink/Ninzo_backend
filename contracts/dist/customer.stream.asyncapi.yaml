@@ -268,6 +268,12 @@ components:
                     oneOf:
                         - $ref: '#/components/schemas/OrderRider'
                         - type: "null"
+                rider_waiting_since:
+                    description: When the rider said they were waiting at the gate. Null until then. It shows no rider detail beyond the time.
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
                 seq:
                     description: The customer-visible version. Compare it with seq on the live stream.
                     example: 3
@@ -305,6 +311,7 @@ components:
                 - handover_otp
                 - created_at
                 - order_number
+                - rider_waiting_since
             type: object
         OrderGate:
             properties:

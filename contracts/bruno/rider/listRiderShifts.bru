@@ -1,0 +1,16 @@
+meta {
+  name: listRiderShifts
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{baseUrl}}/riders/me/shifts
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
