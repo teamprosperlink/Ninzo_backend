@@ -56,11 +56,11 @@ type querier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
 
-// reachable lists scooters a rider on an open shift has, with the rider and person active, whose
+// reachable lists scooters a rider on an open shift, and not on a break, has, with the rider and person active, whose
 // node is within reach. Rider GPS replaces the node's position in v0.5.0.
 const reachable = `
 	SELECT s.id FROM scooters s
-	JOIN shifts sh ON sh.scooter_id = s.id AND sh.ended_at IS NULL
+	JOIN shifts sh ON sh.scooter_id = s.id AND sh.ended_at IS NULL AND sh.break_started_at IS NULL
 	JOIN riders r ON r.id = sh.rider_id AND r.status = 'active' AND r.zone_id = s.zone_id
 	JOIN people p ON p.id = r.person_id AND p.status = 'active'
 	JOIN staging_nodes n ON n.id = s.node_id

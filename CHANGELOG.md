@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider operations: the server side (#159)
+- Added: migration 0040: `riders.preferred_area`; `shifts.device_id`, `break_started_at`, `break_ends_at` and `returned_items`; `shift_breaks`; `orders.rider_waiting_since`; `rider_notifications`; `stock_counts` and `stock_count_lines`; `verification_documents`; the setting `max_break_s` (1800, range 300 to 7200). Not applied to Supabase.
+- Added: `updateRider`, `listRiderNotifications`, `listRiderShifts`, `getShiftSummary`, `startBreak`, `endBreak`, `cancelRestock`, `markWaitingAtGate`, `submitStockCount`; `startShift` takes `device_id` (400 `unknown_device`) and `take_over`; `getVerification` returns `documents`; `getRider` returns `preferred_area`; the customer's order returns `rider_waiting_since`; the rider's shift returns the break and device fields.
+- Behaviour: a break is refused with a live order (`order_in_progress`) or an unanswered offer (`offer_open`), ends on its own at `break_ends_at` (a background pass in the customer API), and ends with the shift. A rider on a break is skipped by the free-rider selection in `internal/orders/offers.go`, and their scooter is not counted by `reachable` in `internal/availability` (the two conditions agreed with the geo session). Every `push.rider` event now also writes a `rider_notifications` row through `internal/notify`.
+- Changed: `tests/db` lists the v0.10.0 tables built so far; the data map gains `stock_count_lines` and loses the `scheduled_tasks` writes for breaks (a pass reads `break_ends_at`).
+- Evidence: docs/testing/reports/159.md
 ### Rider operations: contract and mock (#157)
 - Added to the rider contract: `updateRider` (PATCH /riders/me, name and `preferred_area`), `listRiderNotifications`, `listRiderShifts` (both cursor-paged), `getShiftSummary`, `startBreak`, `endBreak`, `cancelRestock`, `markWaitingAtGate`, `submitStockCount`; `device_id` (optional) on `startShift`.
 - Added fields: `Rider.preferred_area`, `Shift.break_started_at`, `break_ends_at` and `device_id`, `RiderOrder.waiting_since`, `VerificationResponse.documents`, and the customer order's `rider_waiting_since`. All required, null where nothing is set.

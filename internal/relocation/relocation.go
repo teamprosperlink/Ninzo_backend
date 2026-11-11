@@ -21,6 +21,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/notify"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
@@ -85,7 +86,26 @@ func bump(ctx context.Context, tx pgx.Tx, rider, id string) error {
 		ON CONFLICT (rider_id) DO UPDATE SET seq = rider_state.seq + 1, updated_at = now()`, rider); err != nil {
 		return err
 	}
-	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "relocation", "relocation_id": id})
+	if err := outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "relocation", "relocation_id": id}); err != nil {
+		return err
+	}
+	// The rider's list of notifications says what the move is now, and never more than the app shows.
+	var state string
+	if err := tx.QueryRow(ctx, "SELECT state FROM relocations WHERE id = $1", id).Scan(&state); err != nil {
+		return err
+	}
+	title, body := "Move suggested", "Ninzo suggests moving your scooter to a busier node."
+	switch state {
+	case "accepted":
+		title, body = "Move accepted", "Ride your scooter to the new node."
+	case "arrived":
+		title, body = "Move finished", "You are at the new node."
+	case "expired":
+		title, body = "Move expired", "The suggested move ended."
+	case "cancelled":
+		title, body = "Move cancelled", "The move ended."
+	}
+	return notify.Record(ctx, tx, rider, "relocation", title, body, "")
 }
 
 // MountRider adds acceptRelocation.

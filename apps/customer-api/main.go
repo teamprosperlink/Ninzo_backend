@@ -24,6 +24,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/profile"
 	"github.com/teamprosperlink/Ninzo_backend/internal/relocation"
 	"github.com/teamprosperlink/Ninzo_backend/internal/restock"
+	"github.com/teamprosperlink/Ninzo_backend/internal/shifts"
 )
 
 func main() {
@@ -72,6 +73,9 @@ func main() {
 			// Suggested moves toward demand (v0.7.0 part D), in this API with the other passes.
 			moves := &relocation.Service{Pool: d.DB, Log: d.Log}
 			go moves.Run(ctx, 30*time.Second)
+			// Breaks end on their own at their time, and notifications older than 30 days go (#159).
+			work := &shifts.Service{Pool: d.DB, Log: d.Log}
+			go work.RunJobs(ctx, 5*time.Second)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "customer-api:", err)

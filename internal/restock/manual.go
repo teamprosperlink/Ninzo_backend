@@ -23,13 +23,14 @@ import (
 // go back to the hub's shelf.
 const uncollected = 30 * time.Minute
 
-// MountRequests adds createRestock and respondToShortfall.
+// MountRequests adds createRestock, respondToShortfall and cancelRestock.
 func (s *Service) MountRequests(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
 		g.Use(signedIn...)
 		g.With(idem).Post("/restock", s.create)
 		g.With(idem).Post("/restock/{request_id}/shortfall-response", s.respond)
+		g.With(idem).Post("/restock/{request_id}/cancel", s.cancel)
 	})
 }
 

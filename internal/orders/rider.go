@@ -23,7 +23,7 @@ import (
 )
 
 // MountRider adds the rider's offers and orders: getRiderState, listOffers, acceptOffer,
-// declineOffer, markReady, getRiderOrder and handOver.
+// declineOffer, markReady, getRiderOrder, handOver and markWaitingAtGate.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
@@ -36,6 +36,7 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.Get("/orders/{order_id}", s.riderOrder)
 		g.Get("/orders/{order_id}/route", s.getRoute)
 		g.With(idem).Post("/orders/{order_id}/handover", s.handOver)
+		g.With(idem).Post("/orders/{order_id}/waiting", s.markWaitingAtGate)
 		g.With(idem).Post("/orders/{order_id}/call", s.startRiderCall)
 		g.With(idem).Post("/riders/me/problems", s.reportProblem)
 		g.Post("/riders/me/events", s.sendEventBatch)
@@ -94,17 +95,18 @@ type offerRow struct {
 	otpAvailable                                 bool
 	timerLength                                  *int
 	orderNo                                      int64
+	waitingSince                                 *time.Time
 }
 
 func readOffer(ctx context.Context, q querier, offerID string) (offerRow, error) {
 	var f offerRow
 	err := q.QueryRow(ctx, `SELECT f.id::text, f.order_id::text, f.rider_id::text, f.fencing_token, f.state, o.state, f.ended_reason, f.final_state,
-			f.expires_at, f.rider_accepted_at, f.released_at, o.handed_over_at, o.timer_length_s, o.order_no,
+			f.expires_at, f.rider_accepted_at, f.released_at, o.handed_over_at, o.timer_length_s, o.order_no, o.rider_waiting_since,
 			f.released_at IS NULL AND o.handover_otp IS NOT NULL
 				AND ((o.state = 'ARRIVED' AND coalesce(o.min_wait_until <= o.arrived_at OR o.min_wait_until_seen, false)) OR o.otp_released_at IS NOT NULL)
 		FROM offers f JOIN orders o ON o.id = f.order_id WHERE f.id = $1`, offerID).
 		Scan(&f.id, &f.orderID, &f.rider, &f.token, &f.state, &f.orderState, &f.endedReason, &f.finalState,
-			&f.expiresAt, &f.acceptedAt, &f.releasedAt, &f.handedOverAt, &f.timerLength, &f.orderNo, &f.otpAvailable)
+			&f.expiresAt, &f.acceptedAt, &f.releasedAt, &f.handedOverAt, &f.timerLength, &f.orderNo, &f.waitingSince, &f.otpAvailable)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, errNotFound
 	}
@@ -191,10 +193,15 @@ func riderOrderView(ctx context.Context, q querier, f offerRow) (map[string]any,
 			ended = *f.endedReason
 		}
 	}
+	// Another rider's waiting is never shown: once the order is not this rider's, only a hand-over keeps it.
+	waiting := f.waitingSince
+	if f.releasedAt != nil && (f.finalState == nil || *f.finalState != "HANDED_OVER") {
+		waiting = nil
+	}
 	return map[string]any{"id": f.orderID, "offer_id": f.id, "fencing_token": f.token, "state": state, "seq": seq, "ended_reason": ended,
 		"items": items, "gate": gate, "timer_label": timerLabel(length), "rider_accepted_at": stamp(f.acceptedAt),
 		"otp_available": f.otpAvailable, "handed_over_at": stamp(f.handedOverAt), "order_number": OrderNumber(f.orderNo),
-		"waiting_since": nil}, nil // waiting_since: null until waiting at the gate is built (#159).
+		"waiting_since": stamp(waiting)}, nil
 }
 
 func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
@@ -210,24 +217,11 @@ func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var shift any
-	var id, node string
-	var started time.Time
-	err = s.Pool.QueryRow(ctx, "SELECT id::text, node_id::text, started_at FROM shifts WHERE rider_id = $1 AND ended_at IS NULL", actor.ID).Scan(&id, &node, &started)
-	switch {
-	case err == nil:
-		var assigned string
-		var scooter map[string]any
-		if assigned, scooter, err = shifts.Fill(ctx, s.Pool, id, started); err != nil {
-			s.fail(w, r, err)
-			return
-		}
-		shift = map[string]any{"id": id, "node_id": node, "started_at": started.UTC().Format(time.RFC3339Nano), "ended_at": nil,
-			"node_assigned_at": assigned, "scooter": scooter,
-			// In the contract (#157); null until breaks and the device check are built (#159).
-			"break_started_at": nil, "break_ends_at": nil, "device_id": nil}
-	case !errors.Is(err, pgx.ErrNoRows):
+	if open, found, err := shifts.OpenShift(ctx, s.Pool, actor.ID); err != nil {
 		s.fail(w, r, err)
 		return
+	} else if found {
+		shift = open
 	}
 	offers := []map[string]any{}
 	var current any

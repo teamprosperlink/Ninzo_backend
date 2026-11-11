@@ -72,6 +72,8 @@ func (s *Service) MountRider(r chi.Router, signedIn ...Middleware) {
 	r.Group(func(g chi.Router) {
 		g.Use(signedIn...)
 		g.Get("/riders/me", s.getRider)
+		g.With(idem).Patch("/riders/me", s.updateRider)
+		g.Get("/riders/me/notifications", s.listNotifications)
 		g.With(idem).Post("/riders/me/devices", s.registerDevice)
 		g.With(idem).Delete("/riders/me/devices/{device_id}", s.removeDevice)
 		g.Get("/riders/me/verification", s.getVerification)
@@ -273,32 +275,13 @@ func (s *Service) getRider(w http.ResponseWriter, r *http.Request) {
 	if !s.requireLive(w, r, actor) {
 		return
 	}
-	var id, status, personStatus string
-	var name, zone *string
-	var created time.Time
-	var approved *time.Time
-	// approved_at is the newest approval in the audit trail: the command line writes rider.approved,
-	// the console writes rider.approve. Null before the first approval.
-	err := s.Pool.QueryRow(r.Context(), `SELECT r.id::text, r.name, r.status, p.status, r.zone_id::text, r.created_at,
-			(SELECT max(a.created_at) FROM audit_events a WHERE a.entity_type = 'rider' AND a.entity_id = r.id::text
-				AND a.action IN ('rider.approved', 'rider.approve'))
-		FROM riders r JOIN people p ON p.id = r.person_id WHERE r.id = $1`, actor.ID).Scan(&id, &name, &status, &personStatus, &zone, &created, &approved)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		err = errGone
-	case err == nil && personStatus != "active":
-		err = errBlocked
-	}
+	rider, err := readRiderView(r.Context(), s.Pool, actor.ID)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	// A suspended rider can still read this, so the app can say why they cannot work.
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"rider": map[string]any{"id": id, "name": name, "status": status, "zone_id": zone, "preferred_area": nil, // until updateRider (#159)
-			"created_at": created.UTC().Format(time.RFC3339Nano), "approved_at": optionalStamp(approved)},
-		"server_time": serverTime(),
-	})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"rider": rider, "server_time": serverTime()})
 }
 
 // ---------- Devices, for customers and riders alike

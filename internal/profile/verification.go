@@ -31,6 +31,27 @@ func latestVerification(ctx context.Context, q interface {
 	return status, reason, err
 }
 
+// documents are the status of each document of the rider's newest verification, with the reason
+// for a rejection. They are empty until ops record them.
+func (s *Service) documents(ctx context.Context, rider string) ([]map[string]any, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT d.type, d.status, d.reason FROM verification_documents d
+		WHERE d.verification_id = (SELECT id FROM rider_verifications WHERE rider_id = $1 ORDER BY created_at DESC, (status = 'verified'), id LIMIT 1)
+		ORDER BY d.created_at, d.type`, rider)
+	if err != nil {
+		return nil, err
+	}
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (map[string]any, error) {
+		var kind, status string
+		var reason *string
+		err := r.Scan(&kind, &status, &reason)
+		return map[string]any{"type": kind, "status": status, "reason": reason}, err
+	})
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, err
+}
+
 func (s *Service) getVerification(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
 	if !s.requireLive(w, r, actor) {
@@ -41,7 +62,12 @@ func (s *Service) getVerification(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": status, "reason": reason, "documents": []any{}, "server_time": serverTime()}) // documents: #159
+	documents, err := s.documents(r.Context(), actor.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": status, "reason": reason, "documents": documents, "server_time": serverTime()})
 }
 
 func (s *Service) startVerification(w http.ResponseWriter, r *http.Request) {

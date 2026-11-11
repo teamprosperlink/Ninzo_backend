@@ -44,6 +44,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `inventory` | `scooter_stock` | `on_hand` and `reserved`, per scooter and lot. See section 7 | v0.3.0 |
 | `inventory` | `stock_ledger` | Append-only record of every stock change | v0.3.0 |
 | `inventory` | `stock_counts` | A rider's hand count against what the server expected, with the reason the scanner was not used | v0.10.0 |
+| `inventory` | `stock_count_lines` | The lines of a hand count: each item, what the server expected and what the rider counted | v0.10.0 |
 | `inventory` | `reservations` | Short holds on units | v0.4.0 |
 | `tracking` | `shifts` | Rider shifts | v0.3.0 |
 | `tracking` | `rider_state` | Each rider's `seq`, written by every change the rider can see | v0.3.0 |
@@ -190,11 +191,11 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `listRiderNotifications` | `rider_notifications` | | | |
 | `listRiderShifts` | `shifts`, `shift_breaks`, `offers`, `orders` | | | |
 | `getShiftSummary` | `shifts`, `shift_breaks`, `offers`, `orders`, `order_items`, `menu_items`, `scooter_stock`, `stock_ledger`, `earnings` | | | |
-| `startBreak` | `shifts`, `shift_breaks`, `offers`, `orders`, `zone_settings` | `shift_breaks`, `rider_state`, `scheduled_tasks`, `audit_events`, `idempotency_keys` | Fan-out | |
-| `endBreak` | `shifts`, `shift_breaks` | `shift_breaks`, `rider_state`, `scheduled_tasks`, `audit_events`, `idempotency_keys` | Fan-out | |
+| `startBreak` | `shifts`, `shift_breaks`, `offers`, `zone_settings` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | The break ends on its own in a background pass (`shifts.EndDueBreaks`) that reads `shifts.break_ends_at`, so no `scheduled_tasks` row is written |
+| `endBreak` | `shifts`, `shift_breaks` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `cancelRestock` | `restock_requests` | `restock_requests`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `markWaitingAtGate` | `offers`, `orders`, `location_pings` | `orders`, `order_events`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | Push, to the customer |
-| `submitStockCount` | `shifts`, `scooters`, `scooter_stock`, `menu_items` | `stock_counts`, `audit_events`, `idempotency_keys` | | |
+| `submitStockCount` | `shifts`, `scooters`, `scooter_stock`, `lots`, `menu_items` | `stock_counts`, `stock_count_lines`, `audit_events`, `idempotency_keys` | | |
 
 ## 4.1 Partner API
 

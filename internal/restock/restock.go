@@ -20,6 +20,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
+	"github.com/teamprosperlink/Ninzo_backend/internal/notify"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
@@ -299,10 +300,10 @@ func bumpRider(ctx context.Context, tx pgx.Tx, rider, request string) error {
 	// The hub sees every change to its requests too: the request's seq and the hub's rise with it.
 	// A suggestion, or one declined or expired without being confirmed, is the rider's draft, so
 	// the hub's seq does not move for it.
-	var hub string
+	var hub, state string
 	var draft bool
 	if err := tx.QueryRow(ctx, `UPDATE restock_requests SET seq = seq + 1, updated_at = now() WHERE id = $1
-		RETURNING hub_id::text, source = 'suggested' AND state IN ('suggested', 'expired', 'cancelled') AND accepted_by IS NULL AND slot_at IS NULL`, request).Scan(&hub, &draft); err != nil {
+		RETURNING hub_id::text, state, source = 'suggested' AND state IN ('suggested', 'expired', 'cancelled') AND accepted_by IS NULL AND slot_at IS NULL`, request).Scan(&hub, &state, &draft); err != nil {
 		return err
 	}
 	if !draft {
@@ -311,7 +312,38 @@ func bumpRider(ctx context.Context, tx pgx.Tx, rider, request string) error {
 			return err
 		}
 	}
-	return outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request})
+	if err := outbox.Add(ctx, tx, "push.rider", map[string]any{"rider_id": rider, "kind": "restock", "request_id": request}); err != nil {
+		return err
+	}
+	title, body := restockNote(state)
+	return notify.Record(ctx, tx, rider, "restock", title, body, "")
+}
+
+// restockNote is what the rider is told about a request in this state.
+func restockNote(state string) (string, string) {
+	switch state {
+	case "suggested":
+		return "Restock suggested", "Your scooter is running low. Review the suggested restock."
+	case "confirmed":
+		return "Restock requested", "Your restock request is waiting for the hub."
+	case "hub_accepted":
+		return "Hub accepted your restock", "The hub will pack your cassette."
+	case "packing":
+		return "Hub is packing", "Your cassette is being packed."
+	case "ready":
+		return "Restock ready", "Your cassette is packed. Collect it from the hub."
+	case "partial":
+		return "Restock is short", "The hub could not fill everything. Choose how to go on."
+	case "picked_up", "received":
+		return "Restock collected", "Your cassette was collected."
+	case "cancelled":
+		return "Restock cancelled", "Your restock request was cancelled."
+	case "expired":
+		return "Restock ended", "Your restock request ended without being collected."
+	case "closed":
+		return "Restock closed", "Nothing was packed, so there is nothing to collect."
+	}
+	return "Restock update", "Your restock request changed."
 }
 
 // move changes a locked request's state.
