@@ -155,6 +155,11 @@ func isBidiControl(c rune) bool {
 }
 
 // cleanText trims text a rider will read, and refuses what could hide or reverse it.
+// CleanText trims text and refuses control and bidi characters, as for customers' gates.
+func CleanText(raw string, max int, newlines bool) (string, bool) {
+	return cleanText(raw, max, newlines)
+}
+
 func cleanText(raw string, max int, newlines bool) (string, bool) {
 	text := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
 	if !utf8.ValidString(text) || utf8.RuneCountInString(text) > max {

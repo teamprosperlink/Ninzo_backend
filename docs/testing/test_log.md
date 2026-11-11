@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-11 | #137 | `v0.9.0` menu and prices, gates, hubs and hub staff | See PR | PASS | [reports/137.md](reports/137.md) |
 | 2026-11-11 | #136 | `v0.9.0` zones, settings and the kill switch | See PR | PASS | [reports/136.md](reports/136.md) |
 | 2026-11-11 | #135 | `v0.9.0` rider review in the console | See PR | PASS | [reports/135.md](reports/135.md) |
 | 2026-11-11 | #134 | `v0.9.0` console sign-in, users, approvals and flags | See PR | PASS | [reports/134.md](reports/134.md) |
