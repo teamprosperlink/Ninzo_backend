@@ -2103,7 +2103,7 @@ paths:
             x-permission: gates.read
     /admin/gates/{gate_id}:
         patch:
-            description: 'Every change is a new version with who and why; orders keep the version they were placed with. Errors: outside_zone (409). Permission: gates.manage.'
+            description: 'Every change is a new version with who and why; orders keep the version they were placed with. A gate whose customer was erased cannot be changed. Errors: outside_zone, not_allowed (both 409). Permission: gates.manage.'
             operationId: updateGate
             parameters:
                 - description: The id.
@@ -2180,7 +2180,7 @@ paths:
             x-permission: gates.read
     /admin/hub-staff/{staff_id}:
         patch:
-            description: 'Role, hub or status, with a reason. Suspending ends their sessions. Permission: hub_staff.manage.'
+            description: 'Role, hub or status, with a reason. Suspending them, or moving them to another hub, ends their sessions. Permission: hub_staff.manage.'
             operationId: updateHubStaff
             parameters:
                 - description: The id.
@@ -2293,7 +2293,7 @@ paths:
             x-permission: hubs.manage
     /admin/hubs/{hub_id}:
         patch:
-            description: 'A paused hub accepts nothing new. Errors: name_taken (409). Permission: hubs.manage.'
+            description: 'A paused hub accepts nothing new. A moved pin must stay inside the zone''s area. Errors: name_taken, outside_zone (both 409). Permission: hubs.manage.'
             operationId: updateHub
             parameters:
                 - description: The id.

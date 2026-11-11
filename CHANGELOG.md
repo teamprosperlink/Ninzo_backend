@@ -5,6 +5,13 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Menu, gates, hubs and hub staff in the console (#137)
+- Added: `listAdminMenu`, `createMenuItem` (added hidden), `updateMenuItem` (a price change keeps its reason in the history), `getPriceHistory`.
+- Added: `listAdminGates`, `updateGate` (a new version with who and why; a moved pin stays in its zone; an erased customer's gate is left alone), `getGateHistory`.
+- Added: `listAdminHubs`, `createHub`, `updateHub`, `listHubStaff`, `addHubStaff`, `updateHubStaff`. Suspending staff ends their sessions; a hub_manager works only in their own hub.
+- Added: migration 0036, `gate_history.changed_by`. Not applied to Supabase.
+- Evidence: docs/testing/reports/137.md
+
 ### Zones, settings and the kill switch (#136)
 - Added: `listZones`, `getGlobalSettings`, `getZoneSettings`, `requestGlobalSettingsChange`, `requestZoneSettingsChange` and `requestKillSwitch` in the console. Every change waits for a second admin.
 - A settings request is checked at once (range, known key, base_version, and every zone still valid) and again when approved; one the settings moved past fails as stale_version.
