@@ -151,7 +151,7 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 			"cancellable": cancellableAt(s.stage, at, cancelUntil, deadline), "cancel_until": stamp(cancelUntil), "wait_deadline": nil,
 			"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": nil,
 			"timer":  map[string]any{"timer_started_at": timerStart, "timer_duration_s": duration, "timer_stopped_at": timerStop, "timer_missed": false},
-			"remedy": nil, "handover_otp": nil, "created_at": stamp(paid.Add(-time.Minute)),
+			"remedy": nil, "handover_otp": nil, "created_at": stamp(paid.Add(-time.Minute)), "order_number": "A2931",
 		}
 		if riderShown {
 			o["rider"] = map[string]any{"first_name": "Ravi"}

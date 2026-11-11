@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Rider app fields (#158)
+- Added: rider `created_at`, `approved_at` (the newest `rider.approved` or `rider.approve` audit row, null before); shift `node_assigned_at` (the shift start, or the last arrived move in the shift) and `scooter` (`id`, `plate`, `battery_pct`, null until scooter data exists); node `hub_distance_m` (straight line to the nearest active hub, null if none); `order_number` on the rider's order and offer and the customer's order, a letter and four digits such as A2931 (`orders.OrderNumber`); relocation suggestion `orders_waiting`; restock request `ready_in_s`; `lat` and `lng` on every `HubRef`, and `distance_m` on a shortfall's other hub; stock lot `image_url`.
+- Added: migration 0039, `orders.order_no` (identity, existing orders numbered) and `relocations.orders_waiting` (null for older rows). Not applied to Supabase.
+- Changed: the contract's allowed-field lists for the customer and rider order now include `order_number`.
 ### Rider verification and route served (#156)
 - Fixed: `GET /riders/me/verification`, `POST /riders/me/verification/start` and `GET /orders/{order_id}/route` were in the rider contract but only the mock served them, so staging answered 404 (found by the rider app developer, #154).
 - Verification is a stand-in until DigiLocker: start records a pending request (409 `already_verified` or `verification_in_progress` otherwise), and the status follows the shift-start rule. The route is a straight line from the last position to the gate, with a placeholder time.

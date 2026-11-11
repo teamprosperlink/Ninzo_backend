@@ -23,6 +23,8 @@ Update this page in the same PR as any change to a row. The shared Doc points ap
 | Stock, lots, ledger | Real, test data | Lots are made by `task testdata` | Hub APIs make lots | v0.8.0 |
 | Rider approval | Stand-in | `task riders`, audited, documents marked checked by hand | Rider application, DigiLocker and the console | v0.3.0 application later, console v0.9.0 |
 | Rider shift, nodes, stock scan | Real | A free scooter at the node is the rider's for the shift | | Done |
+| Scooter battery (`battery_pct` on the rider's shift) | Stand-in | Always null. There is no scooter data yet | Scooter telemetry, when the pilot scooters report it | When the scooters report |
+| Restock `ready_in_s` | Stand-in | Counts down to the hub's queue slot, which the hub simulator sets. Null without a slot, 0 once the slot has passed | The real hub's packing time, from the hub app (v0.8.0) | With the hub app |
 | **Reach in availability** | Stand-in | Straight-line distance from the scooter's staging node, at a placeholder speed | Rider GPS, then real road times from a routing engine | GPS v0.5.0, roads after the road test |
 | H3 map grid | Not built | Not needed at pilot size, where PostGIS is exact | H3 cells, if demand data needs them | After real traffic |
 | Matching riders to orders | Not built | | Nearest rider on shift with the whole basket, then ranking | v0.5.0 |

@@ -268,11 +268,17 @@ components:
             properties:
                 id:
                     $ref: '#/components/schemas/Id'
+                lat:
+                    type: number
+                lng:
+                    type: number
                 name:
                     type: string
             required:
                 - id
                 - name
+                - lat
+                - lng
             type: object
         Id:
             description: Opaque identifier. Do not parse it.
@@ -369,6 +375,12 @@ components:
                     maximum: 100
                     minimum: 0
                     type: integer
+                hub_distance_m:
+                    description: Straight-line metres to the nearest active hub in the zone. Null if the zone has no active hub.
+                    minimum: 0
+                    type:
+                        - integer
+                        - "null"
                 id:
                     $ref: '#/components/schemas/Id'
                 lat:
@@ -383,6 +395,7 @@ components:
                 - fullness_pct
                 - lat
                 - lng
+                - hub_distance_m
             type: object
         NodeList:
             properties:
@@ -449,6 +462,10 @@ components:
                     type:
                         - string
                         - "null"
+                order_number:
+                    description: Readable order number, a letter and four digits such as A2931.
+                    pattern: ^[A-Z][0-9]{4}$
+                    type: string
                 state:
                     enum:
                         - open
@@ -466,6 +483,7 @@ components:
                 - expires_at
                 - state
                 - fencing_token
+                - order_number
             type: object
         OfferList:
             properties:
@@ -647,6 +665,12 @@ components:
                     $ref: '#/components/schemas/Id'
                 node_id:
                     $ref: '#/components/schemas/Id'
+                orders_waiting:
+                    description: Orders expected near the node when this was made. Null for older suggestions.
+                    minimum: 0
+                    type:
+                        - integer
+                        - "null"
                 reason:
                     description: Short text, such as how many orders are expected.
                     example: 3 orders expected, nobody nearby
@@ -656,6 +680,7 @@ components:
                 - node_id
                 - reason
                 - expires_at
+                - orders_waiting
             type: object
         RestockConfirmEvent:
             properties:
@@ -798,6 +823,12 @@ components:
                     items:
                         type: string
                     type: array
+                ready_in_s:
+                    description: Seconds from now to the hub slot, never below 0. Null without a slot.
+                    minimum: 0
+                    type:
+                        - integer
+                        - "null"
                 shortfall:
                     oneOf:
                         - $ref: '#/components/schemas/RestockShortfall'
@@ -831,6 +862,7 @@ components:
                 - arrive_by
                 - lot_numbers
                 - shortfall
+                - ready_in_s
             type: object
         RestockResponse:
             properties:
@@ -853,7 +885,18 @@ components:
                     type: string
                 other_hub:
                     oneOf:
-                        - $ref: '#/components/schemas/HubRef'
+                        - allOf:
+                            - $ref: '#/components/schemas/HubRef'
+                            - properties:
+                                distance_m:
+                                    description: Straight-line metres from the rider's node to this hub. Null if it cannot be worked out.
+                                    minimum: 0
+                                    type:
+                                        - integer
+                                        - "null"
+                              required:
+                                - distance_m
+                              type: object
                         - type: "null"
                 substitute:
                     oneOf:
@@ -897,6 +940,16 @@ components:
             type: object
         Rider:
             properties:
+                approved_at:
+                    description: When the rider was approved. Null before approval.
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                created_at:
+                    description: When the account was made.
+                    format: date-time
+                    type: string
                 id:
                     $ref: '#/components/schemas/Id'
                 name:
@@ -917,6 +970,8 @@ components:
                 - name
                 - status
                 - zone_id
+                - created_at
+                - approved_at
             type: object
         RiderOrder:
             description: What the rider sees of an order. It has no countdown fields. The rider sees a calm fixed label, so the clock never pressures the rider.
@@ -964,6 +1019,10 @@ components:
                     type: array
                 offer_id:
                     $ref: '#/components/schemas/Id'
+                order_number:
+                    description: Readable order number, a letter and four digits such as A2931.
+                    pattern: ^[A-Z][0-9]{4}$
+                    type: string
                 otp_available:
                     description: True once the customer has the OTP to show. Offline, this value may be stale, so the app must still allow the rider to enter an OTP.
                     type: boolean
@@ -995,6 +1054,7 @@ components:
                 - rider_accepted_at
                 - otp_available
                 - handed_over_at
+                - order_number
             type: object
         RiderResponse:
             properties:
@@ -1098,8 +1158,32 @@ components:
                         - "null"
                 id:
                     $ref: '#/components/schemas/Id'
+                node_assigned_at:
+                    description: When the rider was given this node. This is the shift start, or when the rider accepted the last move in the shift (the node changes at accept).
+                    format: date-time
+                    type: string
                 node_id:
                     $ref: '#/components/schemas/Id'
+                scooter:
+                    description: The scooter on this shift.
+                    properties:
+                        battery_pct:
+                            description: Null until scooter data exists.
+                            maximum: 100
+                            minimum: 0
+                            type:
+                                - integer
+                                - "null"
+                        id:
+                            $ref: '#/components/schemas/Id'
+                        plate:
+                            description: The scooter code shown on the vehicle.
+                            type: string
+                    required:
+                        - id
+                        - plate
+                        - battery_pct
+                    type: object
                 started_at:
                     format: date-time
                     type: string
@@ -1108,6 +1192,8 @@ components:
                 - node_id
                 - started_at
                 - ended_at
+                - node_assigned_at
+                - scooter
             type: object
         ShiftResponse:
             properties:
@@ -1136,6 +1222,11 @@ components:
                 expiry:
                     format: date-time
                     type: string
+                image_url:
+                    description: The menu item photo. Null when the item has none.
+                    type:
+                        - string
+                        - "null"
                 item_id:
                     $ref: '#/components/schemas/Id'
                 lot_id:
@@ -1151,6 +1242,7 @@ components:
                 - qty
                 - expiry
                 - temp_status
+                - image_url
             type: object
         StockScanEvent:
             properties:

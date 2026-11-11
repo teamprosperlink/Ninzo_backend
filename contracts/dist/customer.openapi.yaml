@@ -521,6 +521,10 @@ components:
                     items:
                         $ref: '#/components/schemas/OrderItem'
                     type: array
+                order_number:
+                    description: Readable order number, a letter and four digits such as A2931.
+                    pattern: ^[A-Z][0-9]{4}$
+                    type: string
                 payment_request:
                     description: Set only at the payment stage, so checkout can resume after the app was closed.
                     oneOf:
@@ -574,6 +578,7 @@ components:
                 - remedy
                 - handover_otp
                 - created_at
+                - order_number
             type: object
         OrderGate:
             properties:
