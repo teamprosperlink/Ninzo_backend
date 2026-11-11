@@ -1,0 +1,23 @@
+meta {
+  name: replyTicket
+  type: http
+  seq: 47
+}
+
+post {
+  url: {{baseUrl}}/admin/tickets/mock_id/messages
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-replyTicket-0001
+}
+
+body:json {
+  {
+    "text": "mock_value"
+  }
+}

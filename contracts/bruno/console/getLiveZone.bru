@@ -1,0 +1,16 @@
+meta {
+  name: getLiveZone
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/admin/zones/mock_id/live
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

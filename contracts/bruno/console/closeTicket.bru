@@ -1,0 +1,23 @@
+meta {
+  name: closeTicket
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/admin/tickets/mock_id/close
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-closeTicket-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

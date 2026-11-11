@@ -1,0 +1,23 @@
+meta {
+  name: expireRestock
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/admin/restock/mock_id/expire
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-expireRestock-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

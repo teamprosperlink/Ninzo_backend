@@ -1,0 +1,23 @@
+meta {
+  name: assignIncident
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/admin/incidents/mock_id/assign
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-assignIncident-0001
+}
+
+body:json {
+  {
+    "user_id": "ord_01HZX3Q7"
+  }
+}

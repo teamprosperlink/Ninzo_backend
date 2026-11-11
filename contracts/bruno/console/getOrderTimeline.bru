@@ -1,0 +1,16 @@
+meta {
+  name: getOrderTimeline
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseUrl}}/admin/orders/mock_id/timeline
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

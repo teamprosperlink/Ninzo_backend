@@ -1,0 +1,16 @@
+meta {
+  name: listTickets
+  type: http
+  seq: 43
+}
+
+get {
+  url: {{baseUrl}}/admin/tickets
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
