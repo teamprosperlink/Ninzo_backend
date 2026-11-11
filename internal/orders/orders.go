@@ -113,6 +113,7 @@ func (s *Service) MountCustomer(r chi.Router, testPayments bool, signedIn ...fun
 		g.With(idem).Post("/orders/{order_id}/payment/retry", s.retry)
 		g.Get("/orders/{order_id}/refund", s.getRefund)
 		g.With(idem).Post("/orders/{order_id}/accept-eta", s.acceptETA)
+		g.With(idem).Post("/orders/{order_id}/call", s.startCustomerCall)
 		if testPayments {
 			g.Post("/test/payments/{order_id}", s.testPayment)
 		}

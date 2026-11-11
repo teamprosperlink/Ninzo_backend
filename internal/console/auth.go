@@ -114,7 +114,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	err := s.Pool.QueryRow(r.Context(), "SELECT id::text, password_hash FROM console_users WHERE login_id = $1", login).Scan(&id, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		CheckPassword(dummyHash, body.Password) // The same work as a real check.
-		httpserver.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "That ID or password is wrong.", false)
+		httpserver.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "That email or password is wrong.", false)
 		return
 	}
 	if err != nil {

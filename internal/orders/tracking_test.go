@@ -514,3 +514,21 @@ func TestATimerStoppedByAReviewStaysInTime(t *testing.T) {
 		t.Errorf("arriving after the length must not undo a timer stopped in time: %v", c)
 	}
 }
+
+// Masked calls are a stand-in until a telephony provider (#151): each side may ask about its own
+// order only, and is told the call is not available.
+func TestMaskedCallsAreNotAvailableYet(t *testing.T) {
+	tr := started(t, true)
+	if code, out := tr.call("POST", "/orders/"+tr.order+"/call", tr.tok, ""); code != 409 || out["code"] != "call_not_available" {
+		t.Errorf("the rider's own order: %d %v", code, out)
+	}
+	if code, _ := tr.call("POST", "/orders/00000000-0000-0000-0000-000000000009/call", tr.tok, ""); code != 404 {
+		t.Errorf("an order the rider never accepted: %d", code)
+	}
+	if code, out := tr.send("POST", "/orders/"+tr.order+"/call", tr.fixture.token, ""); code != 409 || out["code"] != "call_not_available" {
+		t.Errorf("the customer's own order: %d %v", code, out)
+	}
+	if code, _ := tr.send("POST", "/orders/00000000-0000-0000-0000-000000000009/call", tr.fixture.token, ""); code != 404 {
+		t.Errorf("an order that is not the customer's: %d", code)
+	}
+}
