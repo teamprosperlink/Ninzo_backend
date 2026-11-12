@@ -2,9 +2,11 @@ package mockserver
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // customerScenarios lists every scenario, with what it shows. The first group comes
@@ -70,12 +72,13 @@ func money(amount int) map[string]any {
 func menuItem(id, name string, price int) map[string]any {
 	return map[string]any{
 		"id": id, "name": name, "description": "Sample item for the mock.", "price": money(price),
-		"allergens": []string{"gluten"}, "photo_url": nil,
+		"allergens": []string{"gluten"}, "is_veg": id == "item_chai", "photo_url": nil,
 	}
 }
 
 func sampleGate() map[string]any {
-	return map[string]any{"id": "gate_mock01", "label": "Main gate", "lat": 12.935, "lng": 77.625, "entry_notes": "Near the security desk", "verified": true}
+	return map[string]any{"id": "gate_mock01", "label": "Main gate", "lat": 12.935, "lng": 77.625, "entry_notes": "Near the security desk", "verified": true,
+		"landmark": "Opposite the pharmacy", "gate_type": "main_gate"}
 }
 
 func needsBody(c *call, fields ...string) (map[string]any, bool) {
@@ -153,6 +156,10 @@ func customerRoutes() []route {
 			}
 			c.json(200, map[string]any{"customer": map[string]any{"id": "cus_mock0001", "phone": "+919876543210", "name": name, "email": body["email"], "sign_in_method": mockMethod(c)}})
 		}},
+		{method: "GET", path: "/me/notification-settings", handle: func(c *call) {
+			c.json(200, map[string]any{"settings": notificationSettings(false, true)})
+		}},
+		{method: "PATCH", path: "/me/notification-settings", handle: updateNotificationSettings},
 		{method: "POST", path: "/me/devices", handle: registerDevice},
 		{method: "DELETE", path: "/me/devices/{device_id}", handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/gates", handle: func(c *call) {
@@ -187,6 +194,10 @@ func customerRoutes() []route {
 			g := sampleGate()
 			g["id"], g["label"], g["lat"], g["lng"], g["verified"] = "gate_mock02", body["label"], body["lat"], body["lng"], true
 			g["entry_notes"] = body["entry_notes"]
+			g["landmark"], g["gate_type"] = body["landmark"], body["gate_type"]
+			if !validGateExtras(c, body) {
+				return
+			}
 			c.json(201, map[string]any{"gate": g})
 		}},
 		{method: "GET", path: "/locations/check", handle: func(c *call) {
@@ -536,3 +547,62 @@ func phoneRequired(c *call) bool {
 	c.fail(409, "phone_required", "Verify a phone first.", false)
 	return true
 }
+
+// notificationSettings is the reply body. order_updates is always true.
+func notificationSettings(offersAndNews, supportReplies bool) map[string]any {
+	return map[string]any{"order_updates": true, "offers_and_news": offersAndNews, "support_replies": supportReplies}
+}
+
+// updateNotificationSettings answers from the sample defaults with the sent kinds applied. The
+// mock keeps no state between calls. order_updates cannot be sent at all.
+func updateNotificationSettings(c *call) {
+	body, ok := needsBody(c)
+	if !ok {
+		return
+	}
+	offers, support := false, true
+	seen := 0
+	for key, raw := range body {
+		value, isBool := raw.(bool)
+		switch {
+		case key == "order_updates":
+			c.fail(400, "invalid_request", "order_updates cannot be changed.", false)
+			return
+		case (key != "offers_and_news" && key != "support_replies") || !isBool:
+			c.fail(400, "invalid_request", "Send offers_and_news or support_replies as true or false.", false)
+			return
+		case key == "offers_and_news":
+			offers = value
+		default:
+			support = value
+		}
+		seen++
+	}
+	if seen == 0 {
+		c.fail(400, "invalid_request", "Send offers_and_news, support_replies or both.", false)
+		return
+	}
+	c.json(200, map[string]any{"settings": notificationSettings(offers, support)})
+}
+
+// validGateExtras checks the optional landmark (1 to 80 characters) and gate_type (a short
+// lowercase word). It answers 400 and returns false when one is wrong.
+func validGateExtras(c *call, body map[string]any) bool {
+	if raw, present := body["landmark"]; present {
+		text, isText := raw.(string)
+		if !isText || utf8.RuneCountInString(strings.TrimSpace(text)) < 1 || utf8.RuneCountInString(text) > 80 {
+			c.fail(400, "invalid_request", "landmark must be 1 to 80 characters.", false)
+			return false
+		}
+	}
+	if raw, present := body["gate_type"]; present {
+		text, isText := raw.(string)
+		if !isText || !gateTypePattern.MatchString(text) || len(text) > 30 {
+			c.fail(400, "invalid_request", "gate_type must be a short lowercase word such as main_gate.", false)
+			return false
+		}
+	}
+	return true
+}
+
+var gateTypePattern = regexp.MustCompile(`^[a-z][a-z_]*$`)

@@ -137,9 +137,9 @@ func sampleRiderReview(verification string, now time.Time) map[string]any {
 		"zone_id": nil, "applied_at": stamp(now.Add(-2 * time.Hour))}
 }
 
-func adminMenuItem(id, name string, price int, status string, now time.Time) map[string]any {
+func adminMenuItem(id, name string, price int, status string, isVeg bool, now time.Time) map[string]any {
 	return map[string]any{"id": id, "name": name, "description": nil, "price": money(price), "status": status, "sort_order": 1, "allergens": []string{},
-		"photo_url": nil, "updated_at": stamp(now)}
+		"is_veg": isVeg, "photo_url": nil, "updated_at": stamp(now)}
 }
 
 func adminGate(version int, now time.Time) map[string]any {
@@ -470,7 +470,7 @@ func consoleRoutes() []route {
 		}},
 		{method: "GET", path: "/admin/menu/items", handle: func(c *call) {
 			if !denied(c) {
-				c.json(200, map[string]any{"items": []map[string]any{adminMenuItem("item_burger", "Burger", 14900, "active", c.now), adminMenuItem("item_tea", "Lemon tea", 3900, "hidden", c.now)}})
+				c.json(200, map[string]any{"items": []map[string]any{adminMenuItem("item_burger", "Burger", 14900, "active", false, c.now), adminMenuItem("item_tea", "Lemon tea", 3900, "hidden", true, c.now)}})
 			}
 		}},
 		{method: "POST", path: "/admin/menu/items", handle: func(c *call) {
@@ -480,15 +480,20 @@ func consoleRoutes() []route {
 			body, ok := needsBody(c, "name", "price_paise")
 			if ok {
 				name, _ := body["name"].(string)
-				c.json(201, map[string]any{"item": adminMenuItem("item_new", name, 9900, "hidden", c.now)})
+				isVeg, valid := optionalBool(c, body, "is_veg")
+				if valid {
+					c.json(201, map[string]any{"item": adminMenuItem("item_new", name, 9900, "hidden", isVeg, c.now)})
+				}
 			}
 		}},
 		{method: "PATCH", path: "/admin/menu/items/{item_id}", handle: func(c *call) {
 			if denied(c) || fail(c, "name_taken") {
 				return
 			}
-			if _, ok := reason(c); ok {
-				c.json(200, map[string]any{"item": adminMenuItem("item_burger", "Burger", 15900, "active", c.now)})
+			if body, ok := reason(c); ok {
+				if isVeg, valid := optionalBool(c, body, "is_veg"); valid {
+					c.json(200, map[string]any{"item": adminMenuItem("item_burger", "Burger", 15900, "active", isVeg, c.now)})
+				}
 			}
 		}},
 		{method: "GET", path: "/admin/menu/items/{item_id}/prices", handle: func(c *call) {
@@ -952,4 +957,19 @@ func paise(v any) (int, bool) {
 		return 0, false
 	}
 	return int(f), true
+}
+
+// optionalBool reads a boolean field that may be left out (false then). A value that is not a
+// boolean is a 400 and the second result is false.
+func optionalBool(c *call, body map[string]any, key string) (value, ok bool) {
+	raw, present := body[key]
+	if !present {
+		return false, true
+	}
+	value, isBool := raw.(bool)
+	if !isBool {
+		c.fail(400, "invalid_request", key+" must be true or false.", false)
+		return false, false
+	}
+	return value, true
 }

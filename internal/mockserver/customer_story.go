@@ -157,7 +157,7 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 			"remedy": nil, "handover_otp": nil, "created_at": stamp(paid.Add(-time.Minute)), "order_number": "A2931", "rider_waiting_since": nil,
 		}
 		if riderShown {
-			o["rider"] = map[string]any{"first_name": "Ravi"}
+			o["rider"] = map[string]any{"first_name": "Ravi", "scooter_plate": "KA01AB1234"}
 		}
 		switch s.stage {
 		case "payment":

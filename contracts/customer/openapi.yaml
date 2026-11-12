@@ -433,6 +433,77 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/InternalError'
         '503':
           $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
+  /me/notification-settings:
+    get:
+      tags: [profile]
+      operationId: getNotificationSettings
+      summary: Get the push notification settings
+      description: >-
+        One boolean per kind of push. order_updates is always true, because order pushes are part of
+        the service. The pusher skips a kind that is turned off. Part of the customer app additions
+        (Issue 178). The server follows in part B, and the mock answers until then.
+      responses:
+        '200':
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsResponse'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+    patch:
+      tags: [profile]
+      operationId: updateNotificationSettings
+      summary: Change the push notification settings
+      description: >-
+        Send offers_and_news, support_replies or both. The other stays as it is. order_updates cannot
+        be changed, and sending it, even as true, is a 400 (invalid_request). The reply holds all three.
+      parameters:
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              anyOf:
+                - required: [offers_and_news]
+                - required: [support_replies]
+              properties:
+                offers_and_news:
+                  type: boolean
+                support_replies:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /me/devices:
     post:
       tags: [profile]
@@ -568,6 +639,13 @@ paths:
                 entry_notes:
                   type: string
                   maxLength: 500
+                landmark:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                  example: Opposite the pharmacy
+                gate_type:
+                  $ref: '#/components/schemas/GateType'
       responses:
         '201':
           description: Saved.
@@ -1369,6 +1447,26 @@ components:
           $ref: '#/components/schemas/Customer'
         server_time:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
+    NotificationSettings:
+      type: object
+      required: [order_updates, offers_and_news, support_replies]
+      properties:
+        order_updates:
+          type: boolean
+          const: true
+          description: Always true, and not changeable. Order pushes are part of the service.
+        offers_and_news:
+          type: boolean
+        support_replies:
+          type: boolean
+    NotificationSettingsResponse:
+      type: object
+      required: [settings, server_time]
+      properties:
+        settings:
+          $ref: '#/components/schemas/NotificationSettings'
+        server_time:
+          $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     DeviceResponse:
       type: object
       required: [device_id, server_time]
@@ -1393,9 +1491,29 @@ components:
           type:
             - string
             - 'null'
+        landmark:
+          type:
+            - string
+            - 'null'
+          maxLength: 80
+          description: Optional. A place the rider can spot from the road. Absent or null when the customer gave none.
+        gate_type:
+          description: Optional. Absent or null when the customer gave none.
+          anyOf:
+            - $ref: '#/components/schemas/GateType'
+            - type: 'null'
         verified:
           type: boolean
           description: Orders can be placed only at verified gates. Proposed, until the owner settles the gate policy.
+    GateType:
+      type: string
+      description: >-
+        An open list. Known values are main_gate, side_gate, tower, house, office and other. The app
+        shows an unknown value as other, and the server stores any short lowercase word.
+      minLength: 1
+      maxLength: 30
+      pattern: ^[a-z][a-z_]*$
+      examples: [main_gate, side_gate, tower, house, office, other]
     GateResponse:
       type: object
       required: [gate, server_time]
@@ -1429,7 +1547,7 @@ components:
           $ref: '../shared/common.yaml#/components/schemas/ServerTime'
     MenuItem:
       type: object
-      required: [id, name, price, allergens]
+      required: [id, name, price, allergens, is_veg]
       properties:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
@@ -1445,6 +1563,9 @@ components:
           type: array
           items:
             type: string
+        is_veg:
+          type: boolean
+          description: True for a vegetarian item. Set by the admin in the console. An item is false until it is set.
         photo_url:
           type:
             - string
@@ -1546,11 +1667,18 @@ components:
     OrderRider:
       type: object
       description: Null on the order until the rider_accepted stage.
-      required: [first_name]
+      required: [first_name, scooter_plate]
       properties:
         first_name:
           type: string
           example: Ravi
+        scooter_plate:
+          type:
+            - string
+            - 'null'
+          maxLength: 20
+          example: KA01AB1234
+          description: The plate of the rider's scooter. Shown by the same stage rule as first_name, and null while the plate is not on record.
     EtaOffer:
       type: object
       description: A longer ETA the customer may accept at the no_scooter stage. Offered only when the time is measured, because the customer must see it to agree.

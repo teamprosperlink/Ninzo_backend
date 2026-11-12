@@ -221,6 +221,9 @@ components:
                         - "null"
                 id:
                     $ref: '#/components/schemas/Id'
+                is_veg:
+                    description: True for a vegetarian item. False until an admin sets it.
+                    type: boolean
                 name:
                     type: string
                 photo_url:
@@ -247,6 +250,7 @@ components:
                 - status
                 - sort_order
                 - allergens
+                - is_veg
                 - photo_url
                 - updated_at
             type: object
@@ -1560,6 +1564,10 @@ components:
                 description:
                     maxLength: 500
                     type: string
+                is_veg:
+                    default: false
+                    description: True for a vegetarian item. False when left out.
+                    type: boolean
                 name:
                     maxLength: 80
                     minLength: 1
@@ -1598,6 +1606,8 @@ components:
                     type:
                         - string
                         - "null"
+                is_veg:
+                    type: boolean
                 name:
                     maxLength: 80
                     minLength: 1

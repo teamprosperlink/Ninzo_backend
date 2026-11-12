@@ -333,10 +333,21 @@ components:
                     type:
                         - string
                         - "null"
+                gate_type:
+                    anyOf:
+                        - $ref: '#/components/schemas/GateType'
+                        - type: "null"
+                    description: Optional. Absent or null when the customer gave none.
                 id:
                     $ref: '#/components/schemas/Id'
                 label:
                     type: string
+                landmark:
+                    description: Optional. A place the rider can spot from the road. Absent or null when the customer gave none.
+                    maxLength: 80
+                    type:
+                        - string
+                        - "null"
                 lat:
                     type: number
                 lng:
@@ -373,6 +384,19 @@ components:
                 - gate
                 - server_time
             type: object
+        GateType:
+            description: An open list. Known values are main_gate, side_gate, tower, house, office and other. The app shows an unknown value as other, and the server stores any short lowercase word.
+            examples:
+                - main_gate
+                - side_gate
+                - tower
+                - house
+                - office
+                - other
+            maxLength: 30
+            minLength: 1
+            pattern: ^[a-z][a-z_]*$
+            type: string
         Id:
             description: Opaque identifier. Do not parse it.
             example: ord_01HZX3Q7
@@ -421,6 +445,9 @@ components:
                         - "null"
                 id:
                     $ref: '#/components/schemas/Id'
+                is_veg:
+                    description: True for a vegetarian item. Set by the admin in the console. An item is false until it is set.
+                    type: boolean
                 name:
                     type: string
                 photo_url:
@@ -435,6 +462,7 @@ components:
                 - name
                 - price
                 - allergens
+                - is_veg
             type: object
         MenuItemList:
             properties:
@@ -472,6 +500,31 @@ components:
             required:
                 - amount_minor
                 - currency
+            type: object
+        NotificationSettings:
+            properties:
+                offers_and_news:
+                    type: boolean
+                order_updates:
+                    const: true
+                    description: Always true, and not changeable. Order pushes are part of the service.
+                    type: boolean
+                support_replies:
+                    type: boolean
+            required:
+                - order_updates
+                - offers_and_news
+                - support_replies
+            type: object
+        NotificationSettingsResponse:
+            properties:
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+                settings:
+                    $ref: '#/components/schemas/NotificationSettings'
+            required:
+                - settings
+                - server_time
             type: object
         Order:
             description: What the customer may see of an order. It never includes the true order state or rider_accepted_at. See Order states and customer stages in contracts/README.md.
@@ -660,8 +713,16 @@ components:
                 first_name:
                     example: Ravi
                     type: string
+                scooter_plate:
+                    description: The plate of the rider's scooter. Shown by the same stage rule as first_name, and null while the plate is not on record.
+                    example: KA01AB1234
+                    maxLength: 20
+                    type:
+                        - string
+                        - "null"
             required:
                 - first_name
+                - scooter_plate
             type: object
         OrderTimer:
             description: The order's timer, set only by the server. The countdown ends at timer_started_at + timer_duration_s, corrected for phone clock offset.
@@ -1194,7 +1255,14 @@ paths:
                                 entry_notes:
                                     maxLength: 500
                                     type: string
+                                gate_type:
+                                    $ref: '#/components/schemas/GateType'
                                 label:
+                                    maxLength: 80
+                                    minLength: 1
+                                    type: string
+                                landmark:
+                                    example: Opposite the pharmacy
                                     maxLength: 80
                                     minLength: 1
                                     type: string
@@ -1430,6 +1498,76 @@ paths:
                 "503":
                     $ref: '#/components/responses/ServiceUnavailable'
             summary: Remove a device from push
+            tags:
+                - profile
+    /me/notification-settings:
+        get:
+            description: One boolean per kind of push. order_updates is always true, because order pushes are part of the service. The pusher skips a kind that is turned off. Part of the customer app additions (Issue 178). The server follows in part B, and the mock answers until then.
+            operationId: getNotificationSettings
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/NotificationSettingsResponse'
+                    description: The settings.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Get the push notification settings
+            tags:
+                - profile
+        patch:
+            description: Send offers_and_news, support_replies or both. The other stays as it is. order_updates cannot be changed, and sending it, even as true, is a 400 (invalid_request). The reply holds all three.
+            operationId: updateNotificationSettings
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            additionalProperties: false
+                            anyOf:
+                                - required:
+                                    - offers_and_news
+                                - required:
+                                    - support_replies
+                            properties:
+                                offers_and_news:
+                                    type: boolean
+                                support_replies:
+                                    type: boolean
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/NotificationSettingsResponse'
+                    description: Updated.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Change the push notification settings
             tags:
                 - profile
     /me/phone/otp:

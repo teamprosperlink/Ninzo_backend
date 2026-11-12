@@ -29,6 +29,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `identity` | `refresh_tokens` | Hashed refresh tokens and their chains | v0.2.0 |
 | `notify` | `devices` | Push tokens | v0.2.0 |
 | `notify` | `rider_notifications` | What was pushed to a rider, kept 30 days | v0.10.0 |
+| `notify` | `customer_notification_settings` | Which optional pushes a customer turned off (offers and news, support replies) | #178 part B |
 | `geo` | `zones` | Service areas | v0.3.0 |
 | `geo` | `zone_settings` | Timer length, perimeter, waits and limits, by version. One global row, overridden per zone | v0.3.0 |
 | `geo` | `gates` | Delivery gates | v0.3.0 |
@@ -87,6 +88,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 - **`offers`:** order, rider, state, `fencing_token`, `expires_at`, `rider_accepted_at`, `ended_reason`. This is one rider's view, so a rider who was reassigned sees their own ending, never another rider's progress.
 - **`handover_otp`:** unlike sign-in codes, this is kept readable, because the customer must be able to see it. It is cleared once the order is handed over or has ended.
 - **Added for the rider app (#157, built in v0.10.0 by #159):** `riders.preferred_area`, `shifts.device_id`, `orders.rider_waiting_since`, and the tables `rider_notifications`, `shift_breaks`, `stock_counts` and `verification_documents`. `max_break_s` is a `zone_settings` value. Until v0.10.0 the endpoints exist only in the contract and the mock.
+- **Added for the customer app (#178 part A, built in part B):** `menu_items.is_veg` (default false), `gates.landmark` and `gates.gate_type` (both nullable, also kept in `gate_history`), `riders.scooter_plate` or the scooter's plate (the table that owns it is decided in part B), and a `customer_notification_settings` table (`offers_and_news`, `support_replies`; `order_updates` is always true and is not stored). Until part B the endpoints and fields exist only in the contract and the mock, and the server sends `is_veg` false and `scooter_plate` null.
 
 **Changes from the earlier lists:**
 - Added `scooters`, `location_zones`, `zone_settings`, `hubs`, `scheduled_tasks`, `rider_state`, `rider_events`, `devices`, `relocations`, `earnings`, `problem_reports`, `ticket_messages`, `remedies`, `arrival_reviews`, `eta_offers` and `restock_lots`, which the contracts need.
@@ -121,6 +123,8 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
 | `getMe` | `customers`, `people` | | | |
 | `updateMe` | `customers`, `people`, `refresh_tokens` | `customers`, `audit_events`, `idempotency_keys` | | |
+| `getNotificationSettings` | `customer_notification_settings`, `customers`, `people`, `refresh_tokens` | | | Mock only until #178 part B |
+| `updateNotificationSettings` | `customer_notification_settings`, `customers`, `people`, `refresh_tokens` | `customer_notification_settings`, `idempotency_keys` | | Mock only until #178 part B. The pusher reads it |
 | `registerDevice` | `devices`, `customers`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeDevice` | `devices` | `devices`, `idempotency_keys` | | |
 | `listGates` | `gates`, `customers`, `people`, `refresh_tokens` | | | |
