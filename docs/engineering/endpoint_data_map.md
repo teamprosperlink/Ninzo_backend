@@ -38,6 +38,8 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `geo` | `staging_nodes` | Where scooters wait | v0.3.0 |
 | `geo` | `hubs` | Restock sites | v0.3.0 |
 | `geo` | `road_data_versions` | One row per OSRM road data build: the OpenStreetMap source and its sha256, the clip box, the extract's timestamp, the profile and its version, the OSRM image and algorithm. Written by `cmd/roaddata` from `build.json`; stored road times point to it (W2) | v1.0.0 |
+| `geo` | `gate_cell_builds` | One road-time cell set per gate version: the road data version, the grid, the search radius and the cell count. Append-only; erasing a customer marks it redacted (#196) | v1.0.0 |
+| `geo` | `gate_cells` | The cells of a build: cell id, straight-line metres from the gate, and road seconds and metres to it (null when unreachable). Deleted only when their build is redacted (#196) | v1.0.0 |
 | `catalog` | `menu_items` | Items and current prices | v0.3.0 |
 | `catalog` | `price_history` | Earlier prices | v0.3.0 |
 | `catalog` | `availability_rules` | When items can be sold | v0.3.0 |

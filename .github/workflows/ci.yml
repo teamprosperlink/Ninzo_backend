@@ -68,7 +68,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./internal/shifts/ ./internal/availability/ ./internal/orders/ ./internal/restock/ ./internal/roaddata/ ./cmd/riders/ ./cmd/settings/ ./cmd/testdata/ ./cmd/roaddata/
+      - run: go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./internal/shifts/ ./internal/availability/ ./internal/orders/ ./internal/restock/ ./internal/roaddata/ ./internal/gatecells/ ./cmd/riders/ ./cmd/settings/ ./cmd/testdata/ ./cmd/roaddata/ ./cmd/gatecells/
         env:
           TEST_DATABASE_URL: postgres://ninzo:ninzo_local@localhost:5432/ninzo?sslmode=disable
           REQUIRE_DB_TESTS: "yes"
@@ -85,7 +85,7 @@ jobs:
       - run: OSRM_DATA=test-zones docker compose -f deploy/compose.geo.yml --profile osrm up -d osrm
       - name: Wait for OSRM
         run: for i in $(seq 1 60); do curl -sf 'http://localhost:5001/nearest/v1/scooter/77.6412,12.9719' >/dev/null && exit 0; sleep 1; done; exit 1
-      - run: go test -count=1 -v -run Golden ./internal/routing/
+      - run: go test -count=1 -v -run Golden ./internal/routing/ ./internal/gatecells/
         env:
           ROUTING_TEST_URL: http://localhost:5001
           REQUIRE_ROUTING_TESTS: "yes"

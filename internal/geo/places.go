@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
+	"github.com/teamprosperlink/Ninzo_backend/internal/gatecells"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
@@ -321,10 +322,13 @@ func RedactGates(ctx context.Context, tx pgx.Tx, customerID string) error {
 		WHERE customer_id = $1`, customerID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `UPDATE gate_history h SET label = '(removed)', entry_notes = NULL, landmark = NULL,
+	if _, err := tx.Exec(ctx, `UPDATE gate_history h SET label = '(removed)', entry_notes = NULL, landmark = NULL,
 			lat = round(h.lat::numeric, 2)::double precision, lng = round(h.lng::numeric, 2)::double precision, redacted_at = now()
-		FROM gates g WHERE g.id = h.gate_id AND g.customer_id = $1 AND h.redacted_at IS NULL`, customerID)
-	return err
+		FROM gates g WHERE g.id = h.gate_id AND g.customer_id = $1 AND h.redacted_at IS NULL`, customerID); err != nil {
+		return err
+	}
+	// The road-time cells around a gate give its location away too (#196).
+	return gatecells.Redact(ctx, tx, customerID)
 }
 
 // gateTypePattern is the contract's GateType: an open list of short lowercase words.

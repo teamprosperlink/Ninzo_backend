@@ -200,7 +200,7 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 var builtInV0100 = []string{"rider_notifications", "shift_breaks", "stock_counts", "stock_count_lines", "verification_documents", "customer_notification_settings", "incidents", "incident_notes"}
 
 // builtInV100 are the v1.0.0 tables built so far. The geo work (issue 190) adds these.
-var builtInV100 = []string{"road_data_versions"}
+var builtInV100 = []string{"road_data_versions", "gate_cell_builds", "gate_cells"}
 
 var builtInV090 = []string{"console_users", "console_challenges", "approvals", "feature_flags"}
 
