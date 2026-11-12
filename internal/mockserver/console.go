@@ -809,14 +809,24 @@ func consoleRoutes() []route {
 			hubs := []map[string]any{adminHubOps(adminHub("active"), 1, true)}
 			if consoleRole(c) != "hub_manager" {
 				other := adminHub("active")
-				other["id"], other["name"] = "hub_mock02", "Indiranagar hub"
+				other["id"], other["name"], other["zone_id"] = "hub_mock02", "Indiranagar hub", "zone_mock02"
 				hubs = append(hubs, adminHubOps(other, 0, false))
+			}
+			// zone_id keeps only the hubs in that zone, as the real call does.
+			if zone := c.r.URL.Query().Get("zone_id"); zone != "" {
+				kept := hubs[:0]
+				for _, h := range hubs {
+					if h["hub"].(map[string]any)["zone_id"] == zone {
+						kept = append(kept, h)
+					}
+				}
+				hubs = kept
 			}
 			c.json(200, map[string]any{"hubs": hubs})
 		}},
 		{method: "GET", path: "/admin/hub-ops/stuck", handle: func(c *call) {
 			if !denied(c) {
-				page(c, "requests", []map[string]any{adminRestock("packing", 540, nil, c.now)})
+				page(c, "requests", []map[string]any{adminRestock("packing", 660, nil, c.now)})
 			}
 		}},
 		{method: "POST", path: "/admin/restock/{request_id}/expire", handle: func(c *call) {
@@ -824,7 +834,7 @@ func consoleRoutes() []route {
 				return
 			}
 			if _, ok := reason(c); ok {
-				c.json(200, map[string]any{"restock": adminRestock("expired", 600, "expired_by_console", c.now)})
+				c.json(200, map[string]any{"restock": adminRestock("expired", 0, "expired_by_console", c.now)})
 			}
 		}},
 		{method: "GET", path: "/admin/zones/{zone_id}/live", handle: func(c *call) {

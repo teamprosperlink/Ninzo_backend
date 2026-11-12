@@ -47,6 +47,7 @@ var Settings = []Setting{
 	{"restock_suggestion_ttl_s", "seconds", 60, 3600, true, "How long a restock suggestion stays open"},
 	{"restock_check_s", "seconds", 60, 3600, true, "The wait before a scooter is suggested a restock again, after one ends"},
 	{"restock_accept_s", "seconds", 120, 7200, true, "A confirmed restock no hub accepts within this time expires, and the rider is told"},
+	{"restock_stuck_s", "seconds", 60, 7200, true, "A restock request waiting longer than this in confirmed, hub_accepted or packing counts as stuck in the console"},
 	{"relocation_window_s", "seconds", 300, 7200, true, "How far back orders count as demand at a node"},
 	{"relocation_min_orders", "orders", 1, 50, true, "Orders in the window that make a node with nobody waiting ask for a rider"},
 	{"relocation_ttl_s", "seconds", 60, 1800, true, "How long a suggested move stays open"},

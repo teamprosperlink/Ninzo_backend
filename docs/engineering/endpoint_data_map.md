@@ -288,9 +288,9 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `assignIncident` | `incidents`, `console_users` | `incidents`, `audit_events`, `idempotency_keys` |  | Built (#148). Row lock on the incident; the user is locked while assigned |
 | `addIncidentNote` | `incidents`, `console_users` | `incident_notes`, `audit_events`, `idempotency_keys` |  | Built (#148) |
 | `closeIncident` | `incidents`, `support_tickets`, `arrival_reviews` | `incidents`, `outbox_events`, `problem_reports`, `audit_events`, `idempotency_keys` |  | Built (#148). A support alert is marked delivered and a problem report handled; a ticket or review is never written here |
-| `listHubOps` | `hubs`, `hub_staff`, `restock_requests`, `shortfalls`, `lots`, `zone_settings`, `console_users` |  |  | |
-| `listStuckRestocks` | `restock_requests`, `hubs`, `riders`, `people`, `zone_settings`, `console_users` |  |  | |
-| `expireRestock` | `restock_requests`, `restock_lots`, `zone_settings`, `console_users` | `restock_requests`, `restock_lots`, `hub_state`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` |  | FCM, through `deliver_outbox`. Only before `ready`; packed lots go back to the hub's stock |
+| `listHubOps` | `hubs`, `hub_staff`, `restock_requests`, `shortfalls`, `lots`, `zone_settings`, `console_users` |  |  | Built (#149). Per hub: restock requests counted by state, stuck (confirmed, hub_accepted or packing, `state_changed_at` older than `restock_stuck_s` for the hub's zone), open shortfalls, quarantined lots at the hub, active staff. A hub_manager sees only their own hub. Reads only |
+| `listStuckRestocks` | `restock_requests`, `hubs`, `riders`, `zone_settings`, `console_users` |  |  | Built (#149). Longest waiting first, paged by (`state_changed_at`, id); each zone uses its own `restock_stuck_s`. The rider's name and id only, no phone, no customer. A hub_manager sees only their own hub |
+| `expireRestock` | `restock_requests`, `restock_lots`, `shortfalls`, `riders`, `console_users` | `restock_requests`, `restock_lots`, `shortfalls`, `hub_state`, `rider_state`, `rider_notifications`, `outbox_events`, `audit_events`, `idempotency_keys` |  | Built (#149, `restock.ExpireTx`). FCM, through `deliver_outbox`. Only in confirmed, hub_accepted, packing or partial (else 409 `restock_not_expirable`); locks the request row; the same end as an expiry on its own (`endRequest`: lots back on the hub's shelf, open shortfall refused), then the rider's seq, push and notification and the hub's seq. `reason` is `expired_by_console`; the staff's words are in the audit row |
 | `getLiveZone` | `zones`, `riders`, `people`, `shifts`, `rider_state`, `location_pings`, `scooters`, `scooter_stock`, `staging_nodes`, `orders`, `gates`, `incidents` |  | Latest rider position | |
 
 **New columns (v0.10.0). Migration 0042 (#147) added the first four:**
@@ -299,6 +299,8 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 - `support_tickets`: `closed_at`, `closed_by` and `close_reason`; `ticket_messages.author_id`. Statuses stay `open` and `resolved`; closing sets `resolved`.
 - `zone_settings`: `refund_approval_paise` (20000 by default, 0 to 10,000,000).
 - `incidents` and `incident_notes` (#148, migration 0044): one row per source (`kind`, `source_id` unique), and one open `signal_lost` per order (a lost signal's problem report and support alert make one). `problem_reports.handled_at` is set when a problem report's incident is closed. A handled support alert gets `outbox_events.delivered_at`, which takes it out of the due index.
+- `zone_settings`: `restock_stuck_s` (600 by default, 60 to 7200; migration 0045, #149): a request waiting longer than this in confirmed, hub_accepted or packing is stuck.
+- `incidents`: one row per order and kind (a lost signal's problem report and support alert make one `signal_lost` incident).
 
 ## 5. Background work
 `cmd/worker` runs these from `scheduled_tasks`, or from `outbox_events`. A restart loses nothing, because they are rows and not memory. Each one must be safe to run twice.
