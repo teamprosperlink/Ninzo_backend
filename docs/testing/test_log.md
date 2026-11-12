@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-12 | #183 | OSRM on Bengaluru, the scooter profile and golden routes | See PR | PASS | [reports/183.md](reports/183.md) |
 | 2026-11-12 | #180 | the OSRM routing client with a straight-line fallback | See PR | PASS | [reports/180.md](reports/180.md) |
 | 2026-11-12 | #175 | more test riders and scooters on staging (`testdata testers`) | See PR | PASS | [reports/175.md](reports/175.md) |
 | 2026-11-12 | #169 | geo work's own local Postgres (5433) and Redis (6381) | See PR | PASS | [reports/169.md](reports/169.md) |

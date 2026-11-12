@@ -33,5 +33,17 @@ services:
       timeout: 3s
       retries: 20
 
+  # OSRM on the data built by tools/osrm/build.sh (#183). Started only with the osrm profile, once
+  # data exists: task geo:osrm:up (Bengaluru) or OSRM_DATA=test-zones task geo:osrm:up.
+  osrm:
+    # Same digest as tools/osrm/build.sh.
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0@sha256:729461bcc9ae9e6aafa92c0f93db9b060a32e85d5e72092c01ae4a4a9f1eb564
+    profiles: ["osrm"]
+    command: ["osrm-routed", "--algorithm", "mld", "--max-table-size", "100", "/data/${OSRM_DATA:-bengaluru}.osrm"]
+    volumes:
+      - ../tools/osrm/data/${OSRM_DATA:-bengaluru}:/data:ro
+    ports:
+      - "127.0.0.1:5001:5000"
+
 volumes:
   postgres_data:

@@ -137,3 +137,21 @@ tasks:
     cmds:
       - task: test:db
         vars: {TEST_DB_PORT: "5433"}
+  geo:osrm:build:
+    desc: "Build OSRM road data from OpenStreetMap: bengaluru (download, clip, build) or test (the committed test-zone extract). Example: task geo:osrm:build -- test"
+    cmds:
+      # A running OSRM holds the data files open; stop it before rebuilding them.
+      - docker compose -f deploy/compose.geo.yml --profile osrm stop osrm
+      - "bash tools/osrm/build.sh {{.CLI_ARGS | default \"bengaluru\"}}"
+  geo:osrm:up:
+    desc: Serve the built OSRM data on localhost:5001 (OSRM_DATA=test-zones for the test extract)
+    cmds:
+      - docker compose -f deploy/compose.geo.yml --profile osrm up -d osrm
+      # The OSRM image has no curl or wget for a compose healthcheck, so wait here until it answers.
+      - "for i in $(seq 1 60); do curl -sf 'http://localhost:5001/nearest/v1/scooter/77.6412,12.9719' >/dev/null && echo 'OSRM ready on localhost:5001' && exit 0; sleep 1; done; echo 'OSRM did not answer within 60 s' >&2; exit 1"
+  geo:osrm:down:
+    desc: Stop the local OSRM
+    cmds: ["docker compose -f deploy/compose.geo.yml --profile osrm stop osrm"]
+  geo:test:routes:
+    desc: Run the golden routes against the local OSRM (they pass on the test-zone and the Bengaluru data)
+    cmds: ["ROUTING_TEST_URL=http://localhost:5001 go test -count=1 -run Golden ./internal/routing/"]
