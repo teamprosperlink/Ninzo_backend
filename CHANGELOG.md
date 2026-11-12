@@ -6,7 +6,7 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ## [Unreleased]
 
 ### Road-time cell sets per gate (#196)
-- Added: migration 0047, `gate_cell_builds` and `gate_cells`: per gate version, the grid cells within `max_search_radius_m` and each one's road time to the gate from one OSRM build. They are append-only; erasing a customer marks the builds redacted and deletes the cells.
+- Added: migration 0048 (first merged as 0047; renumbered in #200), `gate_cell_builds` and `gate_cells`: per gate version, the grid cells within `max_search_radius_m` and each one's road time to the gate from one OSRM build. They are append-only; erasing a customer marks the builds redacted and deletes the cells.
 - Added: `internal/gatecells` (`Candidates`, `Build`, `Store`, `Latest`, `Redact`) and `cmd/gatecells -local|-remote build|build-all`. A straight-line placeholder is never stored as a road time.
 - Changed: `geo.RedactGates` also redacts cell builds. The CI job `routes` also runs the cell-set golden on real roads.
 - Measured: with `scooter-2`, the 80 s sweet spot of a Koramangala gate is 4 cells (0.06 km²); see w2.
