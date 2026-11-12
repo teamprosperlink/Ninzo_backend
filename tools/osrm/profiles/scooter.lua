@@ -39,7 +39,6 @@ local SPEEDS = {
 
 function setup()
   local p = car.setup()
-  p.oneway_handling = false -- DELIBERATE BREAK (#187), reverted next commit
 
   -- India drives on the left: a right turn crosses oncoming traffic, so car.lua's turn bias
   -- makes right turns the expensive ones.
