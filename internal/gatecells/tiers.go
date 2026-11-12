@@ -45,10 +45,14 @@ var tierSettings = []string{"zone_radius_m", "timer_length_s", "timer_zone_margi
 
 // Budgets are the settings Classify uses, read once, and the grid's cell edge.
 type Budgets struct {
-	ZoneRadiusM, TimerS, MarginS, SweetSpotS, OuterRingS int
-	CrossKmh                                             int     // straight_line_speed_kmh: crossing a cell
-	MaxSearchM                                           int     // max_search_radius_m: no reach past it
-	CellEdgeM                                            float64 // the grid's edge, centre to corner
+	ZoneRadiusM int     `json:"zone_radius_m"`
+	TimerS      int     `json:"timer_length_s"`
+	MarginS     int     `json:"timer_zone_margin_s"`
+	SweetSpotS  int     `json:"sweet_spot_budget_s"`
+	OuterRingS  int     `json:"outer_ring_budget_s"`
+	CrossKmh    int     `json:"straight_line_speed_kmh"` // crossing a cell
+	MaxSearchM  int     `json:"max_search_radius_m"`     // no reach past it
+	CellEdgeM   float64 `json:"cell_edge_m"`             // the grid's edge, centre to corner
 }
 
 // ReadBudgets takes the tier settings from a zone's settings, each of which must be set, and the

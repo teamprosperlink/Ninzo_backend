@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -34,6 +35,8 @@ func TestBadArgumentsTouchNothing(t *testing.T) {
 		{"-local", "build", "-road-data", someID, "-gate-history", "x"},
 		{"-local", "build", "-road-data", someID, "-gate-history", someID, "extra"},
 		{"-staging", "build-all", "-road-data", someID}, {"-local", "delete"},
+		{"-local", "build", "-gate-history", someID},
+		{"-local", "export"}, {"-local", "export", "-gate-history", someID, "-road-data", someID}, {"-local", "export", "-gate-history", "x"},
 	} {
 		if err := run(context.Background(), args, env(nil), osrm{}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "usage") {
 			t.Errorf("%v: %v", args, err)
@@ -159,5 +162,59 @@ func TestBuildAllSkipsErasedGatesAndCarriesOnPastAFailure(t *testing.T) {
 	// Building the erased version by hand is refused too.
 	if err := run(ctx, []string{"-local", "build", "-road-data", road, "-gate-history", erased}, e, osrm{}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "erased") {
 		t.Fatalf("erased by hand: %v", err)
+	}
+}
+
+func TestExportWritesTheTiersAndRefusesAnErasedGate(t *testing.T) {
+	pool := dbtest.Fresh(t)
+	ctx := context.Background()
+	q := func(sql string, args ...any) string {
+		t.Helper()
+		var id string
+		if err := pool.QueryRow(ctx, sql, args...).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	zone := q(`INSERT INTO zones (name, city, status, is_test, area) VALUES ('Zone (test)', 'Bengaluru', 'active', true,
+		extensions.ST_GeomFromText('MULTIPOLYGON(((77.612 12.925, 77.640 12.925, 77.640 12.945, 77.612 12.945, 77.612 12.925)))', 4326)) RETURNING id::text`)
+	person := q("INSERT INTO people (phone) VALUES ('+919800000204') RETURNING id::text")
+	customer := q("INSERT INTO customers (person_id) VALUES ($1) RETURNING id::text", person)
+	gate := q("INSERT INTO gates (customer_id, zone_id, label, lat, lng) VALUES ($1, $2, 'Home', 12.9354, 77.6144) RETURNING id::text", customer, zone)
+	gh := q("INSERT INTO gate_history (gate_id, version, label, lat, lng, verified, reason) VALUES ($1, 1, 'Home', 12.9354, 77.6144, false, 'created') RETURNING id::text", gate)
+	road := q(`INSERT INTO road_data_versions (name, source, source_sha256, clip_box, osm_extract_sha256, osm_timestamp,
+		profile, profile_version, profile_sha256, osrm_image, algorithm, built_at)
+		VALUES ('test-zones', 'test', $1, '77.6,12.9,77.7,13.0', $1, now() - interval '1 day', 'scooter', 'scooter-2', $1, 'osrm', 'mld', now())
+		RETURNING id::text`, strings.Repeat("f", 64))
+	e := env(map[string]string{"DATABASE_URL": pool.Config().ConnString()})
+	if err := run(ctx, []string{"-local", "export", "-gate-history", gh}, e, nil, &bytes.Buffer{}); err == nil {
+		t.Fatal("exported a gate with no build")
+	}
+	if err := run(ctx, []string{"-local", "build", "-road-data", road, "-gate-history", gh}, e, osrm{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	// No router and no ROUTING_ENGINE_URL: export needs neither.
+	if err := run(ctx, []string{"-local", "export", "-gate-history", gh}, e, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	var fc struct {
+		Type     string            `json:"type"`
+		Features []json.RawMessage `json:"features"`
+		Budgets  map[string]float64
+	}
+	if err := json.Unmarshal(out.Bytes(), &fc); err != nil {
+		t.Fatalf("stdout is not only GeoJSON: %v\n%.200s", err, out.String())
+	}
+	if fc.Type != "FeatureCollection" || len(fc.Features) < 400 || fc.Budgets["sweet_spot_budget_s"] != 80 {
+		t.Fatalf("%s with %d features, budgets %v", fc.Type, len(fc.Features), fc.Budgets)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE gate_history SET label = '(removed)', entry_notes = NULL, landmark = NULL,
+		lat = round(lat::numeric, 2)::double precision, lng = round(lng::numeric, 2)::double precision, redacted_at = now()
+		WHERE id = $1`, gh); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, []string{"-local", "export", "-gate-history", gh}, e, nil, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "erased") {
+		t.Fatalf("erased gate: %v", err)
 	}
 }
