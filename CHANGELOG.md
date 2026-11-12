@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The geo simulator, v1 (#205)
+- Added: `internal/sim` and `cmd/sim`. On real roads through the routing client, the simulator compares today's pick rule (the nearest scooter by straight line) with a road-time rule on the same orders. For each it measures orders served, refused and stuck; the share of timed legs (350 m zone edge to 100 m perimeter) within the timer; and the timed leg and wait at p50 and p90. The CI job `routes` runs its golden.
+- Found, with the placeholder profile: today's rule breaks the 90 s timer on about a third of the orders it accepts, but gets more orders in time per order placed (20% against 7.8% at 80 s) because it accepts more. The road rule rarely breaks a promise it makes, and refuses more. That is a product trade-off for the owner; see w8.
+- Evidence: docs/testing/reports/205.md
+
 ### Export a gate's tiers for viewing (#203)
 - Added: `gatecells.GeoJSON` and `cmd/gatecells -local|-remote export -gate-history <id>`. It writes the newest build, tiered with the zone's settings in force, as a GeoJSON FeatureCollection for geojson.io, kepler.gl or QGIS. The cells give a gate's location away: for the owner and ops only, never committed.
 - Evidence: docs/testing/reports/203.md

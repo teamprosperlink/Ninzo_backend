@@ -749,3 +749,66 @@ func TestAHugeMaxTableDoesNotOverflow(t *testing.T) {
 		t.Fatalf("perSource %d, err %v", c.perSource, err)
 	}
 }
+
+func TestViaReturnsOneLegPerPairWithBearings(t *testing.T) {
+	f, srv := newFake(t)
+	var bearings, straight string
+	f.handle = func(w http.ResponseWriter, r *http.Request, service string, coords []Point) bool {
+		if service != "route" {
+			return false
+		}
+		bearings, straight = r.URL.Query().Get("bearings"), r.URL.Query().Get("continue_straight")
+		legs := make([]any, len(coords)-1)
+		for i := range legs {
+			legs[i] = map[string]any{"duration": 10.0 * float64(i+1), "distance": 100.0 * float64(i+1)}
+		}
+		writeJSON(w, map[string]any{"code": "Ok", "routes": []any{map[string]any{"legs": legs}}})
+		return true
+	}
+	c := client(t, Config{BaseURL: srv.URL})
+	wps := []Waypoint{{Point: rider, Bearing: -1}, {Point: gate, Bearing: 90}, {Point: gate, Bearing: 359}, {Point: gate, Bearing: -1}}
+	legs, err := c.Via(context.Background(), wps, 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legs) != 3 || legs[1].Seconds != 20 || legs[2].Metres != 300 || legs[0].Source != SourceOSRM {
+		t.Fatalf("%+v", legs)
+	}
+	if bearings != ";90,30;359,30;" || straight != "true" {
+		t.Fatalf("bearings %q, continue_straight %q", bearings, straight)
+	}
+	// No road: every leg unreachable, from OSRM.
+	f.handle = func(w http.ResponseWriter, _ *http.Request, _ string, _ []Point) bool {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]any{"code": "NoRoute"})
+		return true
+	}
+	if legs, err = c.Via(context.Background(), wps, 18); err != nil || len(legs) != 3 || legs[0].Reachable || legs[0].Source != SourceOSRM {
+		t.Fatalf("no road: %+v %v", legs, err)
+	}
+	// Wrong leg count is a bad reply: straight lines, said so.
+	f.handle = func(w http.ResponseWriter, _ *http.Request, _ string, _ []Point) bool {
+		writeJSON(w, map[string]any{"code": "Ok", "routes": []any{map[string]any{"legs": []any{map[string]any{"duration": 1.0, "distance": 1.0}}}}})
+		return true
+	}
+	if legs, err = c.Via(context.Background(), wps, 18); err != nil || legs[0].Source != SourcePlaceholder || len(legs) != 3 {
+		t.Fatalf("bad reply: %+v %v", legs, err)
+	}
+	for _, bad := range [][]Waypoint{wps[:1], {{Point: rider, Bearing: 360}, {Point: gate, Bearing: -1}}, {{Point: Point{Lat: 91}}, {Point: gate}}} {
+		if _, err := c.Via(context.Background(), bad, 18); err == nil {
+			t.Errorf("%+v accepted", bad)
+		}
+	}
+}
+
+func TestBearing(t *testing.T) {
+	o := Point{Lat: 12.97, Lng: 77.6}
+	for _, c := range []struct {
+		to   Point
+		want int
+	}{{Point{12.98, 77.6}, 0}, {Point{12.97, 77.61}, 90}, {Point{12.96, 77.6}, 180}, {Point{12.97, 77.59}, 270}} {
+		if got := Bearing(o, c.to); got != c.want {
+			t.Errorf("to %v: %d, want %d", c.to, got, c.want)
+		}
+	}
+}
