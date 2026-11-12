@@ -84,6 +84,7 @@ tasks:
       - go run ./cmd/testdata -remote fleet
       - go run ./cmd/testdata -remote hubs
       - go run ./cmd/testdata -remote rider
+      - go run ./cmd/testdata -remote testers
       - go run ./cmd/testdata -remote staff
   riders:
     desc: "Approve a rider on local Postgres. Example: task riders -- approve -phone +919800000001 -zone ID -reason why -by name"
