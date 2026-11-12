@@ -14,8 +14,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 )
 
 // Two points in the Indiranagar test zone, about 1 km apart.
@@ -149,7 +147,7 @@ func TestNoURLMeansAStraightLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := geo.Metres(rider.Lat, rider.Lng, gate.Lat, gate.Lng)
+	m := Metres(rider, gate) // equal to geo.Metres: checked in internal/geo (distance_test.go)
 	if r.Source != SourcePlaceholder || !r.Reachable || math.Abs(r.Metres-m) > 1e-6 || math.Abs(r.Seconds-m/5) > 1e-6 {
 		t.Fatalf("got %+v, want %.1f m at 18 km/h (%.1f s)", r.Leg, m, m/5)
 	}
@@ -163,15 +161,6 @@ func TestNoURLMeansAStraightLine(t *testing.T) {
 	}
 	if st := c.Stats(); st.Calls != 3 || st.Fallbacks != 3 || st.Failures != 0 {
 		t.Fatalf("stats %+v", st)
-	}
-}
-
-func TestMetresMatchesTheGeoPackage(t *testing.T) {
-	for _, p := range [][2]Point{{rider, gate}, {{0, 0}, {0, 180}}, {{-33.9, 18.4}, {51.5, -0.1}}, {gate, gate}} {
-		a, b := Metres(p[0], p[1]), geo.Metres(p[0].Lat, p[0].Lng, p[1].Lat, p[1].Lng)
-		if a != b {
-			t.Fatalf("%v: routing %f, geo %f", p, a, b)
-		}
 	}
 }
 

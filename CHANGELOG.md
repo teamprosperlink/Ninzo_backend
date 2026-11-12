@@ -5,6 +5,13 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Road-time cell sets per gate (#196)
+- Added: migration 0047, `gate_cell_builds` and `gate_cells`: per gate version, the grid cells within `max_search_radius_m` and each one's road time to the gate from one OSRM build. They are append-only; erasing a customer marks the builds redacted and deletes the cells.
+- Added: `internal/gatecells` (`Candidates`, `Build`, `Store`, `Latest`, `Redact`) and `cmd/gatecells -local|-remote build|build-all`. A straight-line placeholder is never stored as a road time.
+- Changed: `geo.RedactGates` also redacts cell builds. The CI job `routes` also runs the cell-set golden on real roads.
+- Measured: with `scooter-2`, the 80 s sweet spot of a Koramangala gate is 4 cells (0.06 km²); see w2.
+- Evidence: docs/testing/reports/196.md
+
 ### The pilot's hexagon grid (#193)
 - Decided (G18): no pure-Go H3 covers point to cell, centre, disk and outline and also builds on the Windows development PC, so the pilot uses its own pure-Go hexagon grid. The spike result is in `docs/engineering/geo/w2-map-grid-and-distribution.md`.
 - Added: `internal/hexgrid`, pointy-topped hexagons on a local flat projection; Bengaluru grid `blr76` with 76 m edges (the area of H3 res 10). It provides `CellAt`, `Centre`, `Outline`, `Neighbours`, `Disk`, `Distance`, `ID` and `Parse`.

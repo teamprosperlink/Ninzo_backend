@@ -87,11 +87,24 @@ A brand-new pin (edge case 7) is never refused for lack of a set; it is mapped o
 |---|---|---|---|---|
 | 1 | H3 spike (G18). Done (#193): see the result above | Test vectors from the official library | Compare options B and C on the four functions | A written result here, and the choice recorded in the decision log |
 | 2 | `internal/hexgrid` (was `internal/h3cells`). Built (#193) | The chosen option | Point to cell, centre, disk, outline; nothing else | Its property tests pass: a point is in its own cell and nearest its centre, disks are complete, ids round-trip, and the real-Earth spacing is within 0.5% over the city (#193) |
-| 3 | `gate_cells` and its build | W1 client; a migration (renumbered to the next free number before the PR) | A job builds a gate's cells; a command rebuilds all | A test gate across a median from some cells excludes them from the timer zone; the timer zone is always inside the circle; a deliberate break is caught |
+| 3 | `gate_cells` and its build | W1 client; a migration (renumbered to the next free number before the PR) | A job builds a gate's cells; a command rebuilds all | A test gate across a median from some cells excludes them from the timer zone; the timer zone is always inside the circle; a deliberate break is caught. Built (#196): `gate_cell_builds`, `gate_cells`, `internal/gatecells`, `cmd/gatecells build|build-all`; erasure redacts builds |
 | 4 | Tiers from settings | A function that, given a gate and a cell, answers the tier from the stored time and current settings | A pure function plus a query | Changing a budget in a test changes the tier with no rebuild |
 | 5 | Settings | `timer_zone_margin_s` (new); ring budgets (new); existing `zone_radius_m`, `sweet_spot_budget_s`, `max_search_radius_m` | Through `geo.ChangeSettings`, so every zone stays valid | Each is a console setting with limits |
 | 6 | Use the timer zone (G20) | The owner's answer | Behind a setting: `circle` (today) or `road`. **Each order keeps the zone it started with** (G25): the road data version and the cells in force when its offer was accepted, as it already keeps its timer length and radius (decision 0007) | Both modes pass the timer tests; a test proves a rebuild during a running order does not move its timer |
 | 7 | Export for viewing | Cell sets as GeoJSON or a kepler.gl file | A command in `tools/` | The owner and ops can see each gate's tiers on a map |
+
+## Measured on the first build (#196)
+On the test-zone data with profile `scooter-2`, a gate on 80 Feet Road, Koramangala (12.93545, 77.61439), with a 1,500 m search radius:
+
+| Road time to the gate | Cells | Area |
+|---|---|---|
+| 60 s | 2 | 0.03 km² |
+| 80 s (today's `sweet_spot_budget_s`) | 4 | 0.06 km² |
+| 120 s | 12 | 0.18 km² |
+| 180 s | 24 | 0.36 km² |
+| 300 s | 165 | 2.48 km² |
+
+All 472 cells reach the gate. With the placeholder scooter numbers (30 s per signal, city speeds of 18 to 40 km/h), an 80 s sweet spot is small: a waiting rider would have to be within about 200 m of the gate. This is evidence for G24 (seed the budget from OSRM) and for the road test (W8), which replaces the placeholders.
 
 ## Path to scale
 Per destination cell instead of per gate; Redis as a cache; hour bands (peak and off-peak sets) once measured speeds exist.

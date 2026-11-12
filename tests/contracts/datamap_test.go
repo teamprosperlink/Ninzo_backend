@@ -119,7 +119,8 @@ func TestDataMapOnlyNamesKnownTables(t *testing.T) {
 	// Only the console writes prices, so no customer or rider endpoint uses this one yet.
 	// rider_credentials stays in the schema for the phone-lost options.
 	// road_data_versions is written by cmd/roaddata; stored road times will point to it (W2, #190).
-	notYetUsed := map[string]bool{"price_history": true, "rider_credentials": true, "road_data_versions": true}
+	// gate_cell_builds and gate_cells are written by cmd/gatecells; tiers read them next (W2, #196).
+	notYetUsed := map[string]bool{"price_history": true, "rider_credentials": true, "road_data_versions": true, "gate_cell_builds": true, "gate_cells": true}
 	for name := range known {
 		if !used[name] && !notYetUsed[name] {
 			t.Errorf("table %s is listed, but no customer or rider endpoint uses it", name)
