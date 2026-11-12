@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Routing client with a straight-line fallback (#180)
+- Added: `internal/routing`, the OSRM client: `Route`, `Table` (many to one, split to OSRM's limit) and `Nearest`. Every answer says `osrm` or `placeholder`; no road is unreachable, never a straight line; a circuit breaker and one timeout per call. Not wired into matching yet (W5).
+- Changed: `env.example` describes `ROUTING_ENGINE_URL` and adds `ROUTING_PROFILE`.
+- Evidence: docs/testing/reports/180.md
+
 ### More test riders and scooters on staging (#175)
 - Added: `testdata testers`, run by `task staging:testdata`. It adds three test riders (+919800000081 to 0083), approved in the first test zone, and two more scooters per test zone, so several testers can use staging at once. Running it again changes nothing, and a real person with one of the numbers is never touched.
 - Evidence: docs/testing/reports/175.md
