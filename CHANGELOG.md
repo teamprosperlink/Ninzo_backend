@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Export a gate's tiers for viewing (#203)
+- Added: `gatecells.GeoJSON` and `cmd/gatecells -local|-remote export -gate-history <id>`. It writes the newest build, tiered with the zone's settings in force, as a GeoJSON FeatureCollection for geojson.io, kepler.gl or QGIS. The cells give a gate's location away: for the owner and ops only, never committed.
+- Evidence: docs/testing/reports/203.md
+
 ### Tiers from road times and settings (#199)
 - Added: `gatecells.Classify` and `gatecells.Tiers`. Each cell of a gate's newest build is placed at query time as timer zone (a flag), sweet spot, outer ring, beyond, or unreachable, so a settings change needs no rebuild.
 - Added: migration 0049 and two settings, `timer_zone_margin_s` (0 to 120 s, default 15) and `outer_ring_budget_s` (30 to 3600 s, default 300). The margin must be under the timer, and the outer ring must reach the sweet spot.

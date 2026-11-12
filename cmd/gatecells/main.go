@@ -2,6 +2,11 @@
 //
 //	gatecells -local|-remote build -road-data <id> -gate-history <id>
 //	gatecells -local|-remote build-all -road-data <id>
+//	gatecells -local|-remote export -gate-history <id> > tools/osrm/data/tiers.geojson  (git-ignored)
+//
+// export writes the gate version's newest build as GeoJSON, tiered with its zone's settings in force,
+// for viewing (issue 203). The cells give the gate's location away: for the owner and ops only,
+// never to commit or share.
 //
 // build-all builds every current gate version (the newest version of each gate, not erased) that
 // has no build on that road data yet. The search radius is the gate zone's max_search_radius_m.
@@ -31,7 +36,8 @@ import (
 )
 
 const usage = `usage: gatecells -local|-remote build -road-data <id> -gate-history <id>
-       gatecells -local|-remote build-all -road-data <id>`
+       gatecells -local|-remote build-all -road-data <id>
+       gatecells -local|-remote export -gate-history <id>`
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
@@ -44,7 +50,7 @@ func main() {
 
 // run does the work. router is for tests; nil means a client on ROUTING_ENGINE_URL.
 func run(ctx context.Context, args []string, getenv func(string) string, router gatecells.Router, out io.Writer) error {
-	if len(args) < 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "build" && args[1] != "build-all") {
+	if len(args) < 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "build" && args[1] != "build-all" && args[1] != "export") {
 		return errors.New(usage)
 	}
 	remote, command := args[0] == "-remote", args[1]
@@ -52,10 +58,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, router 
 	fs.SetOutput(io.Discard)
 	roadData := fs.String("road-data", "", "")
 	gateHistory := fs.String("gate-history", "", "")
-	if err := fs.Parse(args[2:]); err != nil || fs.NArg() != 0 || !uuidRe.MatchString(*roadData) {
+	if err := fs.Parse(args[2:]); err != nil || fs.NArg() != 0 {
 		return errors.New(usage)
 	}
-	if (command == "build") != (*gateHistory != "") || (command == "build" && !uuidRe.MatchString(*gateHistory)) {
+	// build takes both ids, build-all the road data only, export the gate version only.
+	export := command == "export"
+	if export == (*roadData != "") || (*roadData != "" && !uuidRe.MatchString(*roadData)) {
+		return errors.New(usage)
+	}
+	if (command == "build-all") == (*gateHistory != "") || (*gateHistory != "" && !uuidRe.MatchString(*gateHistory)) {
 		return errors.New(usage)
 	}
 
@@ -75,7 +86,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, router 
 	if err != nil {
 		return err
 	}
-	if router == nil {
+	if router == nil && !export {
 		url := getenv("ROUTING_ENGINE_URL")
 		if url == "" {
 			return errors.New("ROUTING_ENGINE_URL is not set: cell sets need real road times")
@@ -87,7 +98,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, router 
 		}
 		router = c
 	}
-	fmt.Fprintf(out, "target: host %s, project %q\n", target.Host(), target.Ref())
+	// export writes only GeoJSON to out, so there the target goes to stderr.
+	info := out
+	if export {
+		info = os.Stderr
+	}
+	fmt.Fprintf(info, "target: host %s, project %q\n", target.Host(), target.Ref())
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -96,6 +112,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, router 
 		return errors.New(target.Safe(err))
 	}
 	defer pool.Close()
+	if export {
+		return exportTiers(ctx, pool, *gateHistory, target, out)
+	}
 
 	var exists bool
 	if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM road_data_versions WHERE id = $1)", *roadData).Scan(&exists); err != nil {
@@ -194,4 +213,36 @@ func buildOne(ctx context.Context, pool *pgxpool.Pool, router gatecells.Router, 
 		return err
 	})
 	return len(cells), reachable, err
+}
+
+// exportTiers writes a gate version's newest build, tiered with its zone's settings, as GeoJSON.
+func exportTiers(ctx context.Context, pool *pgxpool.Pool, gateHistoryID string, target dbtarget.Target, out io.Writer) error {
+	var zone string
+	var erased bool
+	err := pool.QueryRow(ctx, `SELECT g.zone_id::text, h.redacted_at IS NOT NULL
+		FROM gate_history h JOIN gates g ON g.id = h.gate_id WHERE h.id = $1`, gateHistoryID).Scan(&zone, &erased)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("no such gate version")
+	}
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	if erased {
+		return errors.New("the gate version is erased; there is nothing to export")
+	}
+	s, err := geo.LoadSettings(ctx, pool, zone)
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	g := hexgrid.Bengaluru()
+	t, err := gatecells.Tiers(ctx, pool, g, gateHistoryID, s)
+	if err != nil {
+		return errors.New(target.Safe(err))
+	}
+	b, err := gatecells.GeoJSON(g, t)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "%s\n", b)
+	return err
 }
