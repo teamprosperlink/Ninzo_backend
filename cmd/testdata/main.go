@@ -1,10 +1,13 @@
 // Command testdata adds the test zones for Bengaluru, marked as test data, so they can be found and
 // replaced by the real ones. Running it again changes nothing.
 //
-//	testdata -local|-remote zones|menu|fleet|rider
+//	testdata -local|-remote zones|menu|fleet|hubs|rider|testers|staff
 //
 // fleet adds a staging node and two scooters in each test zone, and ten lots of ten units of each
 // test item. Running it again gives unused lots a new expiry. Run zones and menu first.
+//
+// testers adds three more test riders (+919800000081 to 0083) and two more scooters per zone, so
+// several testers can use staging at once. Run zones and fleet first.
 //
 // rider makes the test rider, +919800000090, approved and verified in the first test zone, so the
 // rider app can be tried on staging with the test code. Run zones first.
@@ -28,7 +31,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 )
 
-const usage = "usage: testdata -local|-remote zones|menu|fleet|hubs|rider|staff"
+const usage = "usage: testdata -local|-remote zones|menu|fleet|hubs|rider|testers|staff"
 
 // testItems are placeholders until the owner gives the real menu.
 var testItems = []struct {
@@ -55,7 +58,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer) error {
-	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "hubs" && args[1] != "rider" && args[1] != "staff") {
+	if len(args) != 2 || (args[0] != "-local" && args[0] != "-remote") || (args[1] != "zones" && args[1] != "menu" && args[1] != "fleet" && args[1] != "hubs" && args[1] != "rider" && args[1] != "testers" && args[1] != "staff") {
 		return errors.New(usage)
 	}
 	dsn := getenv("DATABASE_URL")
@@ -84,6 +87,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	defer pool.Close()
 	if args[1] == "staff" {
 		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addStaff(ctx, tx, out, target) })
+	}
+	if args[1] == "testers" {
+		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addTesters(ctx, tx, out, target) })
 	}
 	if args[1] == "rider" {
 		return database.InTx(ctx, pool, func(tx pgx.Tx) error { return addRider(ctx, tx, out, target) })

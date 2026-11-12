@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### More test riders and scooters on staging (#175)
+- Added: `testdata testers`, run by `task staging:testdata`. It adds three test riders (+919800000081 to 0083), approved in the first test zone, and two more scooters per test zone, so several testers can use staging at once. Running it again changes nothing, and a real person with one of the numbers is never touched.
+- Evidence: docs/testing/reports/175.md
+
 ### Geo work has its own local Postgres and Redis (#169)
 - Added: `deploy/compose.geo.yml` (compose project `ninzo-geo`, Postgres on 5433 and Redis on 6381) and the tasks `geo:db:up`, `geo:db:down`, `geo:db:migrate` and `geo:test:db`, so the geo session never shares a test server with the console session.
 - Changed: `task test:db` takes `TEST_DB_PORT` (default 5432, so nothing changes for anyone else).
