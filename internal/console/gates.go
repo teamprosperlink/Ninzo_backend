@@ -228,8 +228,10 @@ func (s *Service) updateGate(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		var version int
-		if err := tx.QueryRow(ctx, `INSERT INTO gate_history (gate_id, version, label, lat, lng, entry_notes, verified, reason, changed_by)
-			SELECT $1, coalesce(max(version), 0) + 1, $2, $3, $4, $5, $6, $7, $8 FROM gate_history WHERE gate_id = $1 RETURNING version`,
+		// The landmark and type are the customer's and the console does not change them, so each version carries them on.
+		if err := tx.QueryRow(ctx, `			INSERT INTO gate_history (gate_id, version, label, lat, lng, entry_notes, verified, reason, changed_by, landmark, gate_type)
+			SELECT $1, coalesce(max(version), 0) + 1, $2, $3, $4, $5, $6, $7, $8, (SELECT landmark FROM gates WHERE id = $1), (SELECT gate_type FROM gates WHERE id = $1)
+			FROM gate_history WHERE gate_id = $1 RETURNING version`,
 			id, label, lat, lng, notes, verified, body.Reason, u.ID).Scan(&version); err != nil {
 			return nil, err
 		}

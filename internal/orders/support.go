@@ -295,6 +295,18 @@ func (s *Service) Deliver(p Pusher) outbox.Handler {
 			return nil // Unreadable: retrying will not help.
 		}
 		id, _ := payload[actorType+"_id"].(string)
+		// A customer who turned support replies off gets no push for a reply (issue 178). Order pushes
+		// are part of the service and are never skipped. Nothing sends offers or news yet.
+		if e.Topic == "push.customer" && payload["stage"] == "ticket_reply" && idPattern.MatchString(id) {
+			wanted := true // No row means the default, which is on.
+			err := s.Pool.QueryRow(ctx, "SELECT support_replies FROM customer_notification_settings WHERE customer_id = $1", id).Scan(&wanted)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if !wanted {
+				return nil
+			}
+		}
 		rows, err := s.Pool.Query(ctx, "SELECT platform, push_token FROM devices WHERE actor_type = $1 AND actor_id = $2", actorType, id)
 		if err != nil {
 			return err

@@ -428,12 +428,15 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 	var cancelUntil, waitDeadline, minWait, endedAt *time.Time
 	var created time.Time
 	var orderNo int64
-	var riderName *string
+	var riderName, scooterPlate *string
 	var hasRider, waitSeen bool
 	err := q.QueryRow(ctx, `SELECT o.state, o.seq, o.total_paise, o.currency, o.ended_reason, o.cancel_until, o.wait_deadline, o.created_at,
-			o.gate_id::text, h.label, o.min_wait_until, o.ended_at, o.rider_id IS NOT NULL, r.name, o.min_wait_until_seen, o.order_no
+			o.gate_id::text, h.label, o.min_wait_until, o.ended_at, o.rider_id IS NOT NULL, r.name, o.min_wait_until_seen, o.order_no,
+			(SELECT c.code FROM offers f JOIN scooters c ON c.id = f.scooter_id
+				WHERE f.order_id = o.id AND f.rider_id = o.rider_id AND f.state = 'accepted'
+				ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
 		FROM orders o JOIN gate_history h ON h.id = o.gate_history_id LEFT JOIN riders r ON r.id = o.rider_id WHERE o.id = $1`, orderID).
-		Scan(&state, &seq, &total, &currency, &ended, &cancelUntil, &waitDeadline, &created, &gateID, &label, &minWait, &endedAt, &hasRider, &riderName, &waitSeen, &orderNo)
+		Scan(&state, &seq, &total, &currency, &ended, &cancelUntil, &waitDeadline, &created, &gateID, &label, &minWait, &endedAt, &hasRider, &riderName, &waitSeen, &orderNo, &scooterPlate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -536,7 +539,13 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		if riderName != nil && strings.TrimSpace(*riderName) != "" {
 			first = strings.Fields(*riderName)[0]
 		}
-		rider = map[string]any{"first_name": first, "scooter_plate": nil} // plate is null until #178 part B
+		// The plate is the scooter of the rider shift that took the order (the same code the rider's shift reply
+		// calls plate), and null when none is on record. It is shown by the same rule as the first name.
+		var plate any
+		if scooterPlate != nil && strings.TrimSpace(*scooterPlate) != "" {
+			plate = *scooterPlate
+		}
+		rider = map[string]any{"first_name": first, "scooter_plate": plate}
 	}
 	// Only the time, and only once the rider is shown to the customer.
 	var waiting any

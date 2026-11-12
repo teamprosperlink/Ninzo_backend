@@ -52,13 +52,15 @@ type Service struct {
 // Middleware is what guards a signed-in route.
 type Middleware = func(http.Handler) http.Handler
 
-// MountCustomer adds getMe, updateMe, registerDevice and removeDevice.
+// MountCustomer adds getMe, updateMe, the notification settings, registerDevice and removeDevice.
 func (s *Service) MountCustomer(r chi.Router, signedIn ...Middleware) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
 		g.Use(signedIn...)
 		g.Get("/me", s.getCustomer)
 		g.With(idem).Patch("/me", s.updateCustomer)
+		g.Get("/me/notification-settings", s.getNotificationSettings)
+		g.With(idem).Patch("/me/notification-settings", s.updateNotificationSettings)
 		g.With(idem).Post("/me/devices", s.registerDevice)
 		g.With(idem).Delete("/me/devices/{device_id}", s.removeDevice)
 	})
