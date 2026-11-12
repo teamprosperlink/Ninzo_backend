@@ -274,14 +274,14 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `decideArrivalReview` | `arrival_reviews`, `orders`, `remedies`, `console_users` | `arrival_reviews`, `orders`, `remedies`, `order_events`, `audit_events`, `idempotency_keys` |  | |
 | `listSupportAlerts` | `outbox_events` |  |  | |
 | `listAdminOrders` | `orders`, `people`, `customers`, `riders` | | | Built (#146). Only `right(phone, 4)` is read from `people`; the full number never reaches the service. Filters use `orders_created_idx` and `orders_zone_created_idx`; a phone search finds people by `people_phone_last4_idx`, then their orders by `orders_customer_idx` and `orders_rider_created_idx`; an order number is looked up by the unique `order_no` index |
-| `getOrderTimeline` | `orders`, `order_items`, `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets`, `arrival_reviews`, `audit_events`, `location_pings`, `gates`, `riders`, `people` |  |  | Built (#146). One read-only repeatable-read snapshot. `audit_events` rows of the order and its refunds show only action, entity and reason (before and after stay out); problem notes and ticket text stay out; pings are counted (`location_pings_order_idx`), never listed. Remedies and refunds have no creator column yet, so `created_by` and `requested_by` are null until #147 |
-| `listTickets` | `support_tickets` |  |  | |
-| `getTicket` | `support_tickets`, `ticket_messages`, `people` |  |  | |
-| `replyTicket` | `support_tickets` | `ticket_messages`, `outbox_events`, `audit_events`, `idempotency_keys` |  | FCM, through `deliver_outbox` |
-| `closeTicket` | `support_tickets` | `support_tickets`, `incidents`, `audit_events`, `idempotency_keys` |  | |
-| `requestRefund` | `orders`, `payments`, `refunds`, `zone_settings`, `approvals`, `console_users` | `refunds`, `approvals`, `order_events`, `scheduled_tasks`, `audit_events`, `idempotency_keys` |  | Razorpay, through `send_refund`. Above `refund_approval_paise` only an approval is written, and `approveChange` makes the refund |
-| `issueReplacement` | `orders`, `order_items`, `payments` | `remedies`, `order_events`, `outbox_events`, `audit_events`, `idempotency_keys` |  | |
-| `issueCredit` | `orders`, `payments` | `remedies`, `order_events`, `outbox_events`, `audit_events`, `idempotency_keys` |  | |
+| `getOrderTimeline` | `orders`, `order_items`, `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets`, `arrival_reviews`, `audit_events`, `location_pings`, `gates`, `riders`, `people` |  |  | Built (#146). One read-only repeatable-read snapshot. `audit_events` rows of the order and its refunds show only action, entity and reason (before and after stay out); problem notes and ticket text stay out; pings are counted (`location_pings_order_idx`), never listed. Refunds and remedies now name who asked (`refunds.requested_by`, `remedies.created_by`, migration 0042), and a remedy's `items`; the reason staff typed shows on the order card, and stays out of the events (#147) |
+| `listTickets` | `support_tickets`, `ticket_messages` |  |  | Built (#147). Newest first by `support_tickets_created_idx`; `subject` is the first 80 characters of the customer's first message |
+| `getTicket` | `support_tickets`, `ticket_messages`, `console_users` |  |  | Built (#147). The customer's own words are shown to support here, and nowhere else in the console |
+| `replyTicket` | `support_tickets` | `ticket_messages`, `support_tickets`, `outbox_events`, `audit_events`, `idempotency_keys` |  | Built (#147). A `sender = 'support'` row the customer's `getTicket` already reads; one `push.customer` event `{customer_id, ticket_id, stage: ticket_reply}`, no words. FCM stays the log stand-in until v1.0.0 |
+| `closeTicket` | `support_tickets` | `support_tickets`, `audit_events`, `idempotency_keys` |  | Built (#147). `incidents` joins when #148 adds that table |
+| `requestRefund` | `orders`, `payments`, `refunds`, `zone_settings`, `approvals`, `console_users` | `refunds`, `orders`, `approvals`, `order_events`, `audit_events`, `idempotency_keys` |  | Built (#147). Locks the order, then its paid payment, so two requests on an order run one after the other. Up to `refund_approval_paise` (console refunds on the order plus any waiting approval plus this one) the refund is written at once (`orders.RecordSupportRefund`, status `processed` for the test provider); above it only an approval is written, and `approveChange` makes the refund (`console.ApplyRefund`). Razorpay, through `send_refund`, in v1.0.0 |
+| `issueReplacement` | `orders`, `order_items`, `payments` | `remedies`, `orders`, `order_events`, `audit_events`, `idempotency_keys` |  | Built (#147). No outbox event: the customer's order view refreshes through `orders.seq` |
+| `issueCredit` | `orders`, `payments` | `remedies`, `orders`, `order_events`, `audit_events`, `idempotency_keys` |  | Built (#147) |
 | `listIncidents` | `incidents`, `console_users` |  |  | |
 | `getIncident` | `incidents`, `incident_notes`, `console_users` |  |  | |
 | `assignIncident` | `incidents`, `console_users` | `incidents`, `audit_events`, `idempotency_keys` |  | |
@@ -292,10 +292,11 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `expireRestock` | `restock_requests`, `restock_lots`, `zone_settings`, `console_users` | `restock_requests`, `restock_lots`, `hub_state`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` |  | FCM, through `deliver_outbox`. Only before `ready`; packed lots go back to the hub's stock |
 | `getLiveZone` | `zones`, `riders`, `people`, `shifts`, `rider_state`, `location_pings`, `scooters`, `scooter_stock`, `staging_nodes`, `orders`, `gates`, `incidents` |  | Latest rider position | |
 
-**Planned new columns (v0.10.0), for the server to add by migration:**
-- `refunds`: `reason` and `requested_by` (the console user). A console refund needs its own `reason_code` per refund, because of `UNIQUE (payment_id, reason_code)`, so two partial refunds on one payment do not collide.
+**New columns (v0.10.0). Migration 0042 (#147) added the first four:**
+- `refunds`: `requested_by` (the console user, null for an automatic refund) and `note` (the reason staff typed). A console refund has its own `reason_code`, `support_refund_<n>`, because of `UNIQUE (payment_id, reason_code)`, so partial refunds on one payment do not collide.
 - `remedies`: `items` (the replacement's lines) and `created_by` (null when the system made it). An order has at most one remedy of each type (`UNIQUE (order_id, type)`), so `issueCredit` and `issueReplacement` answer `remedy_exists` for a second.
-- `support_tickets`: `closed_at` and `close_reason`. Statuses stay `open` and `resolved`; closing sets `resolved`.
+- `support_tickets`: `closed_at`, `closed_by` and `close_reason`; `ticket_messages.author_id`. Statuses stay `open` and `resolved`; closing sets `resolved`.
+- `zone_settings`: `refund_approval_paise` (20000 by default, 0 to 10,000,000).
 - `incidents`: one row per order and kind (a lost signal's problem report and support alert make one `signal_lost` incident).
 
 ## 5. Background work

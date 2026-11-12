@@ -87,7 +87,23 @@ func end(ctx context.Context, tx pgx.Tx, orderID, from, to, endedReason, actorTy
 	return event(ctx, tx, orderID, from, to, actorType, actorID, why)
 }
 
-// refundPaid gives back the whole payment of an order.
+// refundLeft is what can still go back on a payment: what was paid less the refunds that are not
+// failed. Console refunds (issue 147) can already have taken some, and the refunds_within_payment
+// trigger rolls back the whole transaction if an insert passes the payment, so every automatic
+// refund asks first. The caller holds the payment row locked.
+func refundLeft(ctx context.Context, tx pgx.Tx, paymentID string, paid int) (int, error) {
+	var made int
+	if err := tx.QueryRow(ctx, "SELECT coalesce(sum(amount_paise), 0)::int FROM refunds WHERE payment_id = $1 AND status <> 'failed'", paymentID).Scan(&made); err != nil {
+		return 0, err
+	}
+	if left := paid - made; left > 0 {
+		return left, nil
+	}
+	return 0, nil
+}
+
+// refundPaid gives back what is left of the payment of an order: all of it, unless the console has
+// already refunded part. When nothing is left, nothing is inserted.
 func refundPaid(ctx context.Context, tx pgx.Tx, orderID, reason string) error {
 	var paymentID, provider string
 	var amount int
@@ -95,7 +111,11 @@ func refundPaid(ctx context.Context, tx pgx.Tx, orderID, reason string) error {
 		Scan(&paymentID, &provider, &amount); err != nil {
 		return err
 	}
-	return refund(ctx, tx, orderID, paymentID, provider, reason, amount)
+	left, err := refundLeft(ctx, tx, paymentID, amount)
+	if err != nil || left == 0 {
+		return err
+	}
+	return refund(ctx, tx, orderID, paymentID, provider, reason, left)
 }
 
 // cancel follows the table in contracts/README.md, "Cancels and refunds". The boundary is decided
@@ -369,7 +389,9 @@ func moveOrder(ctx context.Context, tx pgx.Tx, orderID, customerID string, lat, 
 	})
 }
 
-// getRefund says why and how the customer is refunded.
+// getRefund says why and how the customer is refunded. An order can have several refunds (a
+// console refund, then an automatic one), and the contract has one: its reason and status are the
+// newest refund's, and its amount is the total refunded so far (failed ones not counted).
 func (s *Service) getRefund(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
 	id := chi.URLParam(r, "order_id")
@@ -384,7 +406,9 @@ func (s *Service) getRefund(w http.ResponseWriter, r *http.Request) {
 	var reason, method, status string
 	var amount int
 	var expected *time.Time
-	err := s.Pool.QueryRow(r.Context(), `SELECT reason_code, method, status, amount_paise, expected_by FROM refunds WHERE order_id = $1
+	err := s.Pool.QueryRow(r.Context(), `SELECT reason_code, method, status,
+			coalesce(nullif((SELECT sum(r.amount_paise) FROM refunds r WHERE r.order_id = refunds.order_id AND r.status <> 'failed'), 0), amount_paise)::int,
+			expected_by FROM refunds WHERE order_id = $1
 		ORDER BY (status <> 'failed') DESC, created_at DESC, id DESC LIMIT 1`, id).Scan(&reason, &method, &status, &amount, &expected)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = errNotFound

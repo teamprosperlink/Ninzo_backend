@@ -297,22 +297,27 @@ func loadTimeline(ctx context.Context, tx pgx.Tx, id string) (map[string]any, []
 
 	// Remedies and refunds are part of the order, and also events.
 	remedies := []map[string]any{}
-	rows, err = tx.Query(ctx, "SELECT id::text, type, amount_paise, status, reason, created_at FROM remedies WHERE order_id = $1 ORDER BY created_at, id", id)
+	rows, err = tx.Query(ctx, `SELECT m.id::text, m.type, m.amount_paise, m.items, m.status, m.reason, m.created_by::text, cu.name, m.created_at
+		FROM remedies m LEFT JOIN console_users cu ON cu.id = m.created_by WHERE m.order_id = $1 ORDER BY m.created_at, m.id`, id)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	var rid, rtype, rstatus, rreason string
 	var ramount *int
+	var ritems []byte
+	var rby, rbyName *string
 	var rcreated time.Time
-	if _, err := pgx.ForEachRow(rows, []any{&rid, &rtype, &ramount, &rstatus, &rreason, &rcreated}, func() error {
-		var amount any
-		if ramount != nil {
-			amount = money(*ramount)
+	if _, err := pgx.ForEachRow(rows, []any{&rid, &rtype, &ramount, &ritems, &rstatus, &rreason, &rby, &rbyName, &rcreated}, func() error {
+		view := remedyMap(rid, rtype, ramount, ritems, rstatus, rreason, rby, rbyName, rcreated)
+		remedies = append(remedies, view)
+		detail := map[string]any{"remedy_id": rid, "kind": rtype, "amount": view["amount"], "status": rstatus, "reason": rreason}
+		if rby != nil {
+			// A person made it, and typed the reason: like the audit reason, it stays out of the events.
+			delete(detail, "reason")
+			add(rcreated, "remedy", "remedy.owed", "console", rbyName, detail)
+		} else {
+			add(rcreated, "remedy", "remedy.owed", "system", nil, detail)
 		}
-		// No remedy records who made it yet, and none has lines: the system makes every one today.
-		remedies = append(remedies, map[string]any{"id": rid, "kind": rtype, "amount": amount, "items": nil, "status": rstatus, "reason": rreason,
-			"created_by": nil, "created_at": rcreated.UTC().Format(time.RFC3339Nano)})
-		add(rcreated, "remedy", "remedy.owed", "system", nil, map[string]any{"remedy_id": rid, "kind": rtype, "amount": amount, "status": rstatus, "reason": rreason})
 		return nil
 	}); err != nil {
 		return nil, nil, nil, err
@@ -321,21 +326,33 @@ func loadTimeline(ctx context.Context, tx pgx.Tx, id string) (map[string]any, []
 
 	refunds := []map[string]any{}
 	refundIDs := []string{}
-	rows, err = tx.Query(ctx, "SELECT id::text, amount_paise, status, reason_code, created_at, updated_at FROM refunds WHERE order_id = $1 ORDER BY created_at, id", id)
+	rows, err = tx.Query(ctx, `SELECT r.id::text, r.amount_paise, r.status, r.reason_code, r.note, r.requested_by::text, cu.name, r.created_at, r.updated_at
+		FROM refunds r LEFT JOIN console_users cu ON cu.id = r.requested_by WHERE r.order_id = $1 ORDER BY r.created_at, r.id`, id)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	var fid, fstatus, freason string
+	var fid, fstatus, fcode string
+	var fnote, fby, fbyName *string
 	var famount int
 	var fcreated, fupdated time.Time
-	if _, err := pgx.ForEachRow(rows, []any{&fid, &famount, &fstatus, &freason, &fcreated, &fupdated}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&fid, &famount, &fstatus, &fcode, &fnote, &fby, &fbyName, &fcreated, &fupdated}, func() error {
 		refundIDs = append(refundIDs, fid)
+		// On the order a console refund shows the reason staff gave; in the events only its code,
+		// as staff-typed words stay out of them.
+		freason := fcode
+		if fnote != nil {
+			freason = *fnote
+		}
 		refunds = append(refunds, map[string]any{"id": fid, "order_id": id, "amount": money(famount), "status": fstatus, "reason": freason,
-			"requested_by": nil, "created_at": fcreated.UTC().Format(time.RFC3339Nano)})
-		detail := map[string]any{"refund_id": fid, "amount": money(famount), "reason": freason}
-		add(fcreated, "refund", "refund.requested", "system", nil, detail)
+			"requested_by": actorOrNil(fby, fbyName), "created_at": fcreated.UTC().Format(time.RFC3339Nano)})
+		detail := map[string]any{"refund_id": fid, "amount": money(famount), "reason": fcode}
+		if fby != nil {
+			add(fcreated, "refund", "refund.requested", "console", fbyName, detail)
+		} else {
+			add(fcreated, "refund", "refund.requested", "system", nil, detail)
+		}
 		if fstatus != "pending" {
-			add(fupdated, "refund", "refund."+fstatus, "system", nil, map[string]any{"refund_id": fid, "amount": money(famount), "reason": freason})
+			add(fupdated, "refund", "refund."+fstatus, "system", nil, map[string]any{"refund_id": fid, "amount": money(famount), "reason": fcode})
 		}
 		return nil
 	}); err != nil {
@@ -451,17 +468,19 @@ func loadTimeline(ctx context.Context, tx pgx.Tx, id string) (map[string]any, []
 	}
 
 	// Tickets and the senders of their messages. The customer's words stay out.
-	rows, err = tx.Query(ctx, "SELECT id::text, type, status, created_at, updated_at FROM support_tickets WHERE order_id = $1 ORDER BY created_at, id", id)
+	rows, err = tx.Query(ctx, `SELECT t.id::text, t.type, t.status, t.created_at, coalesce(t.closed_at, t.updated_at), cu.name
+		FROM support_tickets t LEFT JOIN console_users cu ON cu.id = t.closed_by WHERE t.order_id = $1 ORDER BY t.created_at, t.id`, id)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	type ticket struct {
 		id, kind, status string
 		created, updated time.Time
+		closedBy         *string
 	}
 	tickets, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ticket, error) {
 		var t ticket
-		return t, r.Scan(&t.id, &t.kind, &t.status, &t.created, &t.updated)
+		return t, r.Scan(&t.id, &t.kind, &t.status, &t.created, &t.updated, &t.closedBy)
 	})
 	if err != nil {
 		return nil, nil, nil, err
@@ -469,16 +488,18 @@ func loadTimeline(ctx context.Context, tx pgx.Tx, id string) (map[string]any, []
 	for _, t := range tickets {
 		add(t.created, "ticket", "ticket.opened", "customer", nil, map[string]any{"ticket_id": t.id, "type": t.kind})
 		if t.status == "resolved" {
-			add(t.updated, "ticket", "ticket.resolved", "support", nil, map[string]any{"ticket_id": t.id, "type": t.kind})
+			add(t.updated, "ticket", "ticket.resolved", "support", t.closedBy, map[string]any{"ticket_id": t.id, "type": t.kind})
 		}
-		rows, err := tx.Query(ctx, "SELECT sender, created_at FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at, id", t.id)
+		rows, err := tx.Query(ctx, `SELECT m.sender, m.created_at, cu.name FROM ticket_messages m LEFT JOIN console_users cu ON cu.id = m.author_id
+			WHERE m.ticket_id = $1 ORDER BY m.created_at, m.id`, t.id)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		var sender string
 		var mcreated time.Time
-		if _, err := pgx.ForEachRow(rows, []any{&sender, &mcreated}, func() error {
-			add(mcreated, "ticket", "ticket.message", sender, nil, map[string]any{"ticket_id": t.id})
+		var author *string
+		if _, err := pgx.ForEachRow(rows, []any{&sender, &mcreated, &author}, func() error {
+			add(mcreated, "ticket", "ticket.message", sender, author, map[string]any{"ticket_id": t.id})
 			return nil
 		}); err != nil {
 			return nil, nil, nil, err

@@ -39,7 +39,7 @@ func main() {
 			signedIn := []func(http.Handler) http.Handler{identity.RequireActor(sessions.Signer, identity.TypeConsole), limits.BySession()}
 			svc.MountAuth(r, signedIn...)
 			svc.MountUsers(r, signedIn...)
-			svc.MountApprovals(r, console.Kinds{"flag": console.ApplyFlag, "settings": console.ApplySettings, "kill_switch": console.ApplyKillSwitch}, signedIn...)
+			svc.MountApprovals(r, console.Kinds{"flag": console.ApplyFlag, "settings": console.ApplySettings, "kill_switch": console.ApplyKillSwitch, "refund": console.ApplyRefund}, signedIn...)
 			svc.MountFlags(r, signedIn...)
 			svc.MountRiders(r, signedIn...)
 			svc.MountZones(r, signedIn...)
@@ -48,6 +48,7 @@ func main() {
 			svc.MountHubs(r, signedIn...)
 			svc.MountReviews(r, signedIn...)
 			svc.MountOrders(r, signedIn...)
+			svc.MountSupport(r, signedIn...)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "console-api:", err)
