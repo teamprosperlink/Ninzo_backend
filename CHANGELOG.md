@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The pilot's hexagon grid (#193)
+- Decided (G18): no pure-Go H3 covers point to cell, centre, disk and outline and also builds on the Windows development PC, so the pilot uses its own pure-Go hexagon grid. The spike result is in `docs/engineering/geo/w2-map-grid-and-distribution.md`.
+- Added: `internal/hexgrid`, pointy-topped hexagons on a local flat projection; Bengaluru grid `blr76` with 76 m edges (the area of H3 res 10). It provides `CellAt`, `Centre`, `Outline`, `Neighbours`, `Disk`, `Distance`, `ID` and `Parse`.
+- Evidence: docs/testing/reports/193.md
+
 ### Road data versions (#190)
 - Added: migration 0045, table `road_data_versions`: one row per OSRM build (source and sha256, clip box, extract timestamp, profile and version, image, algorithm), unique per extract, profile, image and algorithm.
 - Added: `internal/roaddata` and `cmd/roaddata -local|-remote register <build.json>|list`, which checks the file before touching any database and stores each build once; `task geo:roaddata:register`.

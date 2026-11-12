@@ -120,3 +120,9 @@ Ninzo's problem has the same shape as emergency medical services (EMS): few vehi
 | Google Maps Platform replaced the 200 USD monthly credit with free monthly usage per SKU from 1 March 2025 (Essentials 10,000, Pro 5,000, Enterprise 1,000) | [Google, March 2025 changes](https://developers.google.com/maps/billing-and-pricing/march-2025) |
 | Google's service terms bar using Directions API content with a non-Google map; Routes API caching is limited (for example `place_id`). Read the current terms before any server-side use | [Maps Service Terms](https://cloud.google.com/maps-platform/terms/maps-service-terms) |
 | DIGIPIN: India Post, launched 27 May 2025, about 4 m × 4 m cells, 10 characters, open | [The Week](https://www.theweek.in/news/sci-tech/2025/05/31/what-is-digipin-india-new-technology-postal-geo-address-system-department-of-posts.html) |
+
+### Checked on 2026-11-13 (the H3 spike, #193)
+- `github.com/ziprecruiter/h3-go` v0.5.0: its README says "early stages of development". It exports point to cell and grid disk; cell centre and outline are not exported.
+- `github.com/akhenakh/goh3`: "experimental", H3 v4.4.1 machine-translated to pure Go by ccgo (Apache-2.0). The translated code ships for darwin, freebsd and linux only, with no Windows build.
+- `github.com/uber/h3-go`: needs `CGO_ENABLED=1`.
+- Official test vectors: Uber's H3 4.1.2 through its Python binding (`h3==4.1.2`), 7,016 cells over Bengaluru and the world.

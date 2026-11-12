@@ -29,7 +29,7 @@ For each gate:
 
 ## Options
 
-### How Go gets H3 (G18, open, engineering)
+### How Go gets H3 (G18, decided 2026-11-13: our own hexagon grid for the pilot)
 | Option | For | Against |
 |---|---|---|
 | A. `uber/h3-go` with cgo | Official, complete | Needs `CGO_ENABLED=1` and a base image with a C library, instead of today's static distroless image |
@@ -39,6 +39,15 @@ For each gate:
 | E. No H3 for the pilot: a PostGIS hexagon grid (`ST_HexagonGrid`, PostGIS 3.1 and later) or plain geometry | No new dependency; exact; `real_and_stand_ins.md` already says PostGIS is enough at pilot size | No hierarchy and no shared cell IDs; moving to H3 at city scale means rebuilding the cell sets |
 
 **Recommendation:** a short spike first. We need four functions: point to cell, cell to centre, cells within k rings, and the cell outline. Generate test vectors with the official Python library in `tools/`. If option B matches them exactly, use B. If not, choose between C and E for the pilot, and use A only if the image changes anyway. The road-time cell sets, the tiers and every later step work the same with any of these grids.
+
+**Spike result (#193, 2026-11-13).** Official vectors came from Uber's H3 4.1.2.
+- Option B, `ziprecruiter/h3-go` v0.5.0, does not export cell centre or outline.
+- `akhenakh/goh3` (H3 4.4.1 machine-translated to pure Go) is experimental and has no Windows build, so it cannot compile on the development PC. Running it was blocked by the local permission check on unvetted code, so its accuracy is unmeasured.
+- Options A (cgo) and D (Postgres extension) were already ruled out.
+
+**Decision:** our own pointy-topped hexagon grid in pure Go, `internal/hexgrid`. It uses a local flat projection around each city's origin. The Bengaluru grid `blr76` has 76 m edges, the same average area as H3 resolution 10, and neighbour spacing is within 0.12% on the real Earth over the city.
+
+We lose global H3 ids and the parent and child levels, which the pilot does not use. Moving to H3 at city scale costs a rebuild of the cell sets, which happens with every road data version anyway. Revisit when a pure-Go H3 builds on all three platforms and matches the official vectors.
 
 ### Resolution
 | Resolution | Average edge | Across (about) | Area (about) | Use |
@@ -76,8 +85,8 @@ A brand-new pin (edge case 7) is never refused for lack of a set; it is mapped o
 
 | # | Step | What we need | How | Done when |
 |---|---|---|---|---|
-| 1 | H3 spike (G18) | Test vectors from the official library | Compare options B and C on the four functions | A written result here, and the choice recorded in the decision log |
-| 2 | `internal/h3cells` | The chosen option | Point to cell, centre, disk, outline; nothing else | Matches the official vectors exactly |
+| 1 | H3 spike (G18). Done (#193): see the result above | Test vectors from the official library | Compare options B and C on the four functions | A written result here, and the choice recorded in the decision log |
+| 2 | `internal/hexgrid` (was `internal/h3cells`). Built (#193) | The chosen option | Point to cell, centre, disk, outline; nothing else | Its property tests pass: a point is in its own cell and nearest its centre, disks are complete, ids round-trip, and the real-Earth spacing is within 0.5% over the city (#193) |
 | 3 | `gate_cells` and its build | W1 client; a migration (renumbered to the next free number before the PR) | A job builds a gate's cells; a command rebuilds all | A test gate across a median from some cells excludes them from the timer zone; the timer zone is always inside the circle; a deliberate break is caught |
 | 4 | Tiers from settings | A function that, given a gate and a cell, answers the tier from the stored time and current settings | A pure function plus a query | Changing a budget in a test changes the tier with no rebuild |
 | 5 | Settings | `timer_zone_margin_s` (new); ring budgets (new); existing `zone_radius_m`, `sweet_spot_budget_s`, `max_search_radius_m` | Through `geo.ChangeSettings`, so every zone stays valid | Each is a console setting with limits |
