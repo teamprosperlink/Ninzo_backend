@@ -755,7 +755,7 @@ func consoleRoutes() []route {
 			if denied(c) {
 				return
 			}
-			page(c, "incidents", []map[string]any{adminIncident("support_alert", "open", c.now), adminIncident("ticket", "assigned", c.now)})
+			page(c, "incidents", []map[string]any{adminIncident("support_alert", "open", c.now), adminIncident("ticket", "assigned", c.now), adminIncident("signal_lost", "closed", c.now)})
 		}},
 		{method: "GET", path: "/admin/incidents/{incident_id}", handle: func(c *call) {
 			if !denied(c) {
