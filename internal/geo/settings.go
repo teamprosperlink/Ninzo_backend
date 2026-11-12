@@ -38,6 +38,8 @@ var Settings = []Setting{
 	{"signal_release_s", "seconds", 5, 600, true, "No ping for this long releases the handover code"},
 	{"reassign_after_s", "seconds", 30, 1800, true, "No ping for this long reassigns the order"},
 	{"sweet_spot_budget_s", "seconds", 10, 600, true, "Travel time budget for a scooter to serve a gate"},
+	{"timer_zone_margin_s", "seconds", 0, 120, true, "A cell is in a gate's timer zone only if its road time is at least this much under the timer"},
+	{"outer_ring_budget_s", "seconds", 30, 3600, true, "The widest road time to a gate that still counts as reach, beyond the sweet spot"},
 	{"straight_line_speed_kmh", "km/h", 3, 60, true, "Speed used for straight-line reach, until real road times"},
 	{"max_search_radius_m", "metres", 100, 20000, true, "Widest rider search. Past it, the order is refused before payment"},
 	{"payment_hold_s", "seconds", 60, 3600, true, "How long an unpaid order holds its stock"},
@@ -323,6 +325,16 @@ func (e Effective) check() error {
 	if inZone, ok := e.Get("in_zone_wait_s"); ok {
 		if search, ok := e.Get("min_search_wait_s"); ok && inZone > search {
 			return fmt.Errorf("the wait for a rider already in the zone (%d s) must not be longer than the usual wait (%d s)", inZone, search)
+		}
+	}
+	if margin, ok := e.Get("timer_zone_margin_s"); ok {
+		if timer, _ := e.Get("timer_length_s"); margin >= timer {
+			return fmt.Errorf("the timer zone margin (%d s) must be shorter than the timer (%d s)", margin, timer)
+		}
+	}
+	if outer, ok := e.Get("outer_ring_budget_s"); ok {
+		if sweet, _ := e.Get("sweet_spot_budget_s"); outer < sweet {
+			return fmt.Errorf("the outer ring (%d s) must reach at least the sweet spot (%d s)", outer, sweet)
 		}
 	}
 	signal, _ := e.Get("signal_release_s")
