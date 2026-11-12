@@ -105,7 +105,7 @@ Each workstream is solved one step at a time: one Issue, its own branch, tests (
 
 | # | Workstream | Depends on | First deliverable |
 |---|---|---|---|
-| W0 | Own local database for this work: Postgres on 5433, Redis on 6381 | None | `task test:db` variant on 5433 |
+| W0 | Own local database for this work: Postgres on 5433, Redis on 6381 | None | Built (#169): `deploy/compose.geo.yml`, `task geo:db:up`, `task geo:db:migrate`, `task geo:test:db` |
 | W1 | [Road data and routing](w1-road-data-and-routing.md) | W0 | OSRM with a scooter profile on Bengaluru, a Go client with a straight-line fallback |
 | W2 | [Map grid and distribution](w2-map-grid-and-distribution.md) | W1 | Cell sets per gate (timer zone, sweet spot, rings), stored and versioned |
 | W8 | [Simulation and proof](w8-simulation-and-proof.md) | W1, W2 | A simulator that reports the timer success rate on the test zones |

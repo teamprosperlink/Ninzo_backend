@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Geo work has its own local Postgres and Redis (#169)
+- Added: `deploy/compose.geo.yml` (compose project `ninzo-geo`, Postgres on 5433 and Redis on 6381) and the tasks `geo:db:up`, `geo:db:down`, `geo:db:migrate` and `geo:test:db`, so the geo session never shares a test server with the console session.
+- Changed: `task test:db` takes `TEST_DB_PORT` (default 5432, so nothing changes for anyone else).
+- Evidence: docs/testing/reports/169.md
 ### Console order search and timeline: the server side (#146)
 - Added: `listAdminOrders` (`GET /admin/orders`) and `getOrderTimeline` (`GET /admin/orders/{order_id}/timeline`) on console-api, permission `orders.read`, as defined in `contracts/console` (#164, #165). `q` takes an order number such as A1001 (any case; matched on `order_no` so a repeated short form returns both orders), an order id, or the last four phone digits of the customer or rider; anything else is 400. Filters `state`, `zone_id`, `from`, `to`; cursor paging, newest first.
 - Added: the timeline merges `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets` and their messages, `arrival_reviews` and `audit_events` into one list, oldest first (ties in the contract's source order), in one read-only repeatable-read snapshot. Pings are summarised (`count`, `first_at`, `last_at`).
