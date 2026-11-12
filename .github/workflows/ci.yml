@@ -85,7 +85,7 @@ jobs:
       - run: OSRM_DATA=test-zones docker compose -f deploy/compose.geo.yml --profile osrm up -d osrm
       - name: Wait for OSRM
         run: for i in $(seq 1 60); do curl -sf 'http://localhost:5001/nearest/v1/scooter/77.6412,12.9719' >/dev/null && exit 0; sleep 1; done; exit 1
-      - run: go test -count=1 -v -run Golden ./internal/routing/ ./internal/gatecells/
+      - run: go test -count=1 -v -run Golden ./internal/routing/ ./internal/gatecells/ ./internal/sim/
         env:
           ROUTING_TEST_URL: http://localhost:5001
           REQUIRE_ROUTING_TESTS: "yes"

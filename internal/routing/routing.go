@@ -615,3 +615,91 @@ func unreachable(n int) []Leg {
 	}
 	return out
 }
+
+// Waypoint is a point a route must pass, optionally with the heading (degrees from north, 0 to
+// 359) the route should pass it on, so OSRM keeps the road and direction it is on there instead of
+// snapping to, say, the other side of a divided road. A negative Bearing means any heading.
+type Waypoint struct {
+	Point
+	Bearing int
+}
+
+// Via returns one route through every waypoint in order, as one leg per pair, each leg's time
+// counting the junction and signal costs on it (issue 205). On fallback every leg is a straight
+// line at speedKmh. A route with no road between some pair is unreachable as a whole.
+func (c *Client) Via(ctx context.Context, wps []Waypoint, speedKmh float64) ([]Leg, error) {
+	if len(wps) < 2 || len(wps) > 25 {
+		return nil, errors.New("routing: Via takes 2 to 25 waypoints")
+	}
+	pts := make([]Point, len(wps))
+	bearings := make([]string, len(wps))
+	for i, w := range wps {
+		if !w.valid() || w.Bearing > 359 {
+			return nil, ErrBadPoint
+		}
+		pts[i] = w.Point
+		if w.Bearing >= 0 {
+			bearings[i] = strconv.Itoa(w.Bearing) + ",30"
+		}
+	}
+	if err := checkSpeed(speedKmh); err != nil {
+		return nil, err
+	}
+	c.calls.Add(1)
+	var out []Leg
+	used, err := c.attempt(ctx, func(ctx context.Context) error {
+		var reply struct {
+			Routes []struct {
+				Legs []struct {
+					Duration *float64 `json:"duration"`
+					Distance *float64 `json:"distance"`
+				} `json:"legs"`
+			} `json:"routes"`
+		}
+		q := url.Values{"overview": {"false"}, "steps": {"false"}, "alternatives": {"false"}, "continue_straight": {"true"},
+			"bearings": {strings.Join(bearings, ";")}}
+		code, err := c.get(ctx, "route", pts, q, &reply)
+		switch {
+		case errors.Is(err, errNoSegment) || code == "NoRoute":
+			out = make([]Leg, len(wps)-1)
+			for i := range out {
+				out[i] = Leg{Source: SourceOSRM}
+			}
+			return nil
+		case err != nil:
+			return err
+		case len(reply.Routes) == 0 || len(reply.Routes[0].Legs) != len(wps)-1:
+			return errors.New("routing: route answered the wrong number of legs")
+		}
+		out = make([]Leg, len(wps)-1)
+		for i, l := range reply.Routes[0].Legs {
+			if !goodNumber(l.Duration) || !goodNumber(l.Distance) {
+				return errors.New("routing: route leg answered a missing, negative or non-finite number")
+			}
+			out[i] = Leg{Seconds: *l.Duration, Metres: *l.Distance, Reachable: true, Source: SourceOSRM}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if used {
+		return out, nil
+	}
+	c.fallbacks.Add(1)
+	out = make([]Leg, len(wps)-1)
+	for i := range out {
+		out[i] = straight(wps[i].Point, wps[i+1].Point, speedKmh)
+	}
+	return out, nil
+}
+
+// Bearing is the heading from a to b, in whole degrees from north (0 to 359).
+func Bearing(a, b Point) int {
+	p1, p2 := a.Lat*math.Pi/180, b.Lat*math.Pi/180
+	dl := (b.Lng - a.Lng) * math.Pi / 180
+	y := math.Sin(dl) * math.Cos(p2)
+	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dl)
+	deg := int(math.Round(math.Atan2(y, x) * 180 / math.Pi))
+	return ((deg % 360) + 360) % 360
+}
