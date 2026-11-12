@@ -54,6 +54,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `tracking` | `rider_state` | Each rider's `seq`, written by every change the rider can see | v0.3.0 |
 | `tracking` | `rider_events` | The final result of a rider's queued or direct action, by `event_id` | v0.3.0 |
 | `tracking` | `location_pings` | Pings, kept as evidence. Partitioned by day. Kept in full through testing | v0.5.0 |
+| `tracking` | `rider_positions` | Where each rider is now: one row per rider (point, grid cell, speed, accuracy, device and received time), moved by each ping that is newer by device time, in the ping's transaction (#207). `location_pings.cell` keeps each new ping's grid cell | v1.0.0 |
 | `tracking` | `shift_breaks` | Breaks inside a shift: start, end and who ended it | v0.10.0 |
 | `orders` | `orders` | See section 1.1 | v0.4.0 |
 | `orders` | `order_items` | Items, with the price fixed at creation | v0.4.0 |
@@ -183,8 +184,8 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `getRoute` | `offers`, `orders`, `gates` | | Position | Routing engine |
 | `handOver` | `rider_events`, `offers`, `orders`, `order_items`, `gates`, `payments`, `location_pings`, `reservations` | `rider_events`, `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `arrival_reviews`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Position, fan-out | None: a partial refund runs from a task |
 | `startRiderMaskedCall` | `offers`, `orders`, `customers` | `audit_events`, `idempotency_keys` | | Telephony |
-| `locationPing` | `offers`, `orders`, `location_zones`, `location_pings`, `arrival_reviews` | `location_pings`, `orders`, `order_events`, `rider_state`, `remedies`, `arrival_reviews`, `scheduled_tasks`, `outbox_events` | Position, cells, rate limit, fan-out | |
-| `sendEventBatch` | `rider_events`, `offers`, `orders`, `order_items`, `gates`, `payments`, `location_pings`, `lots`, `scooters`, `scooter_stock`, `reservations`, `restock_requests`, `restock_lots` | `rider_events`, `location_pings`, `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `arrival_reviews`, `problem_reports`, `restock_requests`, `restock_lines`, `scheduled_tasks`, `outbox_events`, `audit_events` | Fan-out | None |
+| `locationPing` | `offers`, `orders`, `location_zones`, `location_pings`, `arrival_reviews` | `location_pings`, `rider_positions`, `orders`, `order_events`, `rider_state`, `remedies`, `arrival_reviews`, `scheduled_tasks`, `outbox_events` | Position, cells, rate limit, fan-out | |
+| `sendEventBatch` | `rider_events`, `offers`, `orders`, `order_items`, `gates`, `payments`, `location_pings`, `lots`, `scooters`, `scooter_stock`, `reservations`, `restock_requests`, `restock_lots` | `rider_events`, `location_pings`, `rider_positions`, `offers`, `orders`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `rider_state`, `refunds`, `arrival_reviews`, `problem_reports`, `restock_requests`, `restock_lines`, `scheduled_tasks`, `outbox_events`, `audit_events` | Fan-out | None |
 | `listRestockSuggestions` | `restock_requests`, `restock_lines`, `hubs`, `shifts`, `staging_nodes` | | | |
 | `confirmRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `restock_lines`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `declineRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `rider_state`, `audit_events`, `idempotency_keys` | | |
