@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Road data versions (#190)
+- Added: migration 0045, table `road_data_versions`: one row per OSRM build (source and sha256, clip box, extract timestamp, profile and version, image, algorithm), unique per extract, profile, image and algorithm.
+- Added: `internal/roaddata` and `cmd/roaddata -local|-remote register <build.json>|list`, which checks the file before touching any database and stores each build once; `task geo:roaddata:register`.
+- Evidence: docs/testing/reports/190.md
+
 ### Golden routes in CI (#187)
 - Added: the CI job `routes` builds OSRM on the committed test-zone extract and runs the golden routes with `REQUIRE_ROUTING_TESTS=yes`, so a change that breaks one cannot merge.
 - Evidence: docs/testing/reports/187.md

@@ -199,6 +199,9 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 // builtInV0100 are the v0.10.0 tables built so far. The rider app's operations (issue 159) add these.
 var builtInV0100 = []string{"rider_notifications", "shift_breaks", "stock_counts", "stock_count_lines", "verification_documents", "customer_notification_settings", "incidents", "incident_notes"}
 
+// builtInV100 are the v1.0.0 tables built so far. The geo work (issue 190) adds these.
+var builtInV100 = []string{"road_data_versions"}
+
 var builtInV090 = []string{"console_users", "console_challenges", "approvals", "feature_flags"}
 
 var builtInV080 = []string{"hub_staff", "hub_state", "shortfall_lines", "hub_events"}
@@ -271,6 +274,13 @@ func TestSchemaMatchesTheDataMap(t *testing.T) {
 	for _, table := range builtInV0100 {
 		if !slices.Contains(planned, table) {
 			t.Errorf("%s is listed as built in v0.10.0, but the data map does not plan it for v0.10.0", table)
+		}
+		built = append(built, table)
+	}
+	planned = plannedTables(t, "v1.0.0")
+	for _, table := range builtInV100 {
+		if !slices.Contains(planned, table) {
+			t.Errorf("%s is listed as built in v1.0.0, but the data map does not plan it for v1.0.0", table)
 		}
 		built = append(built, table)
 	}
