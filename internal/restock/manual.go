@@ -314,13 +314,7 @@ func (s *Service) ExpireUncollected(ctx context.Context, now time.Time) error {
 			if state == "picked_up" {
 				to = "received"
 			}
-			if _, err := tx.Exec(ctx, "UPDATE restock_requests SET state = $2, state_changed_at = $3, updated_at = now() WHERE id = $1", id, to, now); err != nil {
-				return err
-			}
-			if err := release(ctx, tx, id, now); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, "UPDATE shortfalls SET status = 'refused', decided_at = $2 WHERE request_id = $1 AND status = 'open'", id, now); err != nil {
+			if err := endRequest(ctx, tx, id, to, "", now); err != nil {
 				return err
 			}
 			if err := audit.Record(ctx, tx, audit.Event{ActorType: audit.ActorSystem, Action: "restock.uncollected", EntityType: "restock_request", EntityID: id,

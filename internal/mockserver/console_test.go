@@ -325,3 +325,67 @@ func TestAmountsOutsideTheRangeAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestTheHubOpsMockFollowsTheRealCall checks what #149 adds: the zone filter, a hub_manager's own
+// hub only, a stuck sample that is past the default limit, and an expiry that has just ended.
+func TestTheHubOpsMockFollowsTheRealCall(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+	c := consoleContract(t)
+	hubsFor := func(role, query string) []any {
+		for _, o := range c.operations() {
+			if o.id != "listHubOps" {
+				continue
+			}
+			saved := sampleQueries[o.id]
+			sampleQueries[o.id] = query
+			status, body, _ := doRequest(t, srv, c, o, role, "ops-"+role)
+			sampleQueries[o.id] = saved
+			var got map[string]any
+			_ = json.Unmarshal(body, &got)
+			if status != 200 {
+				t.Fatalf("%s %s: %d %s", role, query, status, body)
+			}
+			return got["hubs"].([]any)
+		}
+		t.Fatal("listHubOps is not in the contract")
+		return nil
+	}
+	if n := len(hubsFor("", "")); n != 2 {
+		t.Errorf("an admin sees %d hubs", n)
+	}
+	if n := len(hubsFor("", "?zone_id=zone_mock02")); n != 1 {
+		t.Errorf("zone_mock02: %d hubs", n)
+	}
+	if n := len(hubsFor("", "?zone_id=zone_none")); n != 0 {
+		t.Errorf("an unknown zone: %d hubs", n)
+	}
+	if n := len(hubsFor("role_hub_manager", "")); n != 1 {
+		t.Errorf("a hub_manager sees %d hubs", n)
+	}
+	if n := len(hubsFor("role_hub_manager", "?zone_id=zone_mock02")); n != 0 {
+		t.Errorf("a hub_manager asking for another zone: %d hubs", n)
+	}
+	for _, o := range c.operations() {
+		switch o.id {
+		case "listStuckRestocks":
+			_, body, _ := doRequest(t, srv, c, o, "", "stuck-1")
+			var got struct {
+				Requests []struct {
+					WaitingS int `json:"waiting_s"`
+				} `json:"requests"`
+			}
+			_ = json.Unmarshal(body, &got)
+			if len(got.Requests) != 1 || got.Requests[0].WaitingS <= 600 {
+				t.Errorf("a stuck sample waits longer than the default 600 seconds: %s", body)
+			}
+		case "expireRestock":
+			status, body, _ := doRequest(t, srv, c, o, "role_hub_manager", "expire-1")
+			var got map[string]any
+			_ = json.Unmarshal(body, &got)
+			if status != 403 || got["missing_permission"] != "hub_ops.manage" {
+				t.Errorf("a hub_manager cannot expire: %d %s", status, body)
+			}
+		}
+	}
+}

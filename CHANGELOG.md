@@ -13,6 +13,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ### Golden routes in CI (#187)
 - Added: the CI job `routes` builds OSRM on the committed test-zone extract and runs the golden routes with `REQUIRE_ROUTING_TESTS=yes`, so a change that breaks one cannot merge.
 - Evidence: docs/testing/reports/187.md
+### Console hub operations: the server side (#149)
+- Added: `listHubOps`, `listStuckRestocks` (permission `hub_ops.read`) and `expireRestock` (`hub_ops.manage`) on console-api, as defined in `contracts/console`. A hub_manager sees only their own hub on both lists and cannot expire.
+- Added: the setting `restock_stuck_s` (default 600 seconds, range 60 to 7200, per zone, one line in `internal/geo/settings.go`, migration 0045). A request waiting longer than it in confirmed, hub_accepted or packing is stuck, counted from when it entered that state.
+- Added: `restock.ExpireTx`. Ending a request by hand shares `endRequest` with the expiry on its own (lots back on the shelf, an open shortfall refused), then raises the rider's and the hub's seq, pushes and notifies the rider. Allowed in confirmed, hub_accepted, packing or partial; else 409 `restock_not_expirable`. The staff's reason is in the audit row only.
+- Changed: the mock server filters `listHubOps` by `zone_id`; its stuck sample waits longer than the default limit.
+- Evidence: docs/testing/reports/149.md
 
 ### OSRM on Bengaluru with a scooter profile (#183)
 - Added: `tools/osrm/` builds OSRM v6.0.0 (MLD) road data from OpenStreetMap: Geofabrik's southern zone clipped to Bengaluru (about 30 s, peak 750 MB), or the committed test-zone extract (5 s). `build.json` records the extract's timestamp and sha256, the profile version and the image.
