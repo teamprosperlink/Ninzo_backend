@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Tiers from road times and settings (#199)
+- Added: `gatecells.Classify` and `gatecells.Tiers`. Each cell of a gate's newest build is placed at query time as timer zone (a flag), sweet spot, outer ring, beyond, or unreachable, so a settings change needs no rebuild.
+- Added: migration 0049 and two settings, `timer_zone_margin_s` (0 to 120 s, default 15) and `outer_ring_budget_s` (30 to 3600 s, default 300). The margin must be under the timer, and the outer ring must reach the sweet spot.
+- Evidence: docs/testing/reports/199.md
+
 ### Road-time cell sets per gate (#196)
 - Added: migration 0048 (first merged as 0047; renumbered in #200), `gate_cell_builds` and `gate_cells`: per gate version, the grid cells within `max_search_radius_m` and each one's road time to the gate from one OSRM build. They are append-only; erasing a customer marks the builds redacted and deletes the cells.
 - Added: `internal/gatecells` (`Candidates`, `Build`, `Store`, `Latest`, `Redact`) and `cmd/gatecells -local|-remote build|build-all`. A straight-line placeholder is never stored as a road time.

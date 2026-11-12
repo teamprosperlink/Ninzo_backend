@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-13 | #199 | tiers from road times and settings | See PR | PASS | [reports/199.md](reports/199.md) |
 | 2026-11-13 | #200 | renumber 0047_gate_cells to 0048 (two 0047s on main) | See PR | PASS | [reports/200.md](reports/200.md) |
 | 2026-11-13 | #196 | road-time cell sets per gate | See PR | PASS | [reports/196.md](reports/196.md) |
 | 2026-11-13 | #193 | the H3 spike and the pilot's hexagon grid | See PR | PASS | [reports/193.md](reports/193.md) |
