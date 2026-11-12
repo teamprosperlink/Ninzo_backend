@@ -18,10 +18,12 @@ import (
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/audit"
 	"github.com/teamprosperlink/Ninzo_backend/internal/earnings"
+	"github.com/teamprosperlink/Ninzo_backend/internal/hexgrid"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
+	"github.com/teamprosperlink/Ninzo_backend/internal/riderpos"
 )
 
 const (
@@ -151,9 +153,16 @@ func (s *Service) pingTx(ctx context.Context, tx pgx.Tx, riderID string, p ping)
 		if note != "" {
 			noteValue = note
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO location_pings (rider_id, order_id, lat, lng, speed_mps, accuracy_m, device_time, received_at, applied, note)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, riderID, order, p.lat, p.lng, p.speed, p.accuracy, p.device, s.clock(), applied, noteValue)
-		return err
+		// Each ping keeps its grid cell, and the rider's position follows the newest ping (#207).
+		received := s.clock()
+		grid := hexgrid.Bengaluru()
+		if _, err := tx.Exec(ctx, `INSERT INTO location_pings (rider_id, order_id, lat, lng, speed_mps, accuracy_m, device_time, received_at, applied, note, cell)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, riderID, order, p.lat, p.lng, p.speed, p.accuracy, p.device, received, applied, noteValue,
+			riderpos.Cell(grid, p.lat, p.lng)); err != nil {
+			return err
+		}
+		return riderpos.Record(ctx, tx, grid, riderID, riderpos.Ping{Lat: p.lat, Lng: p.lng, SpeedMps: p.speed, AccuracyM: p.accuracy,
+			DeviceTime: p.device, ReceivedAt: received})
 	}()
 	return next, err
 }

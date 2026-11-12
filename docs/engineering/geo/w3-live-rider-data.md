@@ -38,9 +38,9 @@ G17 in the README follows this: Postgres for the pilot, Redis when the number of
 
 | # | Step | What we need | How | Done when |
 |---|---|---|---|---|
-| 1 | Cell on each ping | `internal/hexgrid` (`w2`, #193) | Add the grid cell (`blr76`, #193) to each stored ping (new column, migration renumbered before the PR) | Each new ping has its cell; old pings are filled by a one-off job |
-| 2 | Latest position | `rider_positions` (rider, point, cell, speed, heading, accuracy, ping time, received time) | Updated in the same transaction as the ping | Reads take one row; tests cover out-of-order and late pings |
-| 3 | Tier lookup | `w2` step 4 | Given a rider and a gate, answer the tier from the rider's cell | Used by `w5`, with a test |
+| 1 | Cell on each ping | `internal/hexgrid` (`w2`, #193) | Add the grid cell (`blr76`, #193) to each stored ping (new column, migration renumbered before the PR) | Each new ping has its cell; old pings are filled by a one-off job. Built (#207): new pings keep their cell; old ones cannot be filled, because `location_pings` is append-only |
+| 2 | Latest position | `rider_positions` (rider, point, cell, speed, heading, accuracy, ping time, received time) | Updated in the same transaction as the ping | Reads take one row; tests cover out-of-order and late pings. Built (#207): `rider_positions`, moved only by a newer ping by device time, through the live ping and the offline batch |
+| 3 | Tier lookup | `w2` step 4 | Given a rider and a gate, answer the tier from the rider's cell | Used by `w5`, with a test. Built (#207): `riderpos.TierFor` |
 | 4 | Read function for the console live map | Agreement with the console session (#150) | A Go function in a package this session owns; the console session builds its endpoint on it. Any change on their side goes through an Issue | #150 can show riders without reading pings itself |
 | 5 | Handover stop point | The rider's position at handover | Store it with the order | Feeds gate pin fixes (`w9`) and the learned approach point (`w2`) |
 | 6 | Ping rate hint (optional) | Agreement with the app developers through the shared Doc | Faster pings near and inside the zone, slower while waiting, to save battery | Only if the developers want it: it is a contract change |
