@@ -55,22 +55,23 @@ func (s *Service) MountMenu(r chi.Router, signedIn ...func(http.Handler) http.Ha
 	})
 }
 
-const menuColumns = "id::text, name, description, price_paise, status, sort_order, allergens, photo_url, updated_at"
+const menuColumns = "id::text, name, description, price_paise, status, sort_order, allergens, is_veg, photo_url, updated_at"
 
 func scanMenuItem(row pgx.Row) (map[string]any, error) {
 	var id, name, status string
 	var desc, photo *string
 	var price, sort int
+	var isVeg bool
 	var allergens []string
 	var at time.Time
-	if err := row.Scan(&id, &name, &desc, &price, &status, &sort, &allergens, &photo, &at); err != nil {
+	if err := row.Scan(&id, &name, &desc, &price, &status, &sort, &allergens, &isVeg, &photo, &at); err != nil {
 		return nil, err
 	}
 	if allergens == nil {
 		allergens = []string{}
 	}
 	return map[string]any{"id": id, "name": name, "description": desc, "price": money(price), "status": status, "sort_order": sort,
-		"allergens": allergens, "is_veg": false, "photo_url": photo, "updated_at": at.UTC().Format(time.RFC3339Nano)}, nil
+		"allergens": allergens, "is_veg": isVeg, "photo_url": photo, "updated_at": at.UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (s *Service) listMenu(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +118,7 @@ func (s *Service) createMenuItem(w http.ResponseWriter, r *http.Request) {
 		PricePaise  int      `json:"price_paise"`
 		SortOrder   *int     `json:"sort_order"`
 		Allergens   []string `json:"allergens"`
+		IsVeg       *bool    `json:"is_veg"`
 		PhotoURL    *string  `json:"photo_url"`
 		Reason      string   `json:"reason"`
 	}
@@ -135,6 +137,7 @@ func (s *Service) createMenuItem(w http.ResponseWriter, r *http.Request) {
 	if body.Allergens == nil {
 		body.Allergens = []string{}
 	}
+	isVeg := body.IsVeg != nil && *body.IsVeg // Not vegetarian until an admin says so.
 	reason := body.Reason
 	if reason == "" {
 		reason = "the first price"
@@ -144,8 +147,8 @@ func (s *Service) createMenuItem(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		// Added hidden: nobody can order it until someone shows it.
-		item, err := scanMenuItem(tx.QueryRow(ctx, `INSERT INTO menu_items (name, description, price_paise, sort_order, allergens, photo_url, status)
-			VALUES ($1, $2, $3, $4, $5, $6, 'hidden') RETURNING `+menuColumns, body.Name, body.Description, body.PricePaise, sort, body.Allergens, body.PhotoURL))
+		item, err := scanMenuItem(tx.QueryRow(ctx, `INSERT INTO menu_items (name, description, price_paise, sort_order, allergens, is_veg, photo_url, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'hidden') RETURNING `+menuColumns, body.Name, body.Description, body.PricePaise, sort, body.Allergens, isVeg, body.PhotoURL))
 		if uniqueViolation(err) {
 			return nil, &refusal{"name_taken", "An item already has that name."}
 		}
@@ -153,7 +156,7 @@ func (s *Service) createMenuItem(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeConsole, ActorID: u.ID, Action: "menu.created", EntityType: "menu_item",
-			EntityID: item["id"].(string), After: map[string]any{"name": body.Name, "price_paise": body.PricePaise}, Reason: reason}); err != nil {
+			EntityID: item["id"].(string), After: map[string]any{"name": body.Name, "price_paise": body.PricePaise, "is_veg": isVeg}, Reason: reason}); err != nil {
 			return nil, err
 		}
 		return map[string]any{"item": item}, nil
@@ -173,11 +176,12 @@ func (s *Service) updateMenuItem(w http.ResponseWriter, r *http.Request) {
 		Status      *string  `json:"status"`
 		SortOrder   *int     `json:"sort_order"`
 		Allergens   []string `json:"allergens"`
+		IsVeg       *bool    `json:"is_veg"`
 		PhotoURL    *string  `json:"photo_url"`
 		Reason      string   `json:"reason"`
 	}
 	buf, _ := json.Marshal(raw)
-	if err := json.Unmarshal(buf, &body); err != nil || nullOn(raw, "name", "price_paise", "status", "sort_order", "allergens", "reason") {
+	if err := json.Unmarshal(buf, &body); err != nil || nullOn(raw, "name", "price_paise", "status", "sort_order", "allergens", "is_veg", "reason") {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "A field has the wrong type, or is null where it cannot be.", false)
 		return
 	}
@@ -215,9 +219,9 @@ func (s *Service) updateMenuItem(w http.ResponseWriter, r *http.Request) {
 		after, err := scanMenuItem(tx.QueryRow(ctx, `UPDATE menu_items SET name = coalesce($2, name),
 				description = CASE WHEN $3 THEN $4 ELSE description END, price_paise = coalesce($5, price_paise), status = coalesce($6, status),
 				sort_order = coalesce($7, sort_order), allergens = CASE WHEN $8 THEN $9::text[] ELSE allergens END,
-				photo_url = CASE WHEN $10 THEN $11 ELSE photo_url END, updated_at = now()
+				photo_url = CASE WHEN $10 THEN $11 ELSE photo_url END, is_veg = coalesce($12, is_veg), updated_at = now()
 			WHERE id = $1 RETURNING `+menuColumns, id, name, setDesc, body.Description, body.PricePaise, body.Status, body.SortOrder,
-			setAllergens, body.Allergens, setPhoto, body.PhotoURL))
+			setAllergens, body.Allergens, setPhoto, body.PhotoURL, body.IsVeg))
 		if uniqueViolation(err) {
 			return nil, &refusal{"name_taken", "An item already has that name."}
 		}

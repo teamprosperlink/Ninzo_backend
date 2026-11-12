@@ -1676,9 +1676,9 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 40
           example: KA01AB1234
-          description: The plate of the rider's scooter. Shown by the same stage rule as first_name, and null while the plate is not on record.
+          description: The plate of the scooter the rider accepted this order on. Shown by the same stage rule as first_name, and null while the plate is not on record. Until plates are recorded, it is the scooter's code (such as TEST-SC-KORAMANGALA-1).
     EtaOffer:
       type: object
       description: A longer ETA the customer may accept at the no_scooter stage. Offered only when the time is measured, because the customer must see it to agree.

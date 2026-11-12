@@ -347,9 +347,9 @@ components:
                     example: Ravi
                     type: string
                 scooter_plate:
-                    description: The plate of the rider's scooter. Shown by the same stage rule as first_name, and null while the plate is not on record.
+                    description: The plate of the scooter the rider accepted this order on. Shown by the same stage rule as first_name, and null while the plate is not on record. Until plates are recorded, it is the scooter's code (such as TEST-SC-KORAMANGALA-1).
                     example: KA01AB1234
-                    maxLength: 20
+                    maxLength: 40
                     type:
                         - string
                         - "null"

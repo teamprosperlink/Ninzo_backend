@@ -13,6 +13,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ### More test riders and scooters on staging (#175)
 - Added: `testdata testers`, run by `task staging:testdata`. It adds three test riders (+919800000081 to 0083), approved in the first test zone, and two more scooters per test zone, so several testers can use staging at once. Running it again changes nothing, and a real person with one of the numbers is never touched.
 - Evidence: docs/testing/reports/175.md
+### Customer app additions, the server (#178 part B)
+- Added: migration 0043. `menu_items.is_veg` (set in the console menu create and update, audited, shown on the customer menu); `gates.landmark` and `gates.gate_type` (stored on create, returned on read, kept in `gate_history`, landmark cleared when a customer is erased); table `customer_notification_settings` with `GET` and `PATCH /me/notification-settings` (defaults: offers and news off, support replies on; `order_updates` in the body is a 400; audited; Idempotency-Key).
+- Changed: the customer order's `rider.scooter_plate` is now the code of the scooter on the rider's shift (null when none is on record), shown by the same stage rule as the first name. The push worker skips a `ticket_reply` push when the customer turned support replies off; order pushes are never skipped. Nothing sends offers or news pushes yet.
+- Evidence: docs/testing/reports/178.md
 ### Customer app additions, contract and mock (#178 part A)
 - Added: `is_veg` on the customer MenuItem and on the console menu create, update and read; `scooter_plate` (nullable) beside the rider's first name on the customer order; `getNotificationSettings` and `updateNotificationSettings` (`/me/notification-settings`); optional `landmark` (up to 80 characters) and `gate_type` (open list) on the customer gate create and read. Mock samples show all of them.
 - Changed: the server sends `is_veg` false and `scooter_plate` null until part B builds them.

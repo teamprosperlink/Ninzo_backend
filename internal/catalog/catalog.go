@@ -32,20 +32,19 @@ type Item struct {
 	Description *string  `json:"description"`
 	Price       Money    `json:"price"`
 	Allergens   []string `json:"allergens"`
-	// IsVeg is false for every item until #178 part B reads it from the menu.
-	IsVeg    bool    `json:"is_veg"`
-	PhotoURL *string `json:"photo_url"`
+	IsVeg       bool     `json:"is_veg"`
+	PhotoURL    *string  `json:"photo_url"`
 }
 
 type querier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
 
-const itemColumns = "id::text, name, description, price_paise, currency, allergens, photo_url"
+const itemColumns = "id::text, name, description, price_paise, currency, allergens, is_veg, photo_url"
 
 func scanItem(row pgx.CollectableRow) (Item, error) {
 	var it Item
-	err := row.Scan(&it.ID, &it.Name, &it.Description, &it.Price.AmountMinor, &it.Price.Currency, &it.Allergens, &it.PhotoURL)
+	err := row.Scan(&it.ID, &it.Name, &it.Description, &it.Price.AmountMinor, &it.Price.Currency, &it.Allergens, &it.IsVeg, &it.PhotoURL)
 	if it.Allergens == nil {
 		it.Allergens = []string{}
 	}

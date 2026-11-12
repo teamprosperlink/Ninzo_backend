@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -112,6 +113,8 @@ type gate struct {
 	Lat        float64 `json:"lat"`
 	Lng        float64 `json:"lng"`
 	EntryNotes *string `json:"entry_notes"`
+	Landmark   *string `json:"landmark"`
+	GateType   *string `json:"gate_type"`
 	Verified   bool    `json:"verified"`
 }
 
@@ -129,7 +132,7 @@ func (s *Service) listGates(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	rows, err := s.Pool.Query(r.Context(), `SELECT id::text, label, lat, lng, entry_notes, verified FROM gates
+	rows, err := s.Pool.Query(r.Context(), `SELECT id::text, label, lat, lng, entry_notes, landmark, gate_type, verified FROM gates
 		WHERE customer_id = $1 ORDER BY created_at DESC, id`, actor.ID)
 	if err != nil {
 		s.fail(w, r, err)
@@ -137,7 +140,7 @@ func (s *Service) listGates(w http.ResponseWriter, r *http.Request) {
 	}
 	gates, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (gate, error) {
 		var g gate
-		err := row.Scan(&g.ID, &g.Label, &g.Lat, &g.Lng, &g.EntryNotes, &g.Verified)
+		err := row.Scan(&g.ID, &g.Label, &g.Lat, &g.Lng, &g.EntryNotes, &g.Landmark, &g.GateType, &g.Verified)
 		return g, err
 	})
 	if err != nil {
@@ -183,6 +186,9 @@ func (s *Service) createGate(w http.ResponseWriter, r *http.Request) {
 		Lat        *float64 `json:"lat"`
 		Lng        *float64 `json:"lng"`
 		EntryNotes *string  `json:"entry_notes"`
+		// Raw, so that an explicit null is refused, as the contract says these are strings.
+		Landmark json.RawMessage `json:"landmark"`
+		GateType json.RawMessage `json:"gate_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !validCoordinate(body.Lat, 90) || !validCoordinate(body.Lng, 180) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send label, lat and lng.", false)
@@ -203,6 +209,16 @@ func (s *Service) createGate(w http.ResponseWriter, r *http.Request) {
 		if text != "" {
 			notes = &text
 		}
+	}
+	landmark, ok := optionalLandmark(body.Landmark)
+	if !ok {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "The landmark must be 1 to 80 characters.", false)
+		return
+	}
+	gateType, ok := optionalGateType(body.GateType)
+	if !ok {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "The gate type must be a short lowercase word such as main_gate.", false)
+		return
 	}
 	lat, lng := *body.Lat, *body.Lng
 	var reply map[string]any
@@ -240,15 +256,15 @@ func (s *Service) createGate(w http.ResponseWriter, r *http.Request) {
 		if count >= maxGates {
 			return errGateLimit
 		}
-		g := gate{Label: label, Lat: lat, Lng: lng, EntryNotes: notes}
+		g := gate{Label: label, Lat: lat, Lng: lng, EntryNotes: notes, Landmark: landmark, GateType: gateType}
 		// Verified because it is inside an area we serve (owner, decision 0012). An order checks the
 		// zone again, so pausing an area stops its gates without changing them.
-		if err := tx.QueryRow(r.Context(), `INSERT INTO gates (customer_id, zone_id, label, lat, lng, entry_notes, verified)
-			VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id::text, verified`, actor.ID, zone, label, lat, lng, notes).Scan(&g.ID, &g.Verified); err != nil {
+		if err := tx.QueryRow(r.Context(), `INSERT INTO gates (customer_id, zone_id, label, lat, lng, entry_notes, landmark, gate_type, verified)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING id::text, verified`, actor.ID, zone, label, lat, lng, notes, landmark, gateType).Scan(&g.ID, &g.Verified); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(r.Context(), `INSERT INTO gate_history (gate_id, version, label, lat, lng, entry_notes, verified, reason)
-			VALUES ($1, 1, $2, $3, $4, $5, $6, 'saved by the customer')`, g.ID, label, lat, lng, notes, g.Verified); err != nil {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO gate_history (gate_id, version, label, lat, lng, entry_notes, landmark, gate_type, verified, reason)
+			VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, 'saved by the customer')`, g.ID, label, lat, lng, notes, landmark, gateType, g.Verified); err != nil {
 			return err
 		}
 		// Not the pin or the label: audit rows are kept for good, and these say where someone lives.
@@ -300,13 +316,46 @@ func (s *Service) checkLocation(w http.ResponseWriter, r *http.Request) {
 // RedactGates removes a customer's gate labels and notes, and blurs their pins to about 1 km, in
 // the gates and their history. It is for erasing a customer's data. Orders keep pointing at the rows.
 func RedactGates(ctx context.Context, tx pgx.Tx, customerID string) error {
-	if _, err := tx.Exec(ctx, `UPDATE gates SET label = '(removed)', entry_notes = NULL,
+	if _, err := tx.Exec(ctx, `UPDATE gates SET label = '(removed)', entry_notes = NULL, landmark = NULL,
 			lat = round(lat::numeric, 2)::double precision, lng = round(lng::numeric, 2)::double precision, updated_at = now()
 		WHERE customer_id = $1`, customerID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `UPDATE gate_history h SET label = '(removed)', entry_notes = NULL,
+	_, err := tx.Exec(ctx, `UPDATE gate_history h SET label = '(removed)', entry_notes = NULL, landmark = NULL,
 			lat = round(h.lat::numeric, 2)::double precision, lng = round(h.lng::numeric, 2)::double precision, redacted_at = now()
 		FROM gates g WHERE g.id = h.gate_id AND g.customer_id = $1 AND h.redacted_at IS NULL`, customerID)
 	return err
+}
+
+// gateTypePattern is the contract's GateType: an open list of short lowercase words.
+var gateTypePattern = regexp.MustCompile(`^[a-z][a-z_]*$`)
+
+// optionalLandmark reads the landmark of a new gate: absent gives none, and anything but a string
+// of 1 to 80 characters without control or bidi characters is refused.
+func optionalLandmark(raw json.RawMessage) (*string, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	var v string
+	if json.Unmarshal(raw, &v) != nil {
+		return nil, false
+	}
+	text, ok := cleanText(v, 80, false)
+	if !ok || text == "" {
+		return nil, false
+	}
+	return &text, true
+}
+
+// optionalGateType reads the type of a new gate: absent gives none, anything else must match the
+// contract's pattern and be at most 30 characters.
+func optionalGateType(raw json.RawMessage) (*string, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	var v string
+	if json.Unmarshal(raw, &v) != nil || len(v) > 30 || !gateTypePattern.MatchString(v) {
+		return nil, false
+	}
+	return &v, true
 }

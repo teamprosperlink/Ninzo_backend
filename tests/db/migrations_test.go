@@ -197,7 +197,7 @@ func publicTables(t *testing.T, db *sql.DB) []string {
 // builtInV030 lists the v0.3.0 tables built so far, because v0.3.0 is built step by step. Add each
 // table here as it is built. When v0.3.0 is finished, compare with every v0.2.0 and v0.3.0 table.
 // builtInV0100 are the v0.10.0 tables built so far. The rider app's operations (issue 159) add these.
-var builtInV0100 = []string{"rider_notifications", "shift_breaks", "stock_counts", "stock_count_lines", "verification_documents"}
+var builtInV0100 = []string{"rider_notifications", "shift_breaks", "stock_counts", "stock_count_lines", "verification_documents", "customer_notification_settings"}
 
 var builtInV090 = []string{"console_users", "console_challenges", "approvals", "feature_flags"}
 
