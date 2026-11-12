@@ -5,6 +5,14 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Console order search and timeline: the server side (#146)
+- Added: `listAdminOrders` (`GET /admin/orders`) and `getOrderTimeline` (`GET /admin/orders/{order_id}/timeline`) on console-api, permission `orders.read`, as defined in `contracts/console` (#164, #165). `q` takes an order number such as A1001 (any case; matched on `order_no` so a repeated short form returns both orders), an order id, or the last four phone digits of the customer or rider; anything else is 400. Filters `state`, `zone_id`, `from`, `to`; cursor paging, newest first.
+- Added: the timeline merges `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets` and their messages, `arrival_reviews` and `audit_events` into one list, oldest first (ties in the contract's source order), in one read-only repeatable-read snapshot. Pings are summarised (`count`, `first_at`, `last_at`).
+- Privacy: only `right(phone, 4)` is read from `people`; the gate shows its label and pin; ticket text, problem notes, audit before/after and entry notes never leave.
+- Added: migration 0041: indexes for the list (`orders_created_idx`, `orders_zone_created_idx`, `orders_rider_created_idx`, `people_phone_last4_idx`) and for the timeline reads (`offers`, `support_tickets`, `arrival_reviews`, `refunds` by order). No table or column changes.
+- Changed: `refund.requested_by` and `remedy.created_by` are null until the support actions (#147) record a creator; the data map, stand-ins list and known downsides say so.
+- Tests: `internal/console/orders_test.go` checks both replies against the console contract's schemas.
+
 ### Rider operations: the server side (#159)
 - Added: migration 0040: `riders.preferred_area`; `shifts.device_id`, `break_started_at`, `break_ends_at` and `returned_items`; `shift_breaks`; `orders.rider_waiting_since`; `rider_notifications`; `stock_counts` and `stock_count_lines`; `verification_documents`; the setting `max_break_s` (1800, range 300 to 7200). Not applied to Supabase.
 - Added: `updateRider`, `listRiderNotifications`, `listRiderShifts`, `getShiftSummary`, `startBreak`, `endBreak`, `cancelRestock`, `markWaitingAtGate`, `submitStockCount`; `startShift` takes `device_id` (400 `unknown_device`) and `take_over`; `getVerification` returns `documents`; `getRider` returns `preferred_area`; the customer's order returns `rider_waiting_since`; the rider's shift returns the break and device fields.

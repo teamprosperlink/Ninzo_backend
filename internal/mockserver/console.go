@@ -180,7 +180,7 @@ func adminOrder(id string, now time.Time) map[string]any {
 	o["gate"] = map[string]any{"label": "Tower B main gate", "lat": 12.9352, "lng": 77.6245}
 	o["items"] = []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1, "unit_price": money(14900)}}
 	o["timer"] = map[string]any{"timer_started_at": stamp(now.Add(-12 * time.Minute)), "timer_stopped_at": stamp(now.Add(-11 * time.Minute)), "timer_duration_s": 90,
-		"perimeter_m": 350, "timer_missed": false, "arrival_source": "handover"}
+		"perimeter_m": 100, "timer_missed": false, "arrival_source": "handover"}
 	o["remedies"] = []map[string]any{adminRemedy("credit", now)}
 	o["refunds"] = []map[string]any{{"id": "rfd_mock01", "order_id": id, "amount": money(5000), "status": "processed", "reason": "Cold food",
 		"requested_by": map[string]any{"id": consoleUserID, "name": "Asha K"}, "created_at": stamp(now.Add(-5 * time.Minute))}}

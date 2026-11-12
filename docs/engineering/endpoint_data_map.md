@@ -269,8 +269,8 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `listArrivalReviews` | `arrival_reviews` |  |  | |
 | `decideArrivalReview` | `arrival_reviews`, `orders`, `remedies`, `console_users` | `arrival_reviews`, `orders`, `remedies`, `order_events`, `audit_events`, `idempotency_keys` |  | |
 | `listSupportAlerts` | `outbox_events` |  |  | |
-| `listAdminOrders` | `orders`, `people`, `customers`, `riders`, `zones` |  |  | |
-| `getOrderTimeline` | `orders`, `order_items`, `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets`, `arrival_reviews`, `audit_events`, `location_pings`, `gates`, `riders`, `people` |  |  | |
+| `listAdminOrders` | `orders`, `people`, `customers`, `riders` | | | Built (#146). Only `right(phone, 4)` is read from `people`; the full number never reaches the service. Filters use `orders_created_idx` and `orders_zone_created_idx`; a phone search finds people by `people_phone_last4_idx`, then their orders by `orders_customer_idx` and `orders_rider_created_idx`; an order number is looked up by the unique `order_no` index |
+| `getOrderTimeline` | `orders`, `order_items`, `order_events`, `offers`, `payments`, `refunds`, `remedies`, `problem_reports`, `support_tickets`, `arrival_reviews`, `audit_events`, `location_pings`, `gates`, `riders`, `people` |  |  | Built (#146). One read-only repeatable-read snapshot. `audit_events` rows of the order and its refunds show only action, entity and reason (before and after stay out); problem notes and ticket text stay out; pings are counted (`location_pings_order_idx`), never listed. Remedies and refunds have no creator column yet, so `created_by` and `requested_by` are null until #147 |
 | `listTickets` | `support_tickets` |  |  | |
 | `getTicket` | `support_tickets`, `ticket_messages`, `people` |  |  | |
 | `replyTicket` | `support_tickets` | `ticket_messages`, `outbox_events`, `audit_events`, `idempotency_keys` |  | FCM, through `deliver_outbox` |
