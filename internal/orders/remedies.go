@@ -57,13 +57,21 @@ func refundMissingFood(ctx context.Context, tx pgx.Tx, orderID string) error {
 		return err
 	}
 	var paymentID, provider string
-	err := tx.QueryRow(ctx, "SELECT id::text, provider FROM payments WHERE order_id = $1 AND status = 'paid' FOR UPDATE", orderID).Scan(&paymentID, &provider)
+	var paid int
+	err := tx.QueryRow(ctx, "SELECT id::text, provider, amount_paise FROM payments WHERE order_id = $1 AND status = 'paid' FOR UPDATE", orderID).Scan(&paymentID, &provider, &paid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	// The console may have refunded part already: never more than is left, and nothing owed when
+	// nothing is left (the remedy amount must be above zero).
+	left, err := refundLeft(ctx, tx, paymentID, paid)
+	if err != nil || left == 0 {
+		return err
+	}
+	missing = min(missing, left)
 	if err := refund(ctx, tx, orderID, paymentID, provider, "missing_food", missing); err != nil {
 		return err
 	}

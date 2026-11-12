@@ -58,6 +58,7 @@ var Settings = []Setting{
 	{"relocation_paise_per_minute", "paise", 0, 10000, true, "Pay for each started minute of an accepted move"},
 	{"relocation_max_paid_s", "seconds", 60, 3600, true, "The most moving time paid for one move"},
 	{"max_break_s", "seconds", 300, 7200, false, "The longest break a rider can take. After it the break ends on its own"},
+	{"refund_approval_paise", "paise", 0, 10000000, false, "A console refund is made at once up to this much on an order; above it a second admin must approve"},
 }
 
 // ErrInvalidSetting means a change was refused, and nothing was stored.

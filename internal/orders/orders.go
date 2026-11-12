@@ -809,12 +809,8 @@ func Confirm(ctx context.Context, tx pgx.Tx, orderID, providerOrder string, paid
 // refund records money going back. The test payment moved no money, so its refund is done at
 // once. A real provider's refund is pending until the provider says it is processed.
 func refund(ctx context.Context, tx pgx.Tx, orderID, paymentID, provider, reason string, amount int) error {
-	status := "pending"
-	if provider == "test" {
-		status = "processed"
-	}
 	_, err := tx.Exec(ctx, `INSERT INTO refunds (order_id, payment_id, reason_code, amount_paise, status, expected_by)
 		VALUES ($1, $2, $3, $4, $5, now() + interval '7 days') ON CONFLICT (payment_id, reason_code) DO NOTHING`,
-		orderID, paymentID, reason, amount, status)
+		orderID, paymentID, reason, amount, refundStatus(provider))
 	return err
 }
