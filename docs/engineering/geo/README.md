@@ -130,7 +130,7 @@ Status: **Decided** (with its source), **Proposed** (engineering's recommendatio
 | G4 | Pilot city: Bengaluru | Decided | 0011 #5 |
 | G5 | Google Maps and Mappls only through their APIs and SDKs within their terms; nothing of theirs stored for routing | Decided | Owner's brief for this work, 2026-11-11 (#162) |
 | G6 | Every budget, radius and weight is a setting | Decided | 0011 |
-| G7 | H3 resolution 10 (edges about 66 m, cells about 120 m across) is the main grid, if G18 finds a workable way to use H3 | Proposed | `w2` |
+| G7 | A hexagon grid the size of H3 resolution 10 (cell area about 0.015 km²) is the main grid: for the pilot, `internal/hexgrid` grid `blr76` (76 m edges, G18) | Decided (#193) | `w2` |
 | G8 | The 100 m perimeter stays an exact distance check, not H3 resolution 11 | Proposed | `w2` |
 | G9 | Two areas per gate: the timer zone (circle cut by road time) and the sweet spot with rings | Proposed | Section 4 |
 | G10 | Cell sets are built with OSRM table calls from cell centres, not isochrone polygons | Proposed | `w1`, `w2` |
@@ -141,7 +141,7 @@ Status: **Decided** (with its source), **Proposed** (engineering's recommendatio
 | G15 | Placement by covering models and placement tables; the Hungarian method only for moving free scooters | Proposed | `w4` |
 | G16 | A simulator tests every rule before real orders | Proposed | `w8` |
 | G17 | Full ping history in Postgres (kept in full through testing); latest position as one Postgres row per rider for the pilot, Redis at city scale | History decided (owner, 2026-11-05); the rest proposed | `w3` |
-| G18 | How Go gets H3: C bindings, a pure-Go port, cells only offline, or no H3 for the pilot (a PostGIS hexagon grid). `real_and_stand_ins.md` says H3 is not needed at pilot size; this question decides it | Open (engineering) | `w2` |
+| G18 | How Go gets H3. Spike (#193): no pure-Go H3 covers the four functions and builds on the Windows development PC (production is Linux), so the pilot uses our own pure-Go hexagon grid (`internal/hexgrid`), sized like H3 res 10; H3 at city scale is a rebuild of the cell sets | Decided (#193, engineering) | `w2` |
 | G19 | Can a busy rider take a second order? | Open | 0011 #6 |
 | G20 | Build the road-time timer zone now, or keep the plain circle and do the sweet spot first | Open | Section 4 |
 | G21 | Use scooter battery in the cost? | Open | `w5` |
