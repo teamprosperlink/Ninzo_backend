@@ -54,6 +54,7 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 - Verify: `task verify`
 - Local Postgres and Redis: `task db:up`, `task db:down`
 - Database tests, on local Postgres: `task test:db`
+- Geo work's own Postgres (5433) and Redis (6381), so two sessions never share a test server: `task geo:db:up`, `task geo:db:migrate`, `task geo:test:db`, `task geo:db:down`
 - Run an API locally: `task run:customer` (port 8080), `task run:rider` (port 8081)
 - Migrations: `task db:migrate` is local only. `task staging:migrate` applies to the database in `.env`, asks first, and needs the owner's okay
 
