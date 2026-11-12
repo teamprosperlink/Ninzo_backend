@@ -346,8 +346,16 @@ components:
                 first_name:
                     example: Ravi
                     type: string
+                scooter_plate:
+                    description: The plate of the rider's scooter. Shown by the same stage rule as first_name, and null while the plate is not on record.
+                    example: KA01AB1234
+                    maxLength: 20
+                    type:
+                        - string
+                        - "null"
             required:
                 - first_name
+                - scooter_plate
             type: object
         OrderTimer:
             description: The order's timer, set only by the server. The countdown ends at timer_started_at + timer_duration_s, corrected for phone clock offset.

@@ -70,7 +70,7 @@ func scanMenuItem(row pgx.Row) (map[string]any, error) {
 		allergens = []string{}
 	}
 	return map[string]any{"id": id, "name": name, "description": desc, "price": money(price), "status": status, "sort_order": sort,
-		"allergens": allergens, "photo_url": photo, "updated_at": at.UTC().Format(time.RFC3339Nano)}, nil
+		"allergens": allergens, "is_veg": false, "photo_url": photo, "updated_at": at.UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (s *Service) listMenu(w http.ResponseWriter, r *http.Request) {

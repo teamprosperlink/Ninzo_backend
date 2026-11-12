@@ -7,6 +7,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 | 2026-11-12 | #175 | more test riders and scooters on staging (`testdata testers`) | See PR | PASS | [reports/175.md](reports/175.md) |
 | 2026-11-12 | #169 | geo work's own local Postgres (5433) and Redis (6381) | See PR | PASS | [reports/169.md](reports/169.md) |
 | 2026-11-12 | #146 | console order search and timeline, the server side (v0.10.0 A) | See PR | PASS | [reports/146.md](reports/146.md) |
+| 2026-11-12 | #178 | customer app additions: veg flag, scooter plate, notification settings, gate landmark and type (part A, contract and mock) | See PR | PASS | [reports/178.md](reports/178.md) |
 | 2026-11-11 | #159 | rider operations, the server side (v0.10.0) | See PR | PASS | [reports/159.md](reports/159.md) |
 | 2026-11-11 | #157 | the rider app's new operations, contract and mock | See PR | PASS | [reports/157.md](reports/157.md) |
 | 2026-11-11 | #162 | geo design and research record (docs only) | See PR | PASS | [reports/162.md](reports/162.md) |

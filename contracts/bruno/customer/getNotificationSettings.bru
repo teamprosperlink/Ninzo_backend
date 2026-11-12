@@ -1,0 +1,16 @@
+meta {
+  name: getNotificationSettings
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/me/notification-settings
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

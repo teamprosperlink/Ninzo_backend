@@ -536,7 +536,7 @@ func view(ctx context.Context, q querier, s *Service, orderID string, now time.T
 		if riderName != nil && strings.TrimSpace(*riderName) != "" {
 			first = strings.Fields(*riderName)[0]
 		}
-		rider = map[string]any{"first_name": first}
+		rider = map[string]any{"first_name": first, "scooter_plate": nil} // plate is null until #178 part B
 	}
 	// Only the time, and only once the rider is shown to the customer.
 	var waiting any

@@ -32,7 +32,9 @@ type Item struct {
 	Description *string  `json:"description"`
 	Price       Money    `json:"price"`
 	Allergens   []string `json:"allergens"`
-	PhotoURL    *string  `json:"photo_url"`
+	// IsVeg is false for every item until #178 part B reads it from the menu.
+	IsVeg    bool    `json:"is_veg"`
+	PhotoURL *string `json:"photo_url"`
 }
 
 type querier interface {

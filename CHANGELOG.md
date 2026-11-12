@@ -8,6 +8,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ### More test riders and scooters on staging (#175)
 - Added: `testdata testers`, run by `task staging:testdata`. It adds three test riders (+919800000081 to 0083), approved in the first test zone, and two more scooters per test zone, so several testers can use staging at once. Running it again changes nothing, and a real person with one of the numbers is never touched.
 - Evidence: docs/testing/reports/175.md
+### Customer app additions, contract and mock (#178 part A)
+- Added: `is_veg` on the customer MenuItem and on the console menu create, update and read; `scooter_plate` (nullable) beside the rider's first name on the customer order; `getNotificationSettings` and `updateNotificationSettings` (`/me/notification-settings`); optional `landmark` (up to 80 characters) and `gate_type` (open list) on the customer gate create and read. Mock samples show all of them.
+- Changed: the server sends `is_veg` false and `scooter_plate` null until part B builds them.
+- Evidence: docs/testing/reports/178.md
 
 ### Geo work has its own local Postgres and Redis (#169)
 - Added: `deploy/compose.geo.yml` (compose project `ninzo-geo`, Postgres on 5433 and Redis on 6381) and the tasks `geo:db:up`, `geo:db:down`, `geo:db:migrate` and `geo:test:db`, so the geo session never shares a test server with the console session.

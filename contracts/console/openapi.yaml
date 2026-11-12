@@ -3107,7 +3107,7 @@ components:
           maxLength: 500
     AdminMenuItem:
       type: object
-      required: [id, name, description, price, status, sort_order, allergens, photo_url, updated_at]
+      required: [id, name, description, price, status, sort_order, allergens, is_veg, photo_url, updated_at]
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -3126,6 +3126,9 @@ components:
           type: array
           items:
             type: string
+        is_veg:
+          type: boolean
+          description: True for a vegetarian item. False until an admin sets it.
         photo_url:
           type: ['string', 'null']
         updated_at:
@@ -3179,6 +3182,10 @@ components:
           items:
             type: string
             maxLength: 40
+        is_veg:
+          type: boolean
+          default: false
+          description: True for a vegetarian item. False when left out.
         photo_url:
           type: string
           pattern: ^https://
@@ -3211,6 +3218,8 @@ components:
           items:
             type: string
             maxLength: 40
+        is_veg:
+          type: boolean
         photo_url:
           type: ['string', 'null']
           pattern: ^https://
