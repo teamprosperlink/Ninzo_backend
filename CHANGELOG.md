@@ -9,6 +9,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Decided (G18): no pure-Go H3 covers point to cell, centre, disk and outline and also builds on the Windows development PC, so the pilot uses its own pure-Go hexagon grid. The spike result is in `docs/engineering/geo/w2-map-grid-and-distribution.md`.
 - Added: `internal/hexgrid`, pointy-topped hexagons on a local flat projection; Bengaluru grid `blr76` with 76 m edges (the area of H3 res 10). It provides `CellAt`, `Centre`, `Outline`, `Neighbours`, `Disk`, `Distance`, `ID` and `Parse`.
 - Evidence: docs/testing/reports/193.md
+### Console live map, server side (#150)
+- Added: `getLiveZone` (`GET /admin/zones/{zone_id}/live`, `map.read`): riders on an open shift with their latest ping and one state (`on_order`, `offered`, `moving`, `on_break`, `idle`), scooters with stock units, orders in progress with the gate position and timer start, and the zone's open incident count. Read-only, four statements, one snapshot; answers 429 `rate_limited` when one user polls one zone faster than every 5 s. No customer, phone, label or entry notes.
+- Added: migration 0047, partial index `orders_live_zone_idx` on the orders in progress.
+- Evidence: docs/testing/reports/150.md
 
 ### Road data versions (#190)
 - Added: migration 0045, table `road_data_versions`: one row per OSRM build (source and sha256, clip box, extract timestamp, profile and version, image, algorithm), unique per extract, profile, image and algorithm.

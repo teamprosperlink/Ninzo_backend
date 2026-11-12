@@ -5,6 +5,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
 | 2026-11-13 | #193 | the H3 spike and the pilot's hexagon grid | See PR | PASS | [reports/193.md](reports/193.md) |
+| 2026-11-13 | #150 | console live map, the server side (v0.10.0 E) | See PR | PASS | [reports/150.md](reports/150.md) |
 | 2026-11-13 | #190 | road data versions | See PR | PASS | [reports/190.md](reports/190.md) |
 | 2026-11-13 | #187 | the golden routes in CI | See PR | PASS | [reports/187.md](reports/187.md) |
 | 2026-11-13 | #149 | console hub operations: queue, stuck requests and expiring one, the server side (v0.10.0 D) | See PR | PASS | [reports/149.md](reports/149.md) |

@@ -51,6 +51,7 @@ type Service struct {
 	// TOTPOptional: a user with no authenticator signs in with the password alone. Off in
 	// production (config refuses it); on for staging until pre-launch.
 	TOTPOptional bool
+	live         liveLimiter // When each user last polled each zone (getLiveZone).
 	now          func() time.Time
 }
 
