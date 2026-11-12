@@ -2143,7 +2143,7 @@ paths:
       operationId: listIncidents
       summary: List what needs a person
       description: >-
-        One queue of support alerts (a refused handover, a lost signal), problem reports, open arrival reviews and open tickets. There is one incident per order and kind: a lost signal's problem report and its support alert make one signal_lost incident, not two. An incident whose source is a ticket or an arrival review closes by itself when its source closes. Newest first. Permission: incidents.read.
+        One queue of support alerts (a refused handover, a lost signal), problem reports, open arrival reviews and open tickets. There is one incident per source (each alert, report, review or ticket), except a lost signal: all lost-signal reports and alerts of one order share one open signal_lost incident, which shows the first report's rider. An incident whose source is a ticket or an arrival review closes by itself when its source closes. Newest first. Permission: incidents.read.
       x-permission: incidents.read
       parameters:
       - name: status
@@ -2326,7 +2326,7 @@ paths:
       operationId: closeIncident
       summary: Close an incident
       description: >-
-        Closing never changes the source. An incident whose source is an open ticket or an open arrival review cannot be closed here (source_open): close the ticket or decide the review first, and the incident then closes by itself. Support alerts and problem reports have no open state, so closing their incident marks them handled. Errors (both 409): incident_closed, source_open. Permission: incidents.manage.
+        Closing never reopens or edits a ticket or a review. An incident whose source is an open ticket or an open arrival review cannot be closed here (source_open): close the ticket or decide the review first, and the incident then closes by itself. Support alerts and problem reports have no open state, so closing their incident marks them handled. Errors (both 409): incident_closed, source_open. Permission: incidents.manage.
       x-permission: incidents.manage
       parameters:
       - name: incident_id

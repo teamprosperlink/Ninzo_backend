@@ -10,6 +10,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: the scooter profile `scooter-2` (left-hand driving, a speed table that `maxspeed` cannot exceed, 40 km/h cap, 30 s per signal, 60 s U-turn, two-wheeler access and restriction tags, no motorways unless tagged for two-wheelers; placeholders until the road test).
 - Added: a local OSRM on 127.0.0.1:5001 (`task geo:osrm:build`, `geo:osrm:up`, `geo:osrm:down`) and golden routes on real roads (`task geo:test:routes`).
 - Evidence: docs/testing/reports/183.md
+### Console incidents: one queue for what needs a person (#148)
+- Added: migration 0044 (tables `incidents` and `incident_notes`, `problem_reports.handled_at`, triggers that open an incident in the same transaction as each support alert, problem report, lost signal, arrival review and ticket and close it when a ticket or review closes, and a backfill of what exists). `listIncidents`, `getIncident` (permission `incidents.read`), `assignIncident`, `addIncidentNote` and `closeIncident` (`incidents.manage`) on console-api. Every write needs an Idempotency-Key, is audited, and locks the incident row.
+- Changed: closing a support alert's incident marks the alert handled (`outbox_events.delivered_at`), which fixes the #138 downside that alerts stayed in the outbox's due index; closing a problem report's incident sets `handled_at`. A ticket or arrival review is never changed from the queue (`source_open`). The mock's incident list gains a lost-signal sample.
+- Evidence: docs/testing/reports/148.md
 
 ### Routing client with a straight-line fallback (#180)
 - Added: `internal/routing`, the OSRM client: `Route`, `Table` (many to one, split to OSRM's limit) and `Nearest`. Every answer says `osrm` or `placeholder`; no road is unreachable, never a straight line; a circuit breaker and one timeout per call. Not wired into matching yet (W5).
