@@ -101,7 +101,7 @@ Each workstream file has its own "Path to scale" section.
 
 ## 7. Workstreams and build order
 
-Each workstream is solved one step at a time: one Issue, its own branch, tests (including a deliberate break to prove the tests catch it), an independent review, and a PR that merges only when all four checks pass.
+Each workstream is solved one step at a time: one Issue, its own branch, tests (including a deliberate break to prove the tests catch it), an independent review, and a PR that merges only when every check passes (verify, contracts, mock-contract, database and, from #187, routes).
 
 | # | Workstream | Depends on | First deliverable |
 |---|---|---|---|
