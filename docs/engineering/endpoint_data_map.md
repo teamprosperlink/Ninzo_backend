@@ -37,6 +37,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `geo` | `location_zones` | The polygon and radius where a timer can start, per location, by version | v0.3.0 |
 | `geo` | `staging_nodes` | Where scooters wait | v0.3.0 |
 | `geo` | `hubs` | Restock sites | v0.3.0 |
+| `geo` | `road_data_versions` | One row per OSRM road data build: the OpenStreetMap source and its sha256, the clip box, the extract's timestamp, the profile and its version, the OSRM image and algorithm. Written by `cmd/roaddata` from `build.json`; stored road times point to it (W2) | v1.0.0 |
 | `catalog` | `menu_items` | Items and current prices | v0.3.0 |
 | `catalog` | `price_history` | Earlier prices | v0.3.0 |
 | `catalog` | `availability_rules` | When items can be sold | v0.3.0 |
