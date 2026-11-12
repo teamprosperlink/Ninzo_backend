@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Golden routes in CI (#187)
+- Added: the CI job `routes` builds OSRM on the committed test-zone extract and runs the golden routes with `REQUIRE_ROUTING_TESTS=yes`, so a change that breaks one cannot merge.
+- Evidence: docs/testing/reports/187.md
+
 ### OSRM on Bengaluru with a scooter profile (#183)
 - Added: `tools/osrm/` builds OSRM v6.0.0 (MLD) road data from OpenStreetMap: Geofabrik's southern zone clipped to Bengaluru (about 30 s, peak 750 MB), or the committed test-zone extract (5 s). `build.json` records the extract's timestamp and sha256, the profile version and the image.
 - Added: the scooter profile `scooter-2` (left-hand driving, a speed table that `maxspeed` cannot exceed, 40 km/h cap, 30 s per signal, 60 s U-turn, two-wheeler access and restriction tags, no motorways unless tagged for two-wheelers; placeholders until the road test).
