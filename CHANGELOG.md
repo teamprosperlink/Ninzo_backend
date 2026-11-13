@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Security headers and scanning (#238)
+- Added: HSTS, nosniff, no-store, no-referrer, frame and content-security headers on every API reply; `govulncheck` and gitleaks CI jobs; Dependabot for Go modules and Actions.
+- Fixed: Go 1.27.3 to 1.27.4 for GO-2026-6859 (an HTTP server crash in net/http).
+- Evidence: docs/testing/reports/238.md
+
 ### Staging database in Singapore (#174)
 - Changed: staging uses the Supabase project `ninzo-staging-sg` in Singapore, next to the APIs; the Mumbai project is paused. Writes went from 1-3.6 s to about 0.3 s. rider-api, partner-api and console-api read `DATABASE_URL` from customer-api.
 - Evidence: docs/testing/reports/174.md

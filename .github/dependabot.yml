@@ -1,0 +1,13 @@
+# Weekly update PRs for Go modules and GitHub Actions (#238). Each PR goes through CI as usual.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
