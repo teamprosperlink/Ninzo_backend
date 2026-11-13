@@ -502,12 +502,15 @@ paths:
                   description: Send true to move this rider's open shift to this phone. The shift gets the new device_id and is returned instead of shift_already_open. Needs device_id.
                 checklist:
                   description: >-
-                    The Before you start items the rider ticked, by the codes getRiderSettings lists, each once.
-                    Kept with the shift. The rider app (Issue 235) sends it. A code the settings do not list is ignored.
+                    The Before you start items the rider ticked, each once (a repeated or empty code is 400 invalid_request).
+                    Kept with the shift. The rider app (Issue 235) sends it. Until getRiderSettings is served (part B of Issue 235),
+                    codes matching ^[a-z0-9_]{1,40}$ are stored and any other code is ignored; checking against the settings comes with getRiderSettings.
+                    It is stored only when the shift is started by this call. When the reply is a take_over or a 409 shift_already_open, the checklist is not stored.
                   type: array
                   maxItems: 20
                   items:
                     type: string
+                    minLength: 1
       responses:
         '200':
           description: Started.
@@ -598,9 +601,9 @@ paths:
         The rider's shifts, newest first. online_s is the shift's length minus its breaks, worked out by the server; an open shift is counted to now.
         from and to are optional dates in the zone's local time and keep only shifts that started in that range. A from after to is 400 invalid_request.
         The rider app (Issue 235) calls this path as listShifts with days instead, the last days days in India time, today included,
-        from 1 to 31 (the app sends 7). Without days, from, to, cursor and limit work as above. days with from or to is 400 invalid_request. Each entry also carries online_at, planned_end_at,
-        orders, portions and avg_delivery_s, which the app reads. With days the reply holds every matching shift
-        and next_cursor is null, because the app does not page. A suspended rider can still read this.
+        from 1 to 31 (the app sends 7). Without days, from, to, cursor and limit work as above. days with from, to, cursor or limit is 400 invalid_request. Each entry also carries online_at, planned_end_at,
+        orders, portions and avg_delivery_s, which the app reads. With days the reply holds every matching shift, at most 1000
+        (31 days of real shifts never come near that), and next_cursor is null, because the app does not page. A suspended rider can still read this.
       parameters:
       - name: days
         in: query
@@ -2492,6 +2495,8 @@ components:
       - created_at
       - approved_at
       - preferred_area
+      - email
+      - area
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -2507,11 +2512,11 @@ components:
           - string
           - 'null'
         phone:
-          description: The number the rider signs in with. Optional until the server sends it (Issue 235, part B).
+          description: The number the rider signs in with. Left out only if the account has no number.
           type: string
           pattern: '^\+[1-9][0-9]{7,14}$'
         email:
-          description: Contact only. It never signs anyone in. Null when not given. Optional until the server sends it (Issue 235, part B).
+          description: Contact only. It never signs anyone in. Null when not given. Always sent.
           type:
           - string
           - 'null'
@@ -2520,7 +2525,7 @@ components:
         area:
           description: >-
             Where the rider wants to work, as the rider app sends it while applying. Null when not given. The server
-            keeps the place's name as preferred_area. Optional until the server sends it (Issue 235, part B).
+            keeps the place's name as preferred_area. Always sent.
           oneOf:
           - $ref: '#/components/schemas/RiderArea'
           - type: 'null'
@@ -2640,6 +2645,9 @@ components:
       - break_started_at
       - break_ends_at
       - device_id
+      - online_at
+      - planned_end_at
+      - break
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -2661,7 +2669,7 @@ components:
           - $ref: ../shared/common.yaml#/components/schemas/Id
           - type: 'null'
         online_at:
-          description: When the rider went online at their spot (goOnline). Null before. Optional until the server sends it (Issue 235, part B).
+          description: When the rider went online at their spot (goOnline). Null before. Always sent.
           type:
           - string
           - 'null'
@@ -2669,7 +2677,7 @@ components:
         planned_end_at:
           description: >-
             When the rider said the shift would end (setPlannedEnd), or the day's plan end. A record only,
-            because shifts are open-ended. Null with none. Optional until the server sends it (Issue 235, part B).
+            because shifts are open-ended. Null with none. Always sent.
           type:
           - string
           - 'null'
@@ -2677,7 +2685,7 @@ components:
         break:
           description: >-
             The break under way as the rider app reads it, the same facts as break_started_at and break_ends_at.
-            Null when the rider is not on a break. Optional until the server sends it (Issue 235, part B).
+            Null when the rider is not on a break. Always sent.
           oneOf:
           - type: object
             required:
@@ -2790,6 +2798,11 @@ components:
       - online_s
       - break_s
       - orders_handed_over
+      - online_at
+      - planned_end_at
+      - orders
+      - portions
+      - avg_delivery_s
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -2814,27 +2827,27 @@ components:
           type: integer
           minimum: 0
         online_at:
-          description: When the rider went online at their spot. Null before. For the rider app (Issue 235). Optional until the server sends it (part B).
+          description: When the rider went online at their spot. Null before. For the rider app (Issue 235). Always sent.
           type:
           - string
           - 'null'
           format: date-time
         planned_end_at:
-          description: The planned end the rider set. A record only. For the rider app (Issue 235). Optional until the server sends it (part B).
+          description: The planned end the rider set. A record only. For the rider app (Issue 235). Always sent.
           type:
           - string
           - 'null'
           format: date-time
         orders:
-          description: The same count as orders_handed_over, under the name the rider app reads. Optional until the server sends it (Issue 235, part B).
+          description: The same count as orders_handed_over, under the name the rider app reads. Always sent.
           type: integer
           minimum: 0
         portions:
-          description: Portions handed over on this shift. Optional until the server sends it (Issue 235, part B).
+          description: Portions handed over on this shift. Always sent.
           type: integer
           minimum: 0
         avg_delivery_s:
-          description: The average seconds from accept to handover. Null with no orders. Optional until the server sends it (Issue 235, part B).
+          description: The average seconds from accept to handover. Null with no orders. Always sent.
           type:
           - integer
           - 'null'
@@ -3150,6 +3163,8 @@ components:
       - state
       - fencing_token
       - order_number
+      - total
+      - payment_method
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -3205,10 +3220,10 @@ components:
           type: string
           pattern: '^[A-Z][0-9]{4}$'
         total:
-          description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
+          description: What the customer paid for the order. For the rider app (Issue 235). Always sent.
           $ref: ../shared/common.yaml#/components/schemas/Money
         payment_method:
-          description: For the rider app (Issue 235). Optional until the server sends it (part B).
+          description: For the rider app (Issue 235). Always sent.
           $ref: '#/components/schemas/PaymentMethod'
     PaymentMethod:
       type: string
@@ -3248,6 +3263,8 @@ components:
       - handed_over_at
       - order_number
       - waiting_since
+      - total
+      - payment_method
       properties:
         id:
           $ref: ../shared/common.yaml#/components/schemas/Id
@@ -3323,10 +3340,10 @@ components:
           type: string
           pattern: '^[A-Z][0-9]{4}$'
         total:
-          description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
+          description: What the customer paid for the order. For the rider app (Issue 235). Always sent.
           $ref: ../shared/common.yaml#/components/schemas/Money
         payment_method:
-          description: For the rider app (Issue 235). Optional until the server sends it (part B).
+          description: For the rider app (Issue 235). Always sent.
           $ref: '#/components/schemas/PaymentMethod'
     OrderResponse:
       type: object
@@ -4304,9 +4321,11 @@ components:
       allOf:
       - $ref: '#/components/schemas/HubRef'
       - type: object
+        required:
+        - manager_phone
         properties:
           manager_phone:
-            description: The hub manager's number, for Call hub manager in the rider app. Null until the hub has one. Optional until the server sends it (Issue 235).
+            description: The hub manager's number, for Call hub manager in the rider app. Null until the hub has one. Always sent.
             type:
             - string
             - 'null'

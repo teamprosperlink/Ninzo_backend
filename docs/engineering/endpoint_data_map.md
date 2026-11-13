@@ -163,17 +163,17 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 
 | Endpoint | Reads | Writes | Redis | Outside calls |
 |---|---|---|---|---|
-| `requestOtp` | `otp_requests`, `riders`, `people` | `otp_requests` | Rate limit | SMS gateway, only if the account exists |
+| `requestOtp` | `otp_requests`, `riders`, `people` | `otp_requests` | Rate limit | SMS gateway, only if the account exists. A phone that is not an Indian mobile number in E.164 form is 400 `invalid_phone` here (#235); the customer and partner calls keep `invalid_request` |
 | `verifyOtp` | `otp_requests`, `riders`, `people` | `otp_requests`, `refresh_tokens`, `audit_events` | Rate limit | |
 | `refreshToken` | `refresh_tokens`, `people`, `riders` | `refresh_tokens`, `audit_events` | Rate limit | |
 | `signOut` | `refresh_tokens` | `refresh_tokens` | | |
-| `getRider` | `riders`, `people`, `audit_events` | | | |
+| `getRider` | `riders`, `people`, `audit_events` | | | Also sends the rider's own `phone` (from `people`), `email` and `area` (`riders.email`, `area_*`), as the rider app reads them (#235). Never a customer's phone |
 | `getRiderState` | `rider_state`, `riders`, `shifts`, `offers`, `orders`, `order_items`, `gates`, `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs`, `scooters`, `relocations`, `staging_nodes`, `menu_items` | | | |
 | `getVerification` | `rider_verifications`, `verification_documents` | | | |
 | `startVerification` | `riders` | `rider_verifications`, `audit_events`, `idempotency_keys` | | DigiLocker, a mock for now |
 | `registerRiderDevice` | `devices`, `riders`, `people`, `refresh_tokens` | `devices`, `idempotency_keys` | | |
 | `removeRiderDevice` | `devices` | `devices`, `idempotency_keys` | | |
-| `startShift` | `riders`, `rider_verifications`, `devices`, `shifts`, `staging_nodes`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
+| `startShift` | `riders`, `rider_verifications`, `devices`, `shifts`, `staging_nodes`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | Keeps the ticked `checklist` codes in `shifts.checklist` (#235) |
 | `endShift` | `shifts`, `offers`, `scooters`, `relocations` | `shifts`, `scooters`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `listNodes` | `zones`, `staging_nodes`, `scooters`, `relocations`, `hubs` | | Positions | |
 | `acceptRelocation` | `relocations` | `relocations`, `rider_state`, `audit_events`, `idempotency_keys` | | |
@@ -193,14 +193,14 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `confirmRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `restock_lines`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `declineRestock` | `rider_events`, `restock_requests` | `rider_events`, `restock_requests`, `rider_state`, `audit_events`, `idempotency_keys` | | |
 | `createRestock` | `hubs`, `restock_requests` | `restock_requests`, `restock_lines`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
-| `getRestockOptions` | `riders`, `hubs`, `menu_items` | | | |
+| `getRestockOptions` | `riders`, `hubs`, `menu_items` | | | Each hub carries `hubs.manager_phone` (null until set), for Call hub manager (#235). The console does not set it yet |
 | `respondToShortfall` | `shortfalls`, `restock_requests` | `shortfalls`, `restock_requests`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `getRestock` | `restock_requests`, `restock_lines`, `restock_lots`, `shortfalls`, `hubs`, `shifts`, `staging_nodes` | | | |
 | `reportProblem` | `rider_events`, `orders` | `rider_events`, `problem_reports`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | | |
 | `getEarnings` | `earnings` | | | |
-| `updateRider` | `riders` | `riders`, `audit_events`, `idempotency_keys` | | |
+| `updateRider` | `riders` | `riders`, `audit_events`, `idempotency_keys` | | Also takes `email` and `area` (`riders.email`, `area_name`, `area_city`, `area_lat`, `area_lng`); `area.name` and `preferred_area` stay the same text. The audit trail never holds the email (#235) |
 | `listRiderNotifications` | `rider_notifications` | | | |
-| `listRiderShifts` | `shifts`, `shift_breaks`, `offers`, `orders` | | | |
+| `listRiderShifts` | `shifts`, `shift_breaks`, `offers`, `orders`, `order_items` | | | `days` (the rider app) returns every shift of the last N days on one page; entries also carry `online_at`, `planned_end_at`, `orders`, `portions`, `avg_delivery_s` (#235) |
 | `getShiftSummary` | `shifts`, `shift_breaks`, `offers`, `orders`, `order_items`, `menu_items`, `scooter_stock`, `stock_ledger`, `earnings` | | | |
 | `startBreak` | `shifts`, `shift_breaks`, `offers`, `zone_settings` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | The break ends on its own in a background pass (`shifts.EndDueBreaks`) that reads `shifts.break_ends_at`, so no `scheduled_tasks` row is written |
 | `endBreak` | `shifts`, `shift_breaks` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | |
@@ -208,8 +208,8 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `markWaitingAtGate` | `offers`, `orders`, `location_pings` | `orders`, `order_events`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | Push, to the customer |
 | `submitStockCount` | `shifts`, `scooters`, `scooter_stock`, `lots`, `menu_items` | `stock_counts`, `stock_count_lines`, `audit_events`, `idempotency_keys` | | |
 | `goOnline` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Adds `shifts.online_at`, no new table |
-| `takeBreak` | `shifts`, `shift_breaks`, `offers`, `zone_settings` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Mock only until part B of #235. An alias of `startBreak` that takes `length_s`, capped by `zone_settings` `max_break_s` |
-| `endShiftBreak` | `shifts`, `shift_breaks` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Mock only until part B of #235. An alias of `endBreak` |
+| `takeBreak` | `shifts`, `shift_breaks`, `offers`, `zone_settings` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Real since #235 part B1. An alias of `startBreak` that takes `length_s`, capped by `zone_settings` `max_break_s`; a longer length extends the break, never shortens it |
+| `endShiftBreak` | `shifts`, `shift_breaks` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Real since #235 part B1. An alias of `endBreak` |
 | `setPlannedEnd` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Records `shifts.planned_end_at`, and nothing ends the shift |
 | `listRiderDocuments` | `riders` | | | Mock only until part B of #235. File metadata needs a table that part B plans. The photos are in Supabase Storage |
 | `uploadRiderDocument` | `riders`, `rider_verifications` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Supabase Storage, a private bucket, never a database column. File metadata needs a table that part B plans |

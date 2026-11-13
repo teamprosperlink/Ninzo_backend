@@ -236,7 +236,7 @@ components:
                     type: string
                 payment_method:
                     $ref: '#/components/schemas/PaymentMethod'
-                    description: For the rider app (Issue 235). Optional until the server sends it (part B).
+                    description: For the rider app (Issue 235). Always sent.
                 state:
                     enum:
                         - open
@@ -248,7 +248,7 @@ components:
                     type: string
                 total:
                     $ref: '#/components/schemas/Money'
-                    description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
+                    description: What the customer paid for the order. For the rider app (Issue 235). Always sent.
             required:
                 - id
                 - order_id
@@ -258,6 +258,8 @@ components:
                 - state
                 - fencing_token
                 - order_number
+                - total
+                - payment_method
             type: object
         OrderLine:
             properties:
@@ -479,7 +481,7 @@ components:
                     type: boolean
                 payment_method:
                     $ref: '#/components/schemas/PaymentMethod'
-                    description: For the rider app (Issue 235). Optional until the server sends it (part B).
+                    description: For the rider app (Issue 235). Always sent.
                 rider_accepted_at:
                     format: date-time
                     type:
@@ -497,7 +499,7 @@ components:
                     type: string
                 total:
                     $ref: '#/components/schemas/Money'
-                    description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
+                    description: What the customer paid for the order. For the rider app (Issue 235). Always sent.
                 waiting_since:
                     description: When the rider said they were waiting at the gate (markWaitingAtGate). Null until then.
                     format: date-time
@@ -519,6 +521,8 @@ components:
                 - handed_over_at
                 - order_number
                 - waiting_since
+                - total
+                - payment_method
             type: object
 defaultContentType: application/json
 id: urn:ninzo:rider:stream

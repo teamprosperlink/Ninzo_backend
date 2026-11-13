@@ -7,6 +7,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 | 2026-11-13 | #237 | Razorpay payments in test mode | See PR | PASS | [reports/237.md](reports/237.md) |
 | 2026-11-13 | #238 | security headers (HSTS and more), govulncheck and gitleaks in CI, Dependabot, Go 1.27.4 | See PR | PASS | [reports/238.md](reports/238.md) |
 | 2026-11-13 | #235 | rider app (APK) compatibility, part A: contract and mock (52 calls: 28 a, 13 b, 11 c) | See PR | PASS | [reports/235-A.md](reports/235-A.md) |
+| 2026-11-13 | #235 | rider app (APK) compatibility, part B1: fields on existing replies, break aliases, invalid_phone (migration 0055) | See PR | PASS | [reports/235-B1.md](reports/235-B1.md) |
 | 2026-11-13 | #174 | staging database moved to Singapore; writes 1-3.6 s down to about 0.3 s | See PR | PASS | [reports/174.md](reports/174.md) |
 | 2026-11-13 | #226 | relocation v2 behind relocation_by_plan (off) | See PR | PASS | [reports/226.md](reports/226.md) |
 | 2026-11-13 | #192 | an expired confirmed suggestion raises the hub's seq | See PR | PASS | [reports/192.md](reports/192.md) |
