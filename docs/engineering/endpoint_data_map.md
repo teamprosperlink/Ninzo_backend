@@ -60,7 +60,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `orders` | `order_items` | Items, with the price fixed at creation | v0.4.0 |
 | `orders` | `order_events` | Append-only true history of each order | v0.4.0 |
 | `orders` | `availability_notifications` | "Notify me" requests | v0.6.0 |
-| `demand` | `demand_checks` | Each availability check, once per day, half-hour, cell, customer (day-salted hash) and outcome | v1.0.0 (#220) |
+| `demand` | `demand_checks` | Each availability check, once per day, half-hour, cell, customer (day-salted hash) and outcome (#220) | v1.0.0 |
 | `payments` | `payments` | One row per Razorpay attempt, so a retry is a new row | v0.4.0 |
 | `payments` | `refunds` | Refunds, with reason, method and status | v0.4.0 |
 | `payments` | `webhook_events` | Razorpay events already handled | v0.4.0 |
