@@ -2,6 +2,7 @@ package availability
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -52,58 +53,101 @@ func router() Router {
 	return roads
 }
 
-// orderByRoad reorders the scooters that passed the filters by road time from where each rider is
-// to the gate. A rider whose last ping reached the server longer ago than signal_release_s (the
-// server's clock, not the phone's) is taken to be at the
-// scooter's node. Without a routing client, or when routing answers straight lines, the order
-// stays today's.
-func orderByRoad(ctx context.Context, tx pgx.Tx, ids []string, lat, lng float64, now time.Time, s geo.Effective) ([]string, error) {
+// straightReach is today's reach: the nearer of the widest search and what the budget allows at
+// the straight-line speed.
+func straightReach(s geo.Effective) float64 {
+	budget, _ := s.Get("sweet_spot_budget_s")
+	speed, _ := s.Get("straight_line_speed_kmh")
+	radius, _ := s.Get("max_search_radius_m")
+	return math.Min(float64(radius), float64(speed)/3.6*float64(budget))
+}
+
+// inReach lists the scooters that can serve a point, in the order to try them, leaving out the
+// except ones (W5, #209 and #211).
+//
+// Today (matching_by_road 0, or no routing): every scooter whose node is within the straight-line
+// reach, nearest node first.
+//
+// With matching_by_road 1 and routing: every scooter within max_search_radius_m whose rider is
+// within sweet_spot_budget_s by road, from the rider's live position (the node when the ping is
+// older than signal_release_s by the server's clock), fastest first. If routing fails or answers
+// straight lines, today's reach and order apply, so an outage never widens reach on guesses.
+func inReach(ctx context.Context, q querier, zone string, lat, lng float64, now time.Time, s geo.Effective, except []string) ([]string, error) {
+	reach := straightReach(s)
+	byRoad, _ := s.Get("matching_by_road")
 	r := router()
-	if r == nil {
-		return ids, nil
+	road := byRoad == 1 && r != nil
+	query := reach
+	if road {
+		radius, _ := s.Get("max_search_radius_m")
+		query = float64(radius)
 	}
 	fresh, _ := s.Get("signal_release_s")
-	speed, _ := s.Get("straight_line_speed_kmh")
-	rows, err := tx.Query(ctx, `
-		SELECT s.id::text, n.lat, n.lng, p.lat, p.lng, p.received_at
-		FROM scooters s JOIN staging_nodes n ON n.id = s.node_id
+	rows, err := q.Query(ctx, `SELECT r.id::text, n.lat, n.lng, p.lat, p.lng, p.received_at
+		FROM (`+reachable+`) r JOIN scooters s ON s.id = r.id JOIN staging_nodes n ON n.id = s.node_id
 		LEFT JOIN shifts sh ON sh.scooter_id = s.id AND sh.ended_at IS NULL
 		LEFT JOIN rider_positions p ON p.rider_id = sh.rider_id
-		WHERE s.id = ANY($1::uuid[])`, ids)
+		ORDER BY extensions.ST_Distance(
+			extensions.ST_SetSRID(extensions.ST_MakePoint(n.lng, n.lat), 4326)::extensions.geography,
+			extensions.ST_SetSRID(extensions.ST_MakePoint($3, $2), 4326)::extensions.geography), r.id`, zone, lat, lng, query)
 	if err != nil {
 		return nil, err
 	}
-	byID := map[string]matching.Candidate{}
+	left := map[string]bool{}
+	for _, id := range except {
+		left[id] = true
+	}
+	var cs []matching.Candidate
 	var id string
 	var nlat, nlng float64
 	var plat, plng *float64
 	var at *time.Time
 	if _, err := pgx.ForEachRow(rows, []any{&id, &nlat, &nlng, &plat, &plng, &at}, func() error {
+		if left[id] {
+			return nil
+		}
 		c := matching.Candidate{ScooterID: id, Node: routing.Point{Lat: nlat, Lng: nlng}}
 		c.Position = c.Node
 		if plat != nil && plng != nil && at != nil && now.Sub(*at) <= time.Duration(fresh)*time.Second {
 			c.Position, c.Live = routing.Point{Lat: *plat, Lng: *plng}, true
 		}
-		byID[id] = c
+		cs = append(cs, c)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	cs := make([]matching.Candidate, 0, len(ids))
-	for _, id := range ids {
-		if c, ok := byID[id]; ok {
-			cs = append(cs, c)
-		}
-	}
-	if len(cs) != len(ids) {
-		return ids, nil // a scooter vanished between the two reads: keep today's order
-	}
 	gate := routing.Point{Lat: lat, Lng: lng}
+	// today keeps today's rule: nodes within the straight-line reach, in the query's order (nearest
+	// first). The query already used that reach unless road matching widened it.
+	today := func() []string {
+		var out []string
+		for _, c := range cs {
+			if !road || routing.Metres(c.Node, gate) <= reach {
+				out = append(out, c.ScooterID)
+			}
+		}
+		return out
+	}
+	if !road || len(cs) == 0 {
+		return today(), nil
+	}
+	speed, _ := s.Get("straight_line_speed_kmh")
 	legs, err := r.Table(ctx, matching.Sources(cs), gate, float64(max(speed, 1)))
 	if err != nil {
-		// The caller's context ended, or bad input: keep today's order rather than fail the order.
-		return ids, nil
+		return today(), nil // the caller's context ended or bad input: today's reach and order
 	}
-	ranked, _ := matching.ByRoad(cs, gate, legs)
-	return matching.IDs(ranked), nil
+	ranked, ok := matching.ByRoad(cs, gate, legs)
+	if !ok {
+		return today(), nil
+	}
+	// OSRM answering that no rider can reach the point (a snap failure, say) gives no coverage, not
+	// today's list: a real answer of "no road" is not an outage, and must never widen reach.
+	budget, _ := s.Get("sweet_spot_budget_s")
+	var out []string
+	for _, x := range ranked {
+		if x.Reachable && x.RoadSeconds <= float64(budget) {
+			out = append(out, x.ScooterID)
+		}
+	}
+	return out, nil
 }
