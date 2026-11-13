@@ -60,6 +60,11 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 	fs.IntVar(&s.SweetSpotS, "sweet-spot", 80, "sweet_spot_budget_s")
 	fs.IntVar(&s.StraightKmh, "speed", 15, "straight_line_speed_kmh")
 	fs.IntVar(&s.MaxSearchM, "search", 1500, "max_search_radius_m")
+	fleetN := fs.Int("fleet", 0, "fleet mode: the first N rider points, busy while serving (0: every rider free for every order)")
+	rate := fs.Float64("orders-per-hour", 20, "fleet mode: Poisson arrival rate")
+	hours := fs.Float64("hours", 3, "fleet mode: hours simulated")
+	pack := fs.Float64("pack", 60, "fleet mode: packing seconds")
+	handover := fs.Float64("handover", 60, "fleet mode: handover seconds")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return errors.New("usage: sim -osrm <url> [-zone koramangala|indiranagar] [-orders N] [-seed S] [-seeds K] [settings]")
 	}
@@ -83,6 +88,15 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 			return err
 		}
 		r = c
+	}
+	if *fleetN > 0 {
+		if *fleetN > len(sc.Riders) {
+			return fmt.Errorf("fleet must be 1 to %d for this zone", len(sc.Riders))
+		}
+		if *rate <= 0 || *rate > 600 || *hours <= 0 || *hours > 24 {
+			return errors.New("orders-per-hour must be above 0 and at most 600, hours above 0 and at most 24")
+		}
+		return runFleet(ctx, r, sc, *fleetN, *rate, *hours, *pack, *handover, *seed, *seeds, out)
 	}
 	// Several seeds are several simulated days on the same riders; counts are pooled across them
 	// and each share gets a 95% interval, so a difference is not read into noise.
@@ -127,6 +141,47 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 	}
 	if *seeds > 1 {
 		fmt.Fprintln(out, "(percentiles are from the first seed; counts and 95% intervals pool every seed)")
+	}
+	return nil
+}
+
+// runFleet is fleet mode: riders get busy, orders arrive over time (#214). Counts pool every seed.
+func runFleet(ctx context.Context, r sim.Router, sc sim.Scenario, n int, rate, hours, pack, handover float64, seed uint64, seeds int, out io.Writer) error {
+	type pooled struct{ orders, served, busy, reach, stuck, inTime int }
+	totals := map[string]*pooled{sim.RuleToday: {}, sim.RuleRoad: {}}
+	busyShare := map[string]float64{}
+	sc.Riders = sc.Riders[:n]
+	for i := range seeds {
+		sc.Seed = seed + uint64(i)
+		results, err := sim.RunFleet(ctx, r, sim.FleetScenario{Scenario: sc, OrdersPerHour: rate, Hours: hours, PackS: pack, HandoverS: handover})
+		if err != nil {
+			return err
+		}
+		for _, res := range results {
+			p := totals[res.Rule]
+			p.orders += res.Orders
+			p.served += res.Served
+			p.busy += res.RefusedBusy
+			p.reach += res.RefusedReach
+			p.stuck += res.Stuck
+			p.inTime += res.InTime
+			for _, b := range res.BusyShare {
+				busyShare[res.Rule] += b / float64(n*seeds)
+			}
+		}
+	}
+	fmt.Fprintf(out, "%s, %d riders, %.0f orders an hour for %.1f h x %d seeds from %d; pack %.0f s, handover %.0f s; timer %d s, sweet spot %d s\n",
+		sc.Name, n, rate, hours, seeds, seed, pack, handover, sc.Setting.TimerS, sc.Setting.SweetSpotS)
+	fmt.Fprintf(out, "%-6s %7s %7s %11s %12s %6s %21s %9s\n", "rule", "orders", "served", "busy-refused", "reach-refused", "stuck", "in time / order", "busy")
+	for _, rule := range []string{sim.RuleToday, sim.RuleRoad} {
+		p := totals[rule]
+		lo, hi := sim.Wilson(p.inTime, p.orders)
+		per := 0.0
+		if p.orders > 0 {
+			per = float64(p.inTime) / float64(p.orders)
+		}
+		fmt.Fprintf(out, "%-6s %7d %7d %11d %12d %6d %5.1f%% (%4.1f-%5.1f%%) %8.0f%%\n",
+			rule, p.orders, p.served, p.busy, p.reach, p.stuck, 100*per, 100*lo, 100*hi, 100*busyShare[rule])
 	}
 	return nil
 }
