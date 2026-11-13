@@ -33,7 +33,9 @@ func main() {
 	if err := service.Run(ctx, service.Options{
 		Name: "customer-api",
 		Validate: func(cfg config.Config) error {
-			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg))
+			// Road-time matching (#209) reads ROUTING_ENGINE_URL; empty keeps straight lines.
+			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg),
+				availability.ConfigureRouting(os.Getenv))
 		},
 		Mount: func(r chi.Router, d service.Deps) {
 			limits := identity.NewLimits(ratelimit.NewMemory(), d.Config, d.Log)

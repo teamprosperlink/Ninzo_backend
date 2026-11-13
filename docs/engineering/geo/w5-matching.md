@@ -52,8 +52,8 @@ Until the owner answers, A stays.
 
 | # | Step | What we need | How | Done when |
 |---|---|---|---|---|
-| 1 | `internal/matching` | Nothing new | Move today's choice into pure functions, unchanged in behaviour | Today's tests still pass untouched |
-| 2 | Road-time ranking | `w1` | One table call per decision; fallback to straight line | The rider nearer by road wins over the one nearer in a straight line (a median test case) |
+| 1 | `internal/matching` | Nothing new | Move today's choice into pure functions, unchanged in behaviour | Today's tests still pass untouched. Built (#209): `internal/matching` (`ByStraightLine` is today's order) |
+| 2 | Road-time ranking | `w1` | One table call per decision; fallback to straight line | The rider nearer by road wins over the one nearer in a straight line (a median test case). Built (#209), behind the setting `matching_by_road` (0, today, by default): one table call from each rider's live position (the node when stale), with a straight-line fallback |
 | 3 | Tier filter | `w2`, `w3` | Filter by tier, ring by ring | Tests per tier; a deliberate break is caught |
 | 4 | Record decisions | A column or table for each offer's ranking (migration renumbered before the PR) | Written in the same transaction as the offer | Ops can see why a rider was chosen |
 | 5 | Coverage and stock terms | `w4` | Add the terms with weights from settings | The simulator shows a gain before the weights leave zero |

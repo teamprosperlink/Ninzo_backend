@@ -40,6 +40,7 @@ var Settings = []Setting{
 	{"sweet_spot_budget_s", "seconds", 10, 600, true, "Travel time budget for a scooter to serve a gate"},
 	{"timer_zone_margin_s", "seconds", 0, 120, true, "A cell is in a gate's timer zone only if its road time is at least this much under the timer"},
 	{"outer_ring_budget_s", "seconds", 30, 3600, true, "The widest road time to a gate that still counts as reach, beyond the sweet spot"},
+	{"matching_by_road", "0 or 1", 0, 1, true, "1 tries the scooters that can take an order fastest by road from where each rider is; 0 (today) nearest staging node by straight line"},
 	{"straight_line_speed_kmh", "km/h", 3, 60, true, "Speed used for straight-line reach, until real road times"},
 	{"max_search_radius_m", "metres", 100, 20000, true, "Widest rider search. Past it, the order is refused before payment"},
 	{"payment_hold_s", "seconds", 60, 3600, true, "How long an unpaid order holds its stock"},
