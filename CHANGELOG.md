@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Staging database in Singapore (#174)
+- Changed: staging uses the Supabase project `ninzo-staging-sg` in Singapore, next to the APIs; the Mumbai project is paused. Writes went from 1-3.6 s to about 0.3 s. rider-api, partner-api and console-api read `DATABASE_URL` from customer-api.
+- Evidence: docs/testing/reports/174.md
+
 ### Relocation v2 follows the placement plan, behind relocation_by_plan (#226)
 - Added: the setting `relocation_by_plan` (migration 0054, default 0). When it is 1, move suggestions follow the zone's placement plan for the weekday, half-hour and free riders, and fall back to today's rule when there is no plan. The suggest, accept, pay and rest flow is unchanged (owner, 2026-11-13). CI's database job now runs the relocation tests.
 - Evidence: docs/testing/reports/226.md
