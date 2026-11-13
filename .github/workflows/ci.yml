@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: actions/setup-python@v5
@@ -65,7 +65,7 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go test -count=1 -p 1 ./tests/db/ ./cmd/migrate/ ./internal/platform/... ./internal/audit/ ./internal/identity/ ./internal/profile/ ./internal/geo/ ./internal/catalog/ ./internal/shifts/ ./internal/availability/ ./internal/orders/ ./internal/restock/ ./internal/roaddata/ ./internal/gatecells/ ./internal/riderpos/ ./internal/demand/ ./internal/placementplan/ ./internal/relocation/ ./cmd/riders/ ./cmd/settings/ ./cmd/testdata/ ./cmd/roaddata/ ./cmd/gatecells/
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: bash tools/osrm/build.sh test
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
