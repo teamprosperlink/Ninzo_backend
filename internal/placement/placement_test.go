@@ -187,3 +187,53 @@ func TestMatrixRetriesATransientFallback(t *testing.T) {
 		t.Fatalf("three fallbacks: %v", err)
 	}
 }
+
+func TestGreedyCapsRespectsEachCapacity(t *testing.T) {
+	// Both demand points only reachable from candidate 0, which holds one scooter.
+	c := Coverage{{true, true}, {false, false}, {true, false}}
+	p, err := GreedyCaps(c, []float64{5, 5}, 3, 0.5, []int{1, 1, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(p.Count) != "[1 1 1]" || fmt.Sprint(p.Picks[:2]) != "[0 2]" {
+		t.Fatalf("%v picks %v", p.Count, p.Picks)
+	}
+	if _, err := GreedyCaps(c, []float64{5, 5}, 3, 0.5, []int{1, 1}); err == nil {
+		t.Fatal("one capacity short, accepted")
+	}
+	if _, err := GreedyCaps(c, []float64{5, 5}, 4, 0.5, []int{1, 1, 1}); err == nil {
+		t.Fatal("more scooters than the capacities hold, accepted")
+	}
+	if _, err := GreedyCaps(c, []float64{5, 5}, 1, 0.5, []int{1, -1, 1}); err == nil {
+		t.Fatal("a negative capacity, accepted")
+	}
+}
+
+func TestFewerScootersArePrefixPlans(t *testing.T) {
+	rng := rand.New(rand.NewPCG(224, 1))
+	for trial := range 30 {
+		c := make(Coverage, 6)
+		for i := range c {
+			c[i] = make([]bool, 20)
+			for d := range c[i] {
+				c[i][d] = rng.Float64() < 0.35
+			}
+		}
+		w := make([]float64, 20)
+		for d := range w {
+			w[d] = rng.Float64()
+		}
+		caps := []int{1, 2, 3, 1, 2, 1}
+		full, err := GreedyCaps(c, w, 10, 0.3, caps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for n := 1; n <= 10; n++ {
+			p, _ := GreedyCaps(c, w, n, 0.3, caps)
+			e, cv := Score(c, w, 0.3, full.Picks[:n])
+			if fmt.Sprint(p.Picks) != fmt.Sprint(full.Picks[:n]) || math.Abs(e-p.Expected) > 1e-12 || math.Abs(cv-p.Covered) > 1e-12 {
+				t.Fatalf("trial %d n %d: %v against the prefix %v", trial, n, p.Picks, full.Picks[:n])
+			}
+		}
+	}
+}

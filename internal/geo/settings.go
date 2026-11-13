@@ -42,6 +42,8 @@ var Settings = []Setting{
 	{"outer_ring_budget_s", "seconds", 30, 3600, true, "The widest road time to a gate that still counts as reach, beyond the sweet spot"},
 	{"matching_by_road", "0 or 1", 0, 1, true, "1 tries the scooters that can take an order fastest by road from where each rider is; 0 (today) nearest staging node by straight line"},
 	{"demand_retention_days", "days", 7, 365, true, "How long availability checks are kept as demand, per cell and half-hour"},
+	{"placement_busy_share_pct", "percent", 0, 90, true, "The share of time a scooter is assumed busy when placement plans are built"},
+	{"placement_weeks", "weeks", 1, 12, true, "How many past weeks of demand a placement plan is built from"},
 	{"straight_line_speed_kmh", "km/h", 3, 60, true, "Speed used for straight-line reach, until real road times"},
 	{"max_search_radius_m", "metres", 100, 20000, true, "Widest rider search. Past it, the order is refused before payment"},
 	{"payment_hold_s", "seconds", 60, 3600, true, "How long an unpaid order holds its stock"},

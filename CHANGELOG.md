@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Placement plans per zone, weekday and half-hour (#224)
+- Added: `placement_builds` and `placement_plans` (migration 0053, append-only), and the settings `placement_busy_share_pct` (30) and `placement_weeks` (4). `internal/placementplan` (Build, Latest) places on the zone's non-test staging nodes, by recorded demand forecast per cell and road-time coverage. `cmd/placement -zone` runs it, local only unless `-remote`. `placement.GreedyCaps` and `Score`. Nothing reads plans yet: relocation v2 will, behind a setting.
+- Evidence: docs/testing/reports/224.md
+
 ### Uneven demand in the simulator, and placement on demand per cell (#222)
 - Added: `sim.Scenario.Hotspots`, `sim.PlaceOnCells`, `sim.CellDemand` (a synthetic history, then forecast v1), and `cmd/sim -hotspots` and `-place-from`.
 - Found: with synthetic hotspots, placement on the forecast per cell beat the fixed points in 7 of 8 placements under both rules, and placement as if demand were even in all 8. It did as well as placing on demand draws directly: the gain is in knowing where demand is. Fitted as if even, it can be worse than the fixed points. The hotspots are synthetic, and the history comes from the demand it is scored on. See w7.
