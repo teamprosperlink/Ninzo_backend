@@ -22,6 +22,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/notify"
+	"github.com/teamprosperlink/Ninzo_backend/internal/placementplan"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
@@ -439,6 +440,23 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 	}); err != nil {
 		return 0, err
 	}
+	// With relocation_by_plan on, follow the zone's placement plan for now and this many free riders
+	// (#226). With no plan for this moment, today's rule below runs as before.
+	if byPlan, _ := settings.Get("relocation_by_plan"); byPlan == 1 {
+		free := 0
+		for _, pl := range places {
+			free += pl.waiting
+		}
+		if free > 0 {
+			plan, ok, err := placementplan.Latest(ctx, tx, zone, now, free)
+			if err != nil {
+				return 0, err
+			}
+			if ok {
+				return s.suggestByPlan(ctx, tx, places, order, plan, now, ttl)
+			}
+		}
+	}
 	// Short nodes, most orders first.
 	short := []*place{}
 	for _, id := range order {
@@ -465,22 +483,82 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 		if from == nil {
 			continue
 		}
-		who := from.free[0]
-		reason := fmt.Sprintf("%d orders expected, nobody nearby", to.demand)
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at, state_changed_at, orders_waiting)
-			SELECT $1, sh.id, $2, $3, $4, $5, $6, $7 FROM shifts sh WHERE sh.rider_id = $1 AND sh.ended_at IS NULL RETURNING id::text`,
-			who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now, to.demand).Scan(&id); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue // The shift ended during this check.
+		ok, err := suggest(ctx, tx, from, to, fmt.Sprintf("%d orders expected, nobody nearby", to.demand), now, ttl)
+		if err != nil {
+			return made, err
+		}
+		if ok {
+			made++
+		}
+	}
+	return made, nil
+}
+
+// suggest asks from's longest-waiting askable rider to move to to: the same row, TTL and rider_state
+// bump for either rule. It reports false when the rider's shift ended during this check.
+func suggest(ctx context.Context, tx pgx.Tx, from, to *place, reason string, now time.Time, ttl int) (bool, error) {
+	who := from.free[0]
+	var id string
+	if err := tx.QueryRow(ctx, `INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at, state_changed_at, orders_waiting)
+		SELECT $1, sh.id, $2, $3, $4, $5, $6, $7 FROM shifts sh WHERE sh.rider_id = $1 AND sh.ended_at IS NULL RETURNING id::text`,
+		who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now, to.demand).Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil // The shift ended during this check.
+		}
+		return false, err
+	}
+	if err := bump(ctx, tx, who, id); err != nil {
+		return false, err
+	}
+	from.free, from.waiting = from.free[1:], from.waiting-1
+	return true, nil
+}
+
+// suggestByPlan (relocation_by_plan, #226) asks for moves toward the plan: a node is short when the
+// plan wants more riders there than are waiting, most short first; the donor is the nearest node
+// with more riders waiting than the plan wants there, and an askable rider. Only the choice of nodes
+// differs from today's rule: one move per short node per check, none toward a node with a move in
+// play, and the same suggestion row and flow. Plan nodes no longer in the zone are ignored.
+func (s *Service) suggestByPlan(ctx context.Context, tx pgx.Tx, places map[string]*place, order []string, plan placementplan.Plan, now time.Time, ttl int) (int, error) {
+	want := map[string]int{}
+	for _, id := range plan.Nodes {
+		if places[id] != nil {
+			want[id]++
+		}
+	}
+	short := []*place{}
+	for _, id := range order {
+		if pl := places[id]; want[id] > pl.waiting && !pl.incoming {
+			short = append(short, pl)
+		}
+	}
+	sort.SliceStable(short, func(i, j int) bool {
+		return want[short[i].id]-short[i].waiting > want[short[j].id]-short[j].waiting
+	})
+	made := 0
+	for _, to := range short {
+		var from *place
+		best := 0.0
+		for _, id := range order {
+			pl := places[id]
+			if pl.id == to.id || pl.waiting <= want[pl.id] || len(pl.free) == 0 {
+				continue
 			}
+			d := (pl.lat-to.lat)*(pl.lat-to.lat) + (pl.lng-to.lng)*(pl.lng-to.lng)
+			if from == nil || d < best {
+				from, best = pl, d
+			}
+		}
+		if from == nil {
+			continue
+		}
+		ok, err := suggest(ctx, tx, from, to, "More orders are expected here soon", now, ttl)
+		if err != nil {
 			return made, err
 		}
-		if err := bump(ctx, tx, who, id); err != nil {
-			return made, err
+		if ok {
+			made++
 		}
-		from.free, from.waiting = from.free[1:], from.waiting-1
-		made++
 	}
 	return made, nil
 }
