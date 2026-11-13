@@ -103,6 +103,28 @@ func RequestID(ctx context.Context) string {
 	return id
 }
 
+// securityHeaders go on every reply (#238). These are JSON APIs, never pages, so nothing may
+// frame, sniff, cache or refer from them, and clients must keep to HTTPS (HSTS, a year).
+var securityHeaders = map[string]string{
+	"Strict-Transport-Security":    "max-age=31536000; includeSubDomains",
+	"X-Content-Type-Options":       "nosniff",
+	"Cache-Control":                "no-store",
+	"Referrer-Policy":              "no-referrer",
+	"X-Frame-Options":              "DENY",
+	"Content-Security-Policy":      "default-src 'none'; frame-ancestors 'none'",
+	"Cross-Origin-Resource-Policy": "same-site",
+}
+
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		for k, v := range securityHeaders {
+			h.Set(k, v)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // A client's own X-Request-Id is ignored, so nobody can write chosen text into the logs.
 func withRequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +243,7 @@ func ForStream(w http.ResponseWriter) error {
 // or a deploy, never to restart a process. Neither says why it failed, because they are public.
 func NewRouter(log *slog.Logger, ready func(context.Context) error, mount func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
+	r.Use(withSecurityHeaders)
 	r.Use(withRequestID)
 	r.Use(func(next http.Handler) http.Handler { return withLogAndRecover(log, next) })
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
