@@ -560,8 +560,21 @@ func checkSpeed(kmh float64) error {
 	return nil
 }
 
+// tinyNegative bounds how far below zero OSRM may round a duration or distance (seconds or metres;
+// a number at or below it is a bad reply):
+// for a point on the destination it answers, say, -0.2 m (#217).
+const tinyNegative = -1.0
+
+// goodNumber says a reply number is real and not negative; a tiny negative from OSRM's rounding is
+// set to 0 in place.
 func goodNumber(v *float64) bool {
-	return v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0
+	if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) || *v <= tinyNegative {
+		return false
+	}
+	if *v < 0 {
+		*v = 0
+	}
+	return true
 }
 
 func toLine(coords [][]float64) ([]Point, error) {
