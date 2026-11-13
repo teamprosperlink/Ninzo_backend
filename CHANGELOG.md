@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Relocation v2 follows the placement plan, behind relocation_by_plan (#226)
+- Added: the setting `relocation_by_plan` (migration 0054, default 0). When it is 1, move suggestions follow the zone's placement plan for the weekday, half-hour and free riders, and fall back to today's rule when there is no plan. The suggest, accept, pay and rest flow is unchanged (owner, 2026-11-13). CI's database job now runs the relocation tests.
+- Evidence: docs/testing/reports/226.md
+
 ### An expired confirmed suggestion raises the hub's seq (#192)
 - Fixed: when no hub accepted a confirmed request that began as a suggestion, its natural expiry did not raise the hub's seq, so the hub app kept showing it. It now does, as cancel and the console's expire do.
 - Evidence: docs/testing/reports/192.md

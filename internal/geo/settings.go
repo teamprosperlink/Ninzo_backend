@@ -58,6 +58,7 @@ var Settings = []Setting{
 	{"relocation_min_orders", "orders", 1, 50, true, "Orders in the window that make a node with nobody waiting ask for a rider"},
 	{"relocation_ttl_s", "seconds", 60, 1800, true, "How long a suggested move stays open"},
 	{"relocation_rest_s", "seconds", 60, 7200, true, "The wait before a rider is asked to move again, after a move ends"},
+	{"relocation_by_plan", "0 or 1", 0, 1, true, "1 suggests moves that follow the zone's placement plan (falling back to today's rule when there is none); 0 (today) asks for a rider where orders came and nobody waits"},
 	{"relocation_arrive_m", "metres", 20, 500, true, "How close to the new node a ping marks the rider arrived"},
 	{"pay_per_order_paise", "paise", 0, 100000, true, "What a rider earns for each order handed over"},
 	{"incentive_orders", "orders", 1, 200, true, "Orders handed over in a day that earn the day's incentive"},
