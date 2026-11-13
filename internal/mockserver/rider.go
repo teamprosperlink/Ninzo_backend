@@ -350,8 +350,8 @@ func riderRoutes() []route {
 			if raw := c.r.URL.Query().Get("days"); raw != "" {
 				days, err := strconv.Atoi(raw)
 				q := c.r.URL.Query()
-				if err != nil || days < 1 || days > 31 || q.Get("from") != "" || q.Get("to") != "" {
-					c.fail(http.StatusBadRequest, "invalid_request", "days is 1 to 31 and cannot be sent with from or to.", false)
+				if err != nil || days < 1 || days > 31 || q.Get("from") != "" || q.Get("to") != "" || q.Get("cursor") != "" || q.Get("limit") != "" {
+					c.fail(http.StatusBadRequest, "invalid_request", "days is 1 to 31 and cannot be sent with from, to, cursor or limit.", false)
 					return
 				}
 				c.json(200, map[string]any{"shifts": []map[string]any{sampleShiftEntry("shf_mock01", c.now, time.Hour, true), sampleShiftEntry("shf_mock00", c.now, 30*time.Hour, false), sampleShiftEntry("shf_mock99", c.now, 54*time.Hour, false)}, "next_cursor": nil})

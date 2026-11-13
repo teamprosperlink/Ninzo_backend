@@ -58,7 +58,7 @@ type Service struct {
 	now  func() time.Time // Tests set the clock. Nil means the real one.
 }
 
-// MountRider adds startShift, endShift, listNodes, scanStock, getStock, startBreak, endBreak,
+// MountRider adds startShift, endShift, listNodes, scanStock, getStock, startBreak, endBreak, takeBreak,
 // submitStockCount, listRiderShifts and getShiftSummary.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
@@ -71,6 +71,9 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.Get("/riders/me/stock", s.getStock)
 		g.With(idem).Post("/riders/me/breaks/start", s.startBreak)
 		g.With(idem).Post("/riders/me/breaks/end", s.endBreak)
+		// The rider app's forms (Issue 235): a break of a length it picks, and the same end.
+		g.With(idem).Post("/riders/me/shifts/break", s.takeBreak)
+		g.With(idem).Post("/riders/me/shifts/break/end", s.endBreak)
 		g.With(idem).Post("/riders/me/stock/count", s.submitStockCount)
 		g.Get("/riders/me/shifts", s.listRiderShifts)
 		g.Get("/riders/me/shifts/{shift_id}/summary", s.getShiftSummary)
@@ -157,6 +160,29 @@ type shift struct {
 	BreakStartedAt *string `json:"break_started_at"`
 	BreakEndsAt    *string `json:"break_ends_at"`
 	DeviceID       *string `json:"device_id"`
+	// OnlineAt is when the rider went online at their spot (goOnline), PlannedEndAt the end the rider
+	// said (setPlannedEnd, a record only). Both are null until set.
+	OnlineAt     *string `json:"online_at"`
+	PlannedEndAt *string `json:"planned_end_at"`
+}
+
+// breakObject is the break as the rider app reads it, the same facts as break_started_at and
+// break_ends_at, or null when the rider is not on a break. It is always built from those two, so the
+// two forms cannot disagree.
+func (sh shift) breakObject() any {
+	if sh.BreakStartedAt == nil || sh.BreakEndsAt == nil {
+		return nil
+	}
+	return map[string]any{"started_at": *sh.BreakStartedAt, "ends_at": *sh.BreakEndsAt}
+}
+
+// MarshalJSON adds break to the shift.
+func (sh shift) MarshalJSON() ([]byte, error) {
+	type plain shift
+	return json.Marshal(struct {
+		plain
+		Break any `json:"break"`
+	}{plain(sh), sh.breakObject()})
 }
 
 // Fill adds node_assigned_at and the scooter to a shift read from the database. The battery is null
@@ -193,16 +219,17 @@ func OpenShift(ctx context.Context, q interface {
 	}
 	return map[string]any{"id": sh.ID, "node_id": sh.NodeID, "started_at": sh.StartedAt, "ended_at": nil,
 		"node_assigned_at": sh.NodeAssignedAt, "scooter": sh.Scooter,
-		"break_started_at": sh.BreakStartedAt, "break_ends_at": sh.BreakEndsAt, "device_id": sh.DeviceID}, true, nil
+		"break_started_at": sh.BreakStartedAt, "break_ends_at": sh.BreakEndsAt, "device_id": sh.DeviceID,
+		"online_at": sh.OnlineAt, "planned_end_at": sh.PlannedEndAt, "break": sh.breakObject()}, true, nil
 }
 
 func loadOpen(ctx context.Context, q querier, riderID, lock string) (shift, string, bool, error) {
 	var sh shift
 	var scooter string
 	var started time.Time
-	var breakStart, breakEnd *time.Time
-	err := q.QueryRow(ctx, `SELECT id::text, node_id::text, scooter_id::text, started_at, break_started_at, break_ends_at, device_id::text FROM shifts
-		WHERE rider_id = $1 AND ended_at IS NULL`+lock, riderID).Scan(&sh.ID, &sh.NodeID, &scooter, &started, &breakStart, &breakEnd, &sh.DeviceID)
+	var breakStart, breakEnd, online, plannedEnd *time.Time
+	err := q.QueryRow(ctx, `SELECT id::text, node_id::text, scooter_id::text, started_at, break_started_at, break_ends_at, device_id::text, online_at, planned_end_at FROM shifts
+		WHERE rider_id = $1 AND ended_at IS NULL`+lock, riderID).Scan(&sh.ID, &sh.NodeID, &scooter, &started, &breakStart, &breakEnd, &sh.DeviceID, &online, &plannedEnd)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sh, "", false, nil
 	}
@@ -211,6 +238,7 @@ func loadOpen(ctx context.Context, q querier, riderID, lock string) (shift, stri
 	}
 	sh.StartedAt = stamp(started)
 	sh.BreakStartedAt, sh.BreakEndsAt = optStamp(breakStart), optStamp(breakEnd)
+	sh.OnlineAt, sh.PlannedEndAt = optStamp(online), optStamp(plannedEnd)
 	sh.NodeAssignedAt, sh.Scooter, err = Fill(ctx, q, sh.ID, started)
 	return sh, scooter, err == nil, err
 }
@@ -224,16 +252,46 @@ func optStamp(t *time.Time) *string {
 	return &s
 }
 
+// checkCode is the shape of a checklist code: the settings' codes are short words with underscores.
+var checkCode = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
+
+// cleanChecklist checks the Before you start codes. More than 20, an empty code or a repeated one is
+// refused. A code of another shape cannot be one the settings list, so it is ignored, as the contract says
+// of a code the settings do not list. It returns the codes to keep, never nil.
+func cleanChecklist(in []string) ([]string, bool) {
+	if len(in) > 20 {
+		return nil, false
+	}
+	out, seen := []string{}, map[string]bool{}
+	for _, code := range in {
+		if code == "" || seen[code] {
+			return nil, false
+		}
+		seen[code] = true
+		if checkCode.MatchString(code) {
+			out = append(out, code)
+		}
+	}
+	return out, true
+}
+
 func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 	actor, _ := identity.ActorFrom(r.Context())
 	var body struct {
 		NodeID   string  `json:"node_id"`
 		DeviceID *string `json:"device_id"`
 		TakeOver bool    `json:"take_over"`
+		// Checklist is the Before you start codes the rider ticked (the rider app sends it).
+		Checklist []string `json:"checklist"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !idPattern.MatchString(body.NodeID) ||
 		(body.DeviceID != nil && !idPattern.MatchString(*body.DeviceID)) || (body.TakeOver && body.DeviceID == nil) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send node_id, and a device_id with take_over.", false)
+		return
+	}
+	ticked, ok := cleanChecklist(body.Checklist)
+	if !ok {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "checklist is up to 20 codes, each once.", false)
 		return
 	}
 	var reply map[string]any
@@ -329,8 +387,8 @@ func (s *Service) startShift(w http.ResponseWriter, r *http.Request) {
 		}
 		var sh shift
 		var started time.Time
-		if err := tx.QueryRow(r.Context(), `INSERT INTO shifts (rider_id, node_id, scooter_id, device_id) VALUES ($1, $2, $3, $4)
-			RETURNING id::text, node_id::text, started_at`, actor.ID, body.NodeID, scooter, device).Scan(&sh.ID, &sh.NodeID, &started); err != nil {
+		if err := tx.QueryRow(r.Context(), `INSERT INTO shifts (rider_id, node_id, scooter_id, device_id, checklist) VALUES ($1, $2, $3, $4, $5)
+			RETURNING id::text, node_id::text, started_at`, actor.ID, body.NodeID, scooter, device, ticked).Scan(&sh.ID, &sh.NodeID, &started); err != nil {
 			return err
 		}
 		sh.StartedAt = stamp(started)

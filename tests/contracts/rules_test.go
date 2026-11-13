@@ -470,12 +470,6 @@ var riderOrderFields = []string{
 	"otp_available", "payment_method", "rider_accepted_at", "seq", "state", "timer_label", "total", "waiting_since",
 }
 
-// riderOrderOptionalFields are listed above on purpose (Issue 235: the rider app reads what the customer
-// paid and how). A rider sees no countdown and no contact details in them. They stay optional until the
-// server sends them in part B of Issue 235, because a required field the server does not send yet would
-// break its database tests. Part B moves them into required, and removes this list.
-var riderOrderOptionalFields = map[string]bool{"payment_method": true, "total": true}
-
 func TestRiderOrderFieldsAreExactlyTheAllowedList(t *testing.T) {
 	l := &loader{docs: map[string]*doc{}}
 	d, err := l.load(filepath.Join(contractsDir, "rider/openapi.yaml"))
@@ -501,11 +495,8 @@ func TestRiderOrderFieldsAreExactlyTheAllowedList(t *testing.T) {
 		requiredSet[name] = true
 	}
 	for _, name := range riderOrderFields {
-		if !requiredSet[name] && !riderOrderOptionalFields[name] {
+		if !requiredSet[name] {
 			t.Errorf("RiderOrder.%s must be required", name)
-		}
-		if requiredSet[name] && riderOrderOptionalFields[name] {
-			t.Errorf("RiderOrder.%s is now required, so remove it from riderOrderOptionalFields", name)
 		}
 	}
 }

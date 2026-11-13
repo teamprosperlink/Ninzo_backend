@@ -106,3 +106,7 @@ The app turns a reply's `code` into screens: `invalid_otp`, `otp_expired`, `otp_
 ## Phone-local keys
 
 The app also reads keys such as `phase`, `spot`, `previews`, `manifest`, `welcomed`, `delivered` and `returned`. These are kept on the phone (`RiderDayStore`) or come from Google's APIs. They are not in any reply of ours.
+
+## Part B1 (server): done for these calls
+
+The real rider API now serves, as the contract says: calls 1 (`invalid_phone`), 5 and 6 (`phone`, `email`, `area`), 7 and 16 (shift `online_at`, `planned_end_at`, `break`, and `total` and `payment_method` on offers and orders), 24 (`checklist`), 26 (`days` and the extra entry fields), 28 and 29 (`takeBreak`, and the `endBreak` alias), 37 to 41 and 44 (`total`, `payment_method`) and 47 (`manager_phone`). `total` and `payment_method` are now required on Offer and RiderOrder. The columns `shifts.online_at` and `planned_end_at` exist, but nothing sets them yet: `goOnline` and `setPlannedEnd` are part B2. The console cannot set `hubs.manager_phone` yet, because its contract has no such field.

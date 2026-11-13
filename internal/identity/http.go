@@ -118,11 +118,22 @@ func MountOTP(r chi.Router, o *OTPs, actorType string) {
 
 func (o *OTPs) handleRequest(actorType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Phone string `json:"phone"`
+		var in struct {
+			Phone json.RawMessage `json:"phone"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a phone number.", false)
+			return
+		}
+		var body struct{ Phone string }
+		if len(in.Phone) > 0 && json.Unmarshal(in.Phone, &body.Phone) != nil {
+			// A phone that is not text. The rider app has a screen for a bad number; the customer
+			// contract keeps invalid_request for it, as it always did.
+			if actorType == TypeRider {
+				httpserver.WriteError(w, http.StatusBadRequest, "invalid_phone", "That phone number is not valid.", false)
+			} else {
+				httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send a phone number.", false)
+			}
 			return
 		}
 		if !o.Limits.allowPhone(w, r, body.Phone) {
@@ -135,7 +146,12 @@ func (o *OTPs) handleRequest(actorType string) http.HandlerFunc {
 		var wait *RetryAfterError
 		switch {
 		case errors.Is(err, ErrBadPhone):
-			httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "That phone number is not valid.", false)
+			// Only the rider contract has invalid_phone (Issue 235). A missing phone is still invalid_request there.
+			code := "invalid_request"
+			if actorType == TypeRider && strings.TrimSpace(body.Phone) != "" { // A blank phone is a missing one.
+				code = "invalid_phone"
+			}
+			httpserver.WriteError(w, http.StatusBadRequest, code, "That phone number is not valid.", false)
 		case errors.As(err, &wait):
 			w.Header().Set("Retry-After", strconv.Itoa(wait.Seconds))
 			httpserver.WriteError(w, http.StatusTooManyRequests, "otp_resend_limit", "Too many codes requested.", true)

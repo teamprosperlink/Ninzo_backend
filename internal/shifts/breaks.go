@@ -2,9 +2,11 @@ package shifts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +33,39 @@ func (s *Service) clock() time.Time {
 // startBreak pauses offers for the rider until they end the break or the console's longest break
 // (max_break_s) passes. It is refused with a live order or an offer waiting for an answer.
 func (s *Service) startBreak(w http.ResponseWriter, r *http.Request) {
+	s.breakFor(w, r, 0, false)
+}
+
+// takeBreak is the rider app's way to rest (Issue 235): the rider says how long, and the break
+// never lasts longer than the console's max_break_s. A rider already on a break gets it made longer,
+// never shorter. The same rules as startBreak otherwise.
+func (s *Service) takeBreak(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Length json.RawMessage `json:"length_s"`
+	}
+	// A number only: text such as "600", or null, is not a length.
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Length) == 0 || body.Length[0] == '"' || string(body.Length) == "null" {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "Send length_s, from 60 to 3600.", false)
+		return
+	}
+	f, err := strconv.ParseFloat(string(body.Length), 64)
+	n := int64(f)
+	if err != nil || f != float64(n) || n < minTakeBreak || n > maxTakeBreak {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid_request", "length_s is a whole number from 60 to 3600.", false)
+		return
+	}
+	s.breakFor(w, r, time.Duration(n)*time.Second, true)
+}
+
+// The rider app may ask for 60 s to an hour. The console's max_break_s still caps what it gets.
+const (
+	minTakeBreak = 60
+	maxTakeBreak = 3600
+)
+
+// breakFor starts a break. asked is the length the rider chose, or 0 for the console's longest.
+// With extend a break already running is made longer, and not an error.
+func (s *Service) breakFor(w http.ResponseWriter, r *http.Request, asked time.Duration, extend bool) {
 	actor, _ := identity.ActorFrom(r.Context())
 	var reply map[string]any
 	err := database.InTx(r.Context(), s.Pool, func(tx pgx.Tx) error {
@@ -49,10 +84,12 @@ func (s *Service) startBreak(w http.ResponseWriter, r *http.Request) {
 		if !open {
 			return refuse("no_open_shift", "Start a shift first.")
 		}
-		if sh.BreakStartedAt != nil {
+		onBreak := sh.BreakStartedAt != nil
+		if onBreak && !extend {
 			return refuse("on_break", "You are already on a break.")
 		}
-		now := s.clock()
+		// Whole microseconds, as the database keeps them, so the reply says what is stored.
+		now := s.clock().Truncate(time.Microsecond)
 		// Read after the shift row is locked. A matcher that offers at the same moment either shows
 		// here, or sees the break already running and passes this rider by.
 		var accepted, offered bool
@@ -78,21 +115,46 @@ func (s *Service) startBreak(w http.ResponseWriter, r *http.Request) {
 		if v, ok := settings.Get("max_break_s"); ok {
 			longest = time.Duration(v) * time.Second
 		}
-		ends := now.Add(longest)
-		if _, err := tx.Exec(ctx, "INSERT INTO shift_breaks (shift_id, started_at) VALUES ($1, $2)", sh.ID, now); err != nil {
+		// The length counts from the break's start. Whatever the rider asks, the break ends by max_break_s.
+		span := longest
+		if asked > 0 && asked < longest {
+			span = asked
+		}
+		start := now
+		if onBreak {
+			if start, err = time.Parse(time.RFC3339Nano, *sh.BreakStartedAt); err != nil {
+				return err
+			}
+		}
+		ends := start.Add(span)
+		if onBreak {
+			// Made longer, never shorter. Nothing changes if it is not longer.
+			current, err := time.Parse(time.RFC3339Nano, *sh.BreakEndsAt)
+			if err != nil {
+				return err
+			}
+			if !ends.After(current) {
+				reply = map[string]any{"shift": sh, "server_time": serverTime()}
+				return idempotency.Save(ctx, tx, http.StatusOK, reply)
+			}
+		} else if _, err := tx.Exec(ctx, "INSERT INTO shift_breaks (shift_id, started_at) VALUES ($1, $2)", sh.ID, now); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, "UPDATE shifts SET break_started_at = $2, break_ends_at = $3 WHERE id = $1", sh.ID, now, ends); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE shifts SET break_started_at = $2, break_ends_at = $3 WHERE id = $1", sh.ID, start, ends); err != nil {
 			return err
 		}
 		if err := bump(ctx, tx, actor.ID); err != nil {
 			return err
 		}
-		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: actor.ID, Action: "shift.break_started", EntityType: "shift", EntityID: sh.ID,
+		action := "shift.break_started"
+		if onBreak {
+			action = "shift.break_extended"
+		}
+		if err := audit.Record(ctx, tx, audit.Event{ActorType: identity.TypeRider, ActorID: actor.ID, Action: action, EntityType: "shift", EntityID: sh.ID,
 			After: map[string]any{"break_ends_at": stamp(ends)}}); err != nil {
 			return err
 		}
-		sh.BreakStartedAt, sh.BreakEndsAt = optStamp(&now), optStamp(&ends)
+		sh.BreakStartedAt, sh.BreakEndsAt = optStamp(&start), optStamp(&ends)
 		reply = map[string]any{"shift": sh, "server_time": serverTime()}
 		return idempotency.Save(ctx, tx, http.StatusOK, reply)
 	})

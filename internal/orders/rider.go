@@ -96,17 +96,19 @@ type offerRow struct {
 	timerLength                                  *int
 	orderNo                                      int64
 	waitingSince                                 *time.Time
+	totalPaise                                   int64
+	currency                                     string
 }
 
 func readOffer(ctx context.Context, q querier, offerID string) (offerRow, error) {
 	var f offerRow
 	err := q.QueryRow(ctx, `SELECT f.id::text, f.order_id::text, f.rider_id::text, f.fencing_token, f.state, o.state, f.ended_reason, f.final_state,
-			f.expires_at, f.rider_accepted_at, f.released_at, o.handed_over_at, o.timer_length_s, o.order_no, o.rider_waiting_since,
+			f.expires_at, f.rider_accepted_at, f.released_at, o.handed_over_at, o.timer_length_s, o.order_no, o.rider_waiting_since, o.total_paise, o.currency,
 			f.released_at IS NULL AND o.handover_otp IS NOT NULL
 				AND ((o.state = 'ARRIVED' AND coalesce(o.min_wait_until <= o.arrived_at OR o.min_wait_until_seen, false)) OR o.otp_released_at IS NOT NULL)
 		FROM offers f JOIN orders o ON o.id = f.order_id WHERE f.id = $1`, offerID).
 		Scan(&f.id, &f.orderID, &f.rider, &f.token, &f.state, &f.orderState, &f.endedReason, &f.finalState,
-			&f.expiresAt, &f.acceptedAt, &f.releasedAt, &f.handedOverAt, &f.timerLength, &f.orderNo, &f.waitingSince, &f.otpAvailable)
+			&f.expiresAt, &f.acceptedAt, &f.releasedAt, &f.handedOverAt, &f.timerLength, &f.orderNo, &f.waitingSince, &f.totalPaise, &f.currency, &f.otpAvailable)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, errNotFound
 	}
@@ -160,7 +162,8 @@ func offerView(ctx context.Context, q querier, f offerRow, now time.Time) (map[s
 		order = f.orderID
 	}
 	return map[string]any{"id": f.id, "order_id": order, "items": items, "gate": gate, "expires_at": f.expiresAt.UTC().Format(time.RFC3339Nano),
-		"state": state, "fencing_token": f.token, "order_number": OrderNumber(f.orderNo)}, nil
+		"state": state, "fencing_token": f.token, "order_number": OrderNumber(f.orderNo),
+		"total": paid(f), "payment_method": paymentMethod}, nil
 }
 
 // riderOrderView is an order as the rider holding the offer sees it. Once the rider no longer has
@@ -201,7 +204,7 @@ func riderOrderView(ctx context.Context, q querier, f offerRow) (map[string]any,
 	return map[string]any{"id": f.orderID, "offer_id": f.id, "fencing_token": f.token, "state": state, "seq": seq, "ended_reason": ended,
 		"items": items, "gate": gate, "timer_label": timerLabel(length), "rider_accepted_at": stamp(f.acceptedAt),
 		"otp_available": f.otpAvailable, "handed_over_at": stamp(f.handedOverAt), "order_number": OrderNumber(f.orderNo),
-		"waiting_since": stamp(waiting)}, nil
+		"waiting_since": stamp(waiting), "total": paid(f), "payment_method": paymentMethod}, nil
 }
 
 func (s *Service) riderState(w http.ResponseWriter, r *http.Request) {
@@ -507,4 +510,14 @@ func (s *Service) markReady(w http.ResponseWriter, r *http.Request) {
 		view, err := riderOrderView(ctx, tx, f)
 		return map[string]any{"order": view, "server_time": serverTime()}, err
 	})
+}
+
+// paymentMethod is how every order is paid today: online, before the order is offered, so the rider
+// collects nothing. The contract's PaymentMethod lists no other value.
+const paymentMethod = "prepaid"
+
+// paid is what the customer paid for the order, as the contract's Money. It is the order's total
+// only, never the customer's name, phone or address.
+func paid(f offerRow) map[string]any {
+	return map[string]any{"amount_minor": f.totalPaise, "currency": f.currency}
 }
