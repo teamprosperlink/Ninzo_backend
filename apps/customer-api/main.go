@@ -27,14 +27,22 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/shifts"
 )
 
+// razorpay is set in Validate when the Razorpay keys are set (issue 237); nil keeps the test payment.
+var razorpay *orders.Razorpay
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := service.Run(ctx, service.Options{
 		Name: "customer-api",
 		Validate: func(cfg config.Config) error {
+			var rzErr error
+			razorpay, rzErr = orders.NewRazorpay(os.Getenv)
+			if rzErr == nil {
+				rzErr = orders.CheckRazorpayKeys(cfg.Env, razorpay)
+			}
 			// Road-time matching (#209) reads ROUTING_ENGINE_URL; empty keeps straight lines.
-			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg),
+			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg), rzErr,
 				availability.ConfigureRouting(os.Getenv))
 		},
 		Mount: func(r chi.Router, d service.Deps) {
@@ -58,11 +66,22 @@ func main() {
 			menu.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			reach := &availability.Service{Pool: d.DB, Log: d.Log}
 			reach.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
-			// The test payment stands in for Razorpay (decision 0013). Production refuses to start with it.
-			ordering := &orders.Service{Pool: d.DB, Log: d.Log, Payments: orders.TestPayments{}}
-			ordering.MountCustomer(r, d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			// Razorpay when its keys are set (issue 237); otherwise the test payment, which stands in for it
+			// (decision 0013). The staging-only test-payment endpoint exists only with the test payment, so
+			// nobody can mark a real Razorpay order paid without paying.
+			var pay orders.Payments = orders.TestPayments{}
+			if razorpay != nil {
+				pay = razorpay
+			}
+			ordering := &orders.Service{Pool: d.DB, Log: d.Log, Payments: pay}
+			ordering.MountCustomer(r, razorpay == nil && d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Holds end and order clocks move in the background, inside this API for now (decision 0013).
 			go ordering.RunJobs(ctx, 5*time.Second)
+			if razorpay != nil {
+				// Razorpay confirms payments and refunds by webhook; refunds are sent by a pass every 30 s.
+				ordering.MountRazorpayWebhook(r, razorpay)
+				go ordering.RunRefunds(ctx, razorpay, 30*time.Second)
+			}
 			ordering.MountCustomerStream(r, &orders.Streams{Signer: sessions.Signer})
 			ordering.MountSupport(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Pushes go through the outbox. The log pusher stands in until FCM is connected.

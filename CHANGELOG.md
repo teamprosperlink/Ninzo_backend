@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Razorpay payments in test mode (#237)
+- Added: Razorpay orders, the signed webhook `POST /v1/webhooks/razorpay` (payment captured, failed, order paid, refund processed and failed), and refunds sent by a background pass that never sends one twice. Migration 0055. Razorpay is used when its keys are set, and live keys are refused outside production. The free test-payment endpoint is off whenever Razorpay is on.
+- Evidence: docs/testing/reports/237.md
+
 ### Security headers and scanning (#238)
 - Added: HSTS, nosniff, no-store, no-referrer, frame and content-security headers on every API reply; `govulncheck` and gitleaks CI jobs; Dependabot for Go modules and Actions.
 - Fixed: Go 1.27.3 to 1.27.4 for GO-2026-6859 (an HTTP server crash in net/http).

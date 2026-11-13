@@ -68,7 +68,7 @@ func (TestPayments) NewOrder(context.Context, int) (string, error) {
 // RequirePayments stops production starting with the test payment, so nobody gets free food.
 func RequirePayments(cfg config.Config) error {
 	if cfg.Env == "production" {
-		return errors.New("payments: Razorpay is not built yet, and production refuses the test payment")
+		return errors.New("payments: production stays closed until go-live (live Razorpay keys and the owner's okay); the test payment is refused there")
 	}
 	return nil
 }
