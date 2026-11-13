@@ -25,15 +25,36 @@ type Plan struct {
 	// Expected is Σ w_d (1 − q^{k_d}) / Σ w_d: the share of demand expected to find a free scooter in
 	// reach; Covered is the share of demand within reach of at least one scooter.
 	Expected, Covered float64
-	// Gains are each pick's marginal gain, in pick order.
+	// Gains are each pick's marginal gain, in pick order, and Picks the candidate of each pick. Greedy
+	// is deterministic, so the plan for fewer scooters is a prefix of Picks.
 	Gains []float64
+	Picks []int
 }
 
 // Greedy places n scooters on the candidates, at most capacity per candidate, to maximise the
 // expected covered demand with busy share q (0 ≤ q < 1). weights are demand per point.
 func Greedy(cov Coverage, weights []float64, n int, q float64, capacity int) (Plan, error) {
-	if len(cov) == 0 || n < 0 || capacity < 1 || q < 0 || q >= 1 {
-		return Plan{}, errors.New("placement: candidates, n ≥ 0, capacity ≥ 1 and 0 ≤ q < 1 are needed")
+	if capacity < 1 {
+		return Plan{}, errors.New("placement: capacity ≥ 1 is needed")
+	}
+	caps := make([]int, len(cov))
+	for i := range caps {
+		caps[i] = capacity
+	}
+	return GreedyCaps(cov, weights, n, q, caps)
+}
+
+// GreedyCaps is Greedy with a capacity per candidate (a staging node's capacity, say).
+func GreedyCaps(cov Coverage, weights []float64, n int, q float64, caps []int) (Plan, error) {
+	if len(cov) == 0 || n < 0 || q < 0 || q >= 1 || len(caps) != len(cov) {
+		return Plan{}, errors.New("placement: candidates, one capacity each, n ≥ 0 and 0 ≤ q < 1 are needed")
+	}
+	totalCap := 0
+	for _, c := range caps {
+		if c < 0 {
+			return Plan{}, errors.New("placement: a capacity cannot be negative")
+		}
+		totalCap += c
 	}
 	for _, row := range cov {
 		if len(row) != len(weights) {
@@ -45,7 +66,7 @@ func Greedy(cov Coverage, weights []float64, n int, q float64, capacity int) (Pl
 			return Plan{}, errors.New("placement: demand weights must be finite and not negative")
 		}
 	}
-	if n > len(cov)*capacity {
+	if n > totalCap {
 		return Plan{}, errors.New("placement: more scooters than the candidates can hold")
 	}
 	k := make([]int, len(weights)) // scooters covering each demand point
@@ -63,7 +84,7 @@ func Greedy(cov Coverage, weights []float64, n int, q float64, capacity int) (Pl
 	for range n {
 		best, bestG := -1, -1.0
 		for c := range cov {
-			if plan.Count[c] >= capacity {
+			if plan.Count[c] >= caps[c] {
 				continue
 			}
 			// Ties go to the lower index, so a plan is the same every run.
@@ -73,24 +94,40 @@ func Greedy(cov Coverage, weights []float64, n int, q float64, capacity int) (Pl
 		}
 		plan.Count[best]++
 		plan.Gains = append(plan.Gains, bestG)
+		plan.Picks = append(plan.Picks, best)
 		for d, covers := range cov[best] {
 			if covers {
 				k[d]++
 			}
 		}
 	}
-	total, exp, covered := 0.0, 0.0, 0.0
+	plan.Expected, plan.Covered = Score(cov, weights, q, plan.Picks)
+	return plan, nil
+}
+
+// Score gives the expected and covered shares of demand for scooters at picks (candidate indexes,
+// repeated for several at one).
+func Score(cov Coverage, weights []float64, q float64, picks []int) (expected, covered float64) {
+	k := make([]int, len(weights))
+	for _, c := range picks {
+		for d, covers := range cov[c] {
+			if covers {
+				k[d]++
+			}
+		}
+	}
+	total := 0.0
 	for d, w := range weights {
 		total += w
-		exp += w * (1 - math.Pow(q, float64(k[d])))
+		expected += w * (1 - math.Pow(q, float64(k[d])))
 		if k[d] > 0 {
 			covered += w
 		}
 	}
 	if total > 0 {
-		plan.Expected, plan.Covered = exp/total, covered/total
+		expected, covered = expected/total, covered/total
 	}
-	return plan, nil
+	return expected, covered
 }
 
 // Router is what Matrix needs from internal/routing.

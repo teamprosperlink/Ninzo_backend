@@ -31,10 +31,10 @@ Keep free scooters, with the right stock, at the staging nodes that cover the mo
 
 | # | Step | What we need | How | Done when |
 |---|---|---|---|---|
-| 1 | Node catalogue | Ops-entered nodes with approach points and legality notes | The console (other session) already edits places; check the fields | Each pilot node is legal, reachable, and has a snapped road point |
+| 1 | Node catalogue | Ops-entered nodes with approach points and legality notes | The console (other session) already edits places; check the fields | Each pilot node is legal, reachable, and has a snapped road point. Placement plans (#224) choose among the zone's non-test `staging_nodes`, so ops-entered nodes are the candidates; legality and approach points are still ops' to check |
 | 2 | Coverage matrix | `w1`, `w2` | A `tools/` or Go job: node × cell road times, stored as `node_cells` | Rebuilt with each road data version |
 | 3 | Demand per cell and band | `w7` | Read from `w7`'s counts or forecast | A test data set exists for the simulator |
-| 4 | Placement tables | Steps 2 and 3; busy share q (a setting, starting about 0.3 until measured) | Greedy maximum expected covering for n = 1 … N, per band | Stored as `placement_plans`; viewable on a map. The method is built and tested in the simulator (#216, `internal/placement`); storing plans per band is next |
+| 4 | Placement tables | Steps 2 and 3; busy share q (a setting, starting about 0.3 until measured) | Greedy maximum expected covering for n = 1 … N, per band | Stored as `placement_plans`; viewable on a map. The method is built and tested in the simulator (#216, `internal/placement`); storing plans per band is next. **Built (#224):** `placementplan.Build` and `cmd/placement -zone` store plans per weekday, half-hour and n in `placement_plans`; `placementplan.Latest` reads them. Not yet on a map, not rebuilt on a schedule, and read by nothing until relocation v2 |
 | 5 | Relocation v2 | Steps 4 and the existing relocation flow | Replace "nearest node to each gate" with the table and the Hungarian assignment; keep the suggestion, pay and rest rules | The simulator shows more orders served within the budget than today's rule, at the same or fewer moves |
 | 6 | Shift start | Step 4 | A rider starting a shift is given the best open node in the table row | Tested with several riders starting together |
 | 7 | Stock-aware coverage | Stock per scooter (exists) | Coverage per item | Shown in the simulator before use |
