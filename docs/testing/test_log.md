@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-13 | #237 | Razorpay payments in test mode | See PR | PASS | [reports/237.md](reports/237.md) |
 | 2026-11-13 | #238 | security headers (HSTS and more), govulncheck and gitleaks in CI, Dependabot, Go 1.27.4 | See PR | PASS | [reports/238.md](reports/238.md) |
 | 2026-11-13 | #174 | staging database moved to Singapore; writes 1-3.6 s down to about 0.3 s | See PR | PASS | [reports/174.md](reports/174.md) |
 | 2026-11-13 | #226 | relocation v2 behind relocation_by_plan (off) | See PR | PASS | [reports/226.md](reports/226.md) |

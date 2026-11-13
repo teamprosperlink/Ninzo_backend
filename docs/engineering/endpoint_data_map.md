@@ -65,7 +65,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `placement` | `placement_plans` | Per build, weekday, half-hour and number of free scooters: the staging nodes they wait at, and the expected and covered share (#224) | v1.0.0 |
 | `payments` | `payments` | One row per Razorpay attempt, so a retry is a new row | v0.4.0 |
 | `payments` | `refunds` | Refunds, with reason, method and status | v0.4.0 |
-| `payments` | `webhook_events` | Razorpay events already handled | v0.4.0 |
+| `payments` | `webhook_events` | Razorpay events already handled, by event id (#237) | v1.0.0 |
 | `payments` | `remedies` | Credits owed for a missed timer, and their status | v0.6.0 |
 | `dispatch` | `offers` | See section 1.1 | v0.5.0 |
 | `dispatch` | `eta_offers` | Longer ETAs offered at `no_scooter` | v0.6.0 |
