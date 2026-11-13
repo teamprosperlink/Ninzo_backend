@@ -3,6 +3,7 @@ package mockserver
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode/utf8"
 )
@@ -44,7 +45,7 @@ var riderScenarios = map[string]string{
 	"event_rejected":          "POST events rejects every event with wrong_otp",
 	"socket_drop":             "The stream drops after two events",
 	"token_expiring":          "The stream closes with 4401 after two events, unless the app sends a new auth frame",
-	"no_open_shift":           "Break start, break end and the hand stock count fail with no_open_shift",
+	"no_open_shift":           "Break start, break end, the hand stock count, go online, planned end, the two break aliases and quarantine fail with no_open_shift",
 	"order_in_progress":       "Break start fails with order_in_progress, because the rider has a live order",
 	"on_break":                "The rider is on a break: GET state shows it on the shift, and break start fails with on_break",
 	"restock_not_cancellable": "Restock cancel fails with restock_not_cancellable, because the hub has accepted",
@@ -55,6 +56,16 @@ var riderScenarios = map[string]string{
 	"offer_open":              "Break start fails with offer_open, because an offer is waiting for an answer",
 	"unknown_device":          "Shift start fails with 400 unknown_device, because the device_id was not registered by this rider",
 	"idempotency_in_progress": "Any write with an Idempotency-Key returns a retryable 409, with Retry-After",
+	// For the finished rider app (Issue 235, docs/engineering/rider_apk_compatibility.md).
+	"sign_in_paused":       "Verifying a code fails with 429 otp_attempts_exceeded and Retry-After 30, the pause the rider app shows",
+	"masked_call_works":    "Calling the customer returns the masked number. Without this scenario it is call_not_available, until a provider is chosen",
+	"lot_not_on_scooter":   "Quarantine fails with lot_not_on_scooter",
+	"lot_of_another_rider": "Quarantine fails with 404, because the lot is on another rider's scooter",
+	"gate_code_wrong":      "The gate check answers checked true and matched false. Arrival is still by location",
+	"lot_reserved":         "Quarantine fails with lot_reserved, because part of the lot is held for an order",
+	"shift_plan_today":     "GET shift plan has today's plan, made by operations. Without this scenario the plan is null",
+	"shift_plan_closed":    "Answering the shift plan fails with shift_plan_closed, because the hub started packing",
+	"already_verified":     "Uploading a document fails with already_verified",
 }
 
 // riderStory is one scenario's events, with what GET returns.
@@ -73,6 +84,7 @@ func riderOrder(state string, seq int, now time.Time) map[string]any {
 		"items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1}},
 		"gate":  riderGate(), "timer_label": "1.5 mins", "rider_accepted_at": stamp(now.Add(-time.Minute)),
 		"otp_available": state == "ARRIVED", "handed_over_at": nil, "order_number": "A2931", "waiting_since": nil,
+		"total": money(24900), "payment_method": "prepaid", // The rider app reads these (Issue 235).
 	}
 	if state == "HANDED_OVER" {
 		o["handed_over_at"] = stamp(now)
@@ -168,17 +180,26 @@ func sampleOffer(state string, now time.Time) map[string]any {
 	return map[string]any{
 		"id": "off_mock01", "order_id": orderRef, "items": []map[string]any{{"item_id": "item_burger", "name": "Burger", "qty": 1}},
 		"gate": riderGate(), "expires_at": stamp(now.Add(20 * time.Second)), "state": state, "fencing_token": "ft_mock01", "order_number": "A2931",
+		"total": money(24900), "payment_method": "prepaid", // The rider app reads these (Issue 235).
 	}
 }
 
 func sampleShift(now time.Time, ended bool) map[string]any {
 	s := map[string]any{"id": "shf_mock01", "node_id": "node_mock01", "started_at": stamp(now.Add(-time.Hour)), "ended_at": nil,
 		"node_assigned_at": stamp(now.Add(-time.Hour)), "scooter": map[string]any{"id": "scr_mock01", "plate": "NZ-014", "battery_pct": nil},
-		"break_started_at": nil, "break_ends_at": nil, "device_id": "dev_mock01"}
+		"break_started_at": nil, "break_ends_at": nil, "device_id": "dev_mock01",
+		// The rider app's names for the same facts (Issue 235).
+		"online_at": stamp(now.Add(-55 * time.Minute)), "planned_end_at": nil, "break": nil}
 	if ended {
 		s["ended_at"] = stamp(now)
 	}
 	return s
+}
+
+// setBreak puts a break on a shift in both forms the contract carries: our two fields and the rider app's break object.
+func setBreak(s map[string]any, from, to time.Time) {
+	s["break_started_at"], s["break_ends_at"] = stamp(from), stamp(to)
+	s["break"] = map[string]any{"started_at": stamp(from), "ends_at": stamp(to)}
 }
 
 // shiftFor is the open shift a scenario describes: on a break, or started from another phone.
@@ -186,7 +207,7 @@ func shiftFor(scenario string, now time.Time) map[string]any {
 	s := sampleShift(now, false)
 	switch scenario {
 	case "on_break":
-		s["break_started_at"], s["break_ends_at"] = stamp(now.Add(-5*time.Minute)), stamp(now.Add(10*time.Minute))
+		setBreak(s, now.Add(-5*time.Minute), now.Add(10*time.Minute))
 	case "shift_on_other_phone":
 		s["device_id"] = "dev_other01"
 	}
@@ -196,7 +217,7 @@ func shiftFor(scenario string, now time.Time) map[string]any {
 // onBreak is the sample shift just after a break began, with the console's longest break of 15 minutes.
 func onBreak(now time.Time) map[string]any {
 	s := sampleShift(now, false)
-	s["break_started_at"], s["break_ends_at"] = stamp(now), stamp(now.Add(15*time.Minute))
+	setBreak(s, now, now.Add(15*time.Minute))
 	return s
 }
 
@@ -249,9 +270,12 @@ func stockCount(c *call) {
 
 func sampleShiftEntry(id string, now time.Time, ago time.Duration, open bool) map[string]any {
 	e := map[string]any{"id": id, "node_id": "node_mock01", "started_at": stamp(now.Add(-ago)), "ended_at": stamp(now.Add(-ago + 4*time.Hour)),
-		"online_s": 13200, "break_s": 1200, "orders_handed_over": 9}
+		"online_s": 13200, "break_s": 1200, "orders_handed_over": 9,
+		// What the rider app reads of a shift (Issue 235). orders repeats orders_handed_over.
+		"online_at": stamp(now.Add(-ago + 5*time.Minute)), "planned_end_at": nil, "orders": 9, "portions": 14, "avg_delivery_s": 142}
 	if open {
 		e["ended_at"], e["online_s"], e["break_s"], e["orders_handed_over"] = nil, 3300, 300, 2
+		e["orders"], e["portions"] = 2, 3
 	}
 	return e
 }
@@ -280,9 +304,17 @@ func riderRoutes() []route {
 		}
 		return false
 	}
-	return []route{
-		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: otpRequest},
-		{method: "POST", path: "/auth/otp/verify", open: true, noIdempotent: true, handle: func(c *call) { otpVerify(c, riderSessionFields(c)) }},
+	routes := []route{
+		{method: "POST", path: "/auth/otp/request", open: true, noIdempotent: true, handle: riderOtpRequest},
+		{method: "POST", path: "/auth/otp/verify", open: true, noIdempotent: true, handle: func(c *call) {
+			if c.scenario == "sign_in_paused" {
+				// The rider app reads the code and Retry-After and shows the pause (Issue 235).
+				c.w.Header().Set("Retry-After", "30")
+				c.json(429, map[string]any{"code": "otp_attempts_exceeded", "message": "Too many wrong codes. Try again shortly.", "retryable": true})
+				return
+			}
+			otpVerify(c, riderSessionFields(c))
+		}},
 		{method: "POST", path: "/auth/refresh", open: true, noIdempotent: true, handle: refresh},
 		{method: "POST", path: "/auth/signout", noIdempotent: true, handle: func(c *call) { c.json(200, map[string]any{}) }},
 		{method: "GET", path: "/riders/me", handle: func(c *call) {
@@ -293,24 +325,7 @@ func riderRoutes() []route {
 			c.json(200, map[string]any{"rider": sampleRider(c.now, "Ravi Kumar", nil)})
 		}},
 		{method: "PATCH", path: "/riders/me", handle: func(c *call) {
-			var body struct {
-				Name          *string `json:"name"`
-				PreferredArea *string `json:"preferred_area"`
-			}
-			if err := decodeJSON(c.r, &body); err != nil || (body.Name == nil && body.PreferredArea == nil) ||
-				(body.Name != nil && (utf8.RuneCountInString(*body.Name) < 1 || utf8.RuneCountInString(*body.Name) > 80)) ||
-				(body.PreferredArea != nil && utf8.RuneCountInString(*body.PreferredArea) > 80) {
-				c.fail(http.StatusBadRequest, "invalid_request", "Send a name of 1 to 80 characters and a preferred_area of up to 80.", false)
-				return
-			}
-			name, area := "Ravi Kumar", any(nil)
-			if body.Name != nil {
-				name = *body.Name
-			}
-			if body.PreferredArea != nil {
-				area = *body.PreferredArea
-			}
-			c.json(200, map[string]any{"rider": sampleRider(c.now, name, area)})
+			updateRider(c)
 		}},
 		{method: "GET", path: "/riders/me/notifications", handle: func(c *call) {
 			ago := func(m int) string { return stamp(c.now.Add(-time.Duration(m) * time.Minute)) }
@@ -329,6 +344,17 @@ func riderRoutes() []route {
 			}
 			if from, to := c.r.URL.Query().Get("from"), c.r.URL.Query().Get("to"); from != "" && to != "" && from > to {
 				c.fail(http.StatusBadRequest, "invalid_request", "from must not be after to.", false)
+				return
+			}
+			// The rider app asks with days (Issue 235). It does not page, so it gets every shift in one reply.
+			if raw := c.r.URL.Query().Get("days"); raw != "" {
+				days, err := strconv.Atoi(raw)
+				q := c.r.URL.Query()
+				if err != nil || days < 1 || days > 31 || q.Get("from") != "" || q.Get("to") != "" {
+					c.fail(http.StatusBadRequest, "invalid_request", "days is 1 to 31 and cannot be sent with from or to.", false)
+					return
+				}
+				c.json(200, map[string]any{"shifts": []map[string]any{sampleShiftEntry("shf_mock01", c.now, time.Hour, true), sampleShiftEntry("shf_mock00", c.now, 30*time.Hour, false), sampleShiftEntry("shf_mock99", c.now, 54*time.Hour, false)}, "next_cursor": nil})
 				return
 			}
 			items, next := []map[string]any{sampleShiftEntry("shf_mock01", c.now, time.Hour, true), sampleShiftEntry("shf_mock00", c.now, 30*time.Hour, false)}, any("page_2")
@@ -450,6 +476,10 @@ func riderRoutes() []route {
 					c.fail(400, "invalid_request", "take_over needs a device_id.", false)
 					return
 				}
+				if !validChecklist(body["checklist"]) {
+					c.fail(400, "invalid_request", "checklist is a list of up to 20 codes, each once.", false)
+					return
+				}
 				if c.scenario == "unknown_device" {
 					c.fail(400, "unknown_device", "That device is not registered for this rider.", false)
 					return
@@ -562,7 +592,9 @@ func riderRoutes() []route {
 			}
 		}},
 		{method: "POST", path: "/orders/{order_id}/call", handle: func(c *call) {
-			if offerError(c, "call_not_available") {
+			// The owner's rule: no masked call until a provider is chosen. The scenario shows the success shape.
+			if c.scenario != "masked_call_works" {
+				c.fail(409, "call_not_available", "Masked calls are not available yet.", false)
 				return
 			}
 			c.json(200, map[string]any{"phone": "+911140000000", "expires_at": stamp(c.now.Add(5 * time.Minute))})
@@ -604,13 +636,19 @@ func riderRoutes() []route {
 			}
 		}},
 		{method: "GET", path: "/restock/options", handle: func(c *call) {
-			c.json(200, map[string]any{"hubs": []map[string]any{mockHub()}, "items": []map[string]any{{"item_id": "item_burger", "name": "Burger"}}})
+			hub := mockHub()
+			hub["manager_phone"] = "+919845012345" // For Call hub manager in the rider app (Issue 235).
+			c.json(200, map[string]any{"hubs": []map[string]any{hub}, "items": []map[string]any{{"item_id": "item_burger", "name": "Burger"}}})
 		}},
 		{method: "GET", path: "/restock/{request_id}", handle: func(c *call) {
 			c.json(200, map[string]any{"request": sampleRestock("packing", c.now, c.scenario == "hub_short")})
 		}},
 		{method: "POST", path: "/riders/me/problems", handle: func(c *call) {
-			if _, ok := needsBody(c, "type"); ok {
+			if body, ok := needsBody(c, "type"); ok {
+				if t, _ := body["type"].(string); !reportProblemTypes[t] {
+					c.fail(400, "invalid_request", "type is breakdown, accident, gate_closed, customer_absent or unsafe_route.", false)
+					return
+				}
 				c.json(201, map[string]any{"report_id": "rep_mock01"})
 			}
 		}},
@@ -624,7 +662,11 @@ func riderRoutes() []route {
 				"incentives": money(1000), "total": money(7000), "repositioning": money(2000), "repositioning_seconds": 600})
 		}},
 	}
+	return append(routes, riderAPKRoutes()...)
 }
+
+// reportProblemTypes is the enum of reportProblem type in the contract. The settings may offer only these.
+var reportProblemTypes = map[string]bool{"breakdown": true, "accident": true, "gate_closed": true, "customer_absent": true, "unsafe_route": true}
 
 func eventBatch(c *call) {
 	var body struct {
@@ -662,7 +704,9 @@ func riderSessionFields(c *call) map[string]any {
 // sampleRider is the signed-in rider. preferredArea is nil until the rider has set one.
 func sampleRider(now time.Time, name string, preferredArea any) map[string]any {
 	return map[string]any{"id": "rdr_mock0001", "name": name, "status": "active", "zone_id": "zone_mock01", "preferred_area": preferredArea,
-		"created_at": stamp(now.Add(-30 * 24 * time.Hour)), "approved_at": stamp(now.Add(-29 * 24 * time.Hour))}
+		"created_at": stamp(now.Add(-30 * 24 * time.Hour)), "approved_at": stamp(now.Add(-29 * 24 * time.Hour)),
+		// For the rider app (Issue 235). A rider who has set no email and no place shows null.
+		"phone": "+919876543210", "email": nil, "area": nil}
 }
 
 // mockHub is the sample hub reference, with its place.

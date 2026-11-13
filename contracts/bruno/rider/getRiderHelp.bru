@@ -1,0 +1,16 @@
+meta {
+  name: getRiderHelp
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/riders/me/help
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

@@ -1,0 +1,16 @@
+meta {
+  name: getRiderSettings
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/riders/me/settings
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

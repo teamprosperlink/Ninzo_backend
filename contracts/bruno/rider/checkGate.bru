@@ -1,0 +1,24 @@
+meta {
+  name: checkGate
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/orders/mock_id/gate-check
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-checkGate-0001
+}
+
+body:json {
+  {
+    "method": "code",
+    "value": "GATE-4821"
+  }
+}

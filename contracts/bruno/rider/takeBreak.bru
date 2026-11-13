@@ -1,0 +1,23 @@
+meta {
+  name: takeBreak
+  type: http
+  seq: 55
+}
+
+post {
+  url: {{baseUrl}}/riders/me/shifts/break
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-takeBreak-0001
+}
+
+body:json {
+  {
+    "length_s": 900
+  }
+}

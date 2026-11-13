@@ -1,0 +1,17 @@
+meta {
+  name: goOnline
+  type: http
+  seq: 25
+}
+
+post {
+  url: {{baseUrl}}/riders/me/shifts/online
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-goOnline-0001
+}

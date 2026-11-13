@@ -1,0 +1,23 @@
+meta {
+  name: sendRiderFeedback
+  type: http
+  seq: 47
+}
+
+post {
+  url: {{baseUrl}}/riders/me/feedback
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-sendRiderFeedback-0001
+}
+
+body:json {
+  {
+    "message": "The map is hard to read at night."
+  }
+}

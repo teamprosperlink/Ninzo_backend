@@ -1,0 +1,16 @@
+meta {
+  name: getShiftPlan
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/riders/me/shift-plan
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

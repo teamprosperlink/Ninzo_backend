@@ -207,6 +207,20 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `cancelRestock` | `restock_requests` | `restock_requests`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `markWaitingAtGate` | `offers`, `orders`, `location_pings` | `orders`, `order_events`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | Push, to the customer |
 | `submitStockCount` | `shifts`, `scooters`, `scooter_stock`, `lots`, `menu_items` | `stock_counts`, `stock_count_lines`, `audit_events`, `idempotency_keys` | | |
+| `goOnline` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Adds `shifts.online_at`, no new table |
+| `takeBreak` | `shifts`, `shift_breaks`, `offers`, `zone_settings` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Mock only until part B of #235. An alias of `startBreak` that takes `length_s`, capped by `zone_settings` `max_break_s` |
+| `endShiftBreak` | `shifts`, `shift_breaks` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Mock only until part B of #235. An alias of `endBreak` |
+| `setPlannedEnd` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Records `shifts.planned_end_at`, and nothing ends the shift |
+| `listRiderDocuments` | `riders` | | | Mock only until part B of #235. File metadata needs a table that part B plans. The photos are in Supabase Storage |
+| `uploadRiderDocument` | `riders`, `rider_verifications` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Supabase Storage, a private bucket, never a database column. File metadata needs a table that part B plans |
+| `getRiderSettings` | `riders`, `zones`, `zone_settings` | | | Mock only until part B of #235 |
+| `getRiderHelp` | `riders` | | | Mock only until part B of #235. Help articles need a table that part B plans, edited in the console |
+| `sendRiderFeedback` | `riders` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Feedback needs a table that part B plans |
+| `reportScooterTelemetry` | `scooters` | `scooters` | | Mock only until part B of #235. A key for each scooter, held as a hash on `scooters`. Not the rider app |
+| `quarantineLot` | `shifts`, `scooters`, `scooter_stock`, `lots`, `offers` | `lots`, `scooter_stock`, `stock_ledger`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235 |
+| `checkGate` | `offers`, `orders`, `gates` | | | Mock only until part B of #235. Changes nothing, and never decides arrival |
+| `getShiftPlan` | `riders` | | | Mock only until part B of #235. Plans need a table that part B plans. Null while operations have made none |
+| `replyToShiftPlan` | `riders` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. The reply is stored on the plan table that part B plans |
 
 ## 4.1 Partner API
 

@@ -1,0 +1,16 @@
+meta {
+  name: listRiderDocuments
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{baseUrl}}/riders/me/documents
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
