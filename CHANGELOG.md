@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### With matching_by_road on, reach is by road time (#211)
+- Changed: with `matching_by_road` = 1 and routing configured, `availability` takes every scooter within `max_search_radius_m` whose rider is within `sweet_spot_budget_s` by road, fastest first, for the pick (`PickScooter`) and the menu (`At`) alike. This is the rule the simulator measured (#205). A scooter past the straight line but near by road can now serve, and one near by line but past the budget cannot. A routing outage falls back to today's straight-line reach. With the setting at 0 nothing changes.
+- Evidence: docs/testing/reports/211.md
+
 ### Road-time matching, behind a setting (#209)
 - Added: `internal/matching`, pure ordering of the scooters that can take an order: `ByStraightLine` (today) and `ByRoad`, the fastest by road from each rider's position. Unreachable scooters go last, and a routing outage keeps today's order.
 - Added: migration 0051 and the setting `matching_by_road` (0 or 1, **0 by default**). With 1, `availability.PickScooter` keeps every filter but tries the passing scooters fastest by road, from the rider's live position (or the node when the ping is older than `signal_release_s`).

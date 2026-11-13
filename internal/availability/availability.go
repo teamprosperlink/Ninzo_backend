@@ -93,17 +93,13 @@ func At(ctx context.Context, q querier, lat, lng float64, now time.Time) (Result
 	if err != nil {
 		return Result{}, err
 	}
-	budget, _ := settings.Get("sweet_spot_budget_s")
-	speed, _ := settings.Get("straight_line_speed_kmh")
-	radius, _ := settings.Get("max_search_radius_m")
-	// The furthest a scooter can be: the nearer of the widest search and what the budget allows.
-	reach := math.Min(float64(radius), float64(speed)/3.6*float64(budget))
-
-	var scooters int
-	if err := q.QueryRow(ctx, "SELECT count(*) FROM ("+reachable+") r", zone, lat, lng, reach).Scan(&scooters); err != nil {
+	// The scooters that can serve this point, by the same rule PickScooter uses, so the menu never
+	// promises what a pick would refuse (#211).
+	scooters, err := inReach(ctx, q, zone, lat, lng, now, settings, nil)
+	if err != nil {
 		return Result{}, err
 	}
-	if scooters == 0 {
+	if len(scooters) == 0 {
 		none.Reason = ReasonNoCoverage
 		return none, nil
 	}
@@ -112,7 +108,7 @@ func At(ctx context.Context, q querier, lat, lng float64, now time.Time) (Result
 	weekday := (int(local.Weekday()) + 6) % 7 // Monday is 0.
 	minute := local.Hour()*60 + local.Minute()
 	rows, err := q.Query(ctx, `
-		WITH reach AS (`+reachable+`),
+		WITH reach AS (SELECT unnest($2::uuid[]) AS id),
 		per_scooter AS (
 			SELECT ss.scooter_id, l.item_id, sum(ss.on_hand - ss.reserved)::int AS qty
 			FROM scooter_stock ss JOIN reach ON reach.id = ss.scooter_id JOIN lots l ON l.id = ss.lot_id
@@ -127,8 +123,8 @@ func At(ctx context.Context, q querier, lat, lng float64, now time.Time) (Result
 		WHERE st.qty > 0 AND m.status = 'active'
 			AND (NOT EXISTS (SELECT 1 FROM availability_rules ar WHERE ar.item_id = m.id AND (ar.zone_id IS NULL OR ar.zone_id = $1))
 				OR EXISTS (SELECT 1 FROM availability_rules ar WHERE ar.item_id = m.id AND (ar.zone_id IS NULL OR ar.zone_id = $1)
-					AND (ar.weekdays >> $5::int) & 1 = 1 AND $6::int >= ar.start_minute AND $6::int < ar.end_minute))
-		ORDER BY m.sort_order, m.name, m.id`, zone, lat, lng, reach, weekday, minute)
+					AND (ar.weekdays >> $3::int) & 1 = 1 AND $4::int >= ar.start_minute AND $4::int < ar.end_minute))
+		ORDER BY m.sort_order, m.name, m.id`, zone, scooters, weekday, minute)
 	if err != nil {
 		return Result{}, err
 	}

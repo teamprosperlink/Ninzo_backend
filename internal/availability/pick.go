@@ -40,13 +40,6 @@ func PickScooterExcept(ctx context.Context, tx pgx.Tx, lat, lng float64, now tim
 		return Pick{}, err
 	}
 	pick := Pick{ZoneID: zone, Settings: settings}
-	budget, _ := settings.Get("sweet_spot_budget_s")
-	speed, _ := settings.Get("straight_line_speed_kmh")
-	radius, _ := settings.Get("max_search_radius_m")
-	reach := float64(radius)
-	if r := float64(speed) / 3.6 * float64(budget); r < reach {
-		reach = r
-	}
 	items := make([]string, 0, len(basket))
 	for id := range basket {
 		items = append(items, id)
@@ -68,38 +61,15 @@ func PickScooterExcept(ctx context.Context, tx pgx.Tx, lat, lng float64, now tim
 		pick.Reason = ReasonSoldOut
 		return pick, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT r.id::text FROM (`+reachable+`) r JOIN scooters s ON s.id = r.id JOIN staging_nodes n ON n.id = s.node_id
-		ORDER BY extensions.ST_Distance(
-			extensions.ST_SetSRID(extensions.ST_MakePoint(n.lng, n.lat), 4326)::extensions.geography,
-			extensions.ST_SetSRID(extensions.ST_MakePoint($3, $2), 4326)::extensions.geography), r.id`, zone, lat, lng, reach)
+	// The scooters in reach, in the order to try them: today nearest node within the straight-line
+	// reach; with matching_by_road on, within the sweet spot by road, fastest first (#209, #211).
+	scooters, err := inReach(ctx, tx, zone, lat, lng, now, settings, except)
 	if err != nil {
 		return Pick{}, err
-	}
-	all, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return Pick{}, err
-	}
-	left := map[string]bool{}
-	for _, id := range except {
-		left[id] = true
-	}
-	scooters := all[:0]
-	for _, id := range all {
-		if !left[id] {
-			scooters = append(scooters, id)
-		}
 	}
 	if len(scooters) == 0 {
 		pick.Reason = ReasonNoCoverage
 		return pick, nil
-	}
-	// Today's order is by straight line from each scooter's node. With matching_by_road on and
-	// routing configured, the same scooters, busy and excluded ones already left out, are tried
-	// fastest by road first (W5, #209).
-	if byRoad, _ := settings.Get("matching_by_road"); byRoad == 1 && len(scooters) > 1 {
-		if scooters, err = orderByRoad(ctx, tx, scooters, lat, lng, now, settings); err != nil {
-			return Pick{}, err
-		}
 	}
 	count := func(scooter string) (map[string]int, error) {
 		rows, err := tx.Query(ctx, `SELECT l.item_id::text, sum(ss.on_hand - ss.reserved)::int
