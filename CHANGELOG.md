@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Demand per cell and half-hour, and forecast v1 (#220)
+- Added: `demand_checks` (migration 0052) and the setting `demand_retention_days` (84). `GET /v1/availability` now keeps each check once per IST day, half-hour, `blr76` cell, customer (a day-salted hash) and outcome, best effort. `internal/demand` adds Counts (paid orders included), Forecast v1 (same weekday and band, recent weeks weighted), Backtest, Forget and Prune.
+- Evidence: docs/testing/reports/220.md
+
 ### Tiny negative numbers from OSRM count as 0 (#217)
 - Fixed: OSRM can answer -0.2 m for a point on the destination. Routing refused the whole table and fell back to straight lines; a value above -1 now counts as 0.
 - Evidence: docs/testing/reports/217.md

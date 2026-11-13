@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-13 | #220 | demand per cell and half-hour, forecast v1 | See PR | PASS | [reports/220.md](reports/220.md) |
 | 2026-11-13 | #217 | tiny negative OSRM numbers count as 0 | See PR | PASS | [reports/217.md](reports/217.md) |
 | 2026-11-13 | #216 | placement by maximum expected covering, in the simulator | See PR | PASS | [reports/216.md](reports/216.md) |
 | 2026-11-13 | #214 | the simulator gets fleet state | See PR | PASS | [reports/214.md](reports/214.md) |

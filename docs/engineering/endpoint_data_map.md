@@ -60,6 +60,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `orders` | `order_items` | Items, with the price fixed at creation | v0.4.0 |
 | `orders` | `order_events` | Append-only true history of each order | v0.4.0 |
 | `orders` | `availability_notifications` | "Notify me" requests | v0.6.0 |
+| `demand` | `demand_checks` | Each availability check, once per day, half-hour, cell, customer (day-salted hash) and outcome | v1.0.0 (#220) |
 | `payments` | `payments` | One row per Razorpay attempt, so a retry is a new row | v0.4.0 |
 | `payments` | `refunds` | Refunds, with reason, method and status | v0.4.0 |
 | `payments` | `webhook_events` | Razorpay events already handled | v0.4.0 |
@@ -136,7 +137,7 @@ Redis is never the source of truth. If it is lost, positions refill from the nex
 | `checkLocation` | `zones` | | | |
 | `listMenuItems` | `menu_items` | | | |
 | `getMenuItem` | `menu_items` | | | |
-| `getAvailability` | `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooter_stock`, `lots`, `scooters`, `shifts`, `riders`, `people`, `staging_nodes`, `refresh_tokens` | | Positions from v0.5.0 | Routing engine, after the road test |
+| `getAvailability` | `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooter_stock`, `lots`, `scooters`, `shifts`, `riders`, `people`, `staging_nodes`, `refresh_tokens` | `demand_checks` (best effort, #220) | Positions from v0.5.0 | Routing engine, after the road test |
 | `notifyWhenAvailable` | `customers`, `people`, `gates` | `availability_notifications`, `idempotency_keys` | | |
 | `listOrders` | `orders`, `order_items`, `payments`, `gates`, `riders`, `remedies` | | | |
 | `createOrder` | `people`, `customers`, `orders`, `gates`, `zones`, `zone_settings`, `menu_items`, `availability_rules`, `scooters`, `scooter_stock`, `lots` | `orders`, `order_items`, `order_events`, `reservations`, `scooter_stock`, `stock_ledger`, `payments`, `scheduled_tasks`, `outbox_events`, `audit_events`, `idempotency_keys` | Positions | Razorpay, routing engine |

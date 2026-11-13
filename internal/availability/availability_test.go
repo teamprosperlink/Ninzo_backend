@@ -335,3 +335,44 @@ func TestTheEndpoint(t *testing.T) {
 		t.Errorf("an ended session: %d", code)
 	}
 }
+
+// A check is kept as demand, once per band (#220); losing that record never fails the customer.
+func TestACheckIsKeptAsDemand(t *testing.T) {
+	f := newFixture(t)
+	url := fmt.Sprintf("%s/v1/availability?lat=%v&lng=%v", f.srv.URL, custLat, custLng)
+	for range 3 {
+		if code, out := get(t, url, f.token); code != 200 || out["offer_available"] != true {
+			t.Fatalf("%d %v", code, out)
+		}
+	}
+	var n int
+	var outcome string
+	if err := f.pool.QueryRow(context.Background(), "SELECT count(*), min(outcome) FROM demand_checks").Scan(&n, &outcome); err != nil || n != 1 || outcome != "offered" {
+		t.Fatalf("%d rows, %q: %v", n, outcome, err)
+	}
+	// Far outside the zone: kept as out of the service area.
+	if code, _ := get(t, f.srv.URL+"/v1/availability?lat=12.99&lng=77.70", f.token); code != 200 {
+		t.Fatal(code)
+	}
+	if err := f.pool.QueryRow(context.Background(), "SELECT count(*) FROM demand_checks WHERE outcome = 'out_of_service_area'").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("out of area: %d %v", n, err)
+	}
+	// Demand cannot be written: the customer still gets an answer. The table is renamed as its owner
+	// (the service role cannot), so every insert fails.
+	cfg, err := pgx.ParseConfig(os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Database = f.pool.Config().ConnConfig.Database
+	owner, err := pgx.ConnectConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	if _, err := owner.Exec(context.Background(), "ALTER TABLE demand_checks RENAME TO demand_checks_off"); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := get(t, fmt.Sprintf("%s/v1/availability?lat=%v&lng=%v", f.srv.URL, custLat+0.001, custLng), f.token); code != 200 || out["offer_available"] != true {
+		t.Fatalf("a failed record failed the request: %d %v", code, out)
+	}
+}
