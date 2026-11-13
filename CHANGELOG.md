@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Tiny negative numbers from OSRM count as 0 (#217)
+- Fixed: OSRM can answer -0.2 m for a point on the destination. Routing refused the whole table and fell back to straight lines; a value above -1 now counts as 0.
+- Evidence: docs/testing/reports/217.md
+
 ### The simulator gets fleet state (#214)
 - Added: `sim.RunFleet` and `cmd/sim -fleet N -orders-per-hour R -hours H`. Orders arrive over time, and a rider is busy from packing until they are back at their node, so refusals split into busy (a rider in reach was busy) and reach (nobody in reach), with each rider's busy share.
 - Found: on the test zones with 4 to 6 riders at 10 to 60 orders an hour, reach is the larger cause of refusals (78 to 100% for today's rule), and a busy fleet is a real second that grows with demand; riders are busy 0 to 30% of the time. Placement (W4) is the hypothesis to test next. See w8.

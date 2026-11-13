@@ -812,3 +812,31 @@ func TestBearing(t *testing.T) {
 		}
 	}
 }
+
+// OSRM rounds a point on the destination to a tiny negative distance (#217): that is 0, from
+// OSRM; a clearly negative number is still a bad reply.
+func TestATinyNegativeFromOSRMIsZero(t *testing.T) {
+	f, srv := newFake(t)
+	var dist, dur float64
+	f.handle = func(w http.ResponseWriter, _ *http.Request, service string, _ []Point) bool {
+		if service != "table" {
+			return false
+		}
+		writeJSON(w, map[string]any{"code": "Ok", "durations": [][]any{{dur}, {12.0}}, "distances": [][]any{{dist}, {100.0}}})
+		return true
+	}
+	c := client(t, Config{BaseURL: srv.URL})
+	dist, dur = -0.2, 0
+	legs, err := c.Table(context.Background(), []Point{gate, rider}, gate, 18)
+	if err != nil || legs[0].Source != SourceOSRM || legs[0].Metres != 0 || !legs[0].Reachable || legs[1].Seconds != 12 {
+		t.Fatalf("-0.2 m: %+v %v", legs, err)
+	}
+	dist = -1.5
+	if legs, _ = c.Table(context.Background(), []Point{gate, rider}, gate, 18); legs[0].Source != SourcePlaceholder {
+		t.Fatalf("-1.5 m was accepted: %+v", legs)
+	}
+	dist, dur = 3, -0.4
+	if legs, _ = c.Table(context.Background(), []Point{gate, rider}, gate, 18); legs[0].Source != SourceOSRM || legs[0].Seconds != 0 {
+		t.Fatalf("-0.4 s: %+v", legs)
+	}
+}
