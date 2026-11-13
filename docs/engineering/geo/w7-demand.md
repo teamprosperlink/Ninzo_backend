@@ -23,8 +23,8 @@ Lost demand matters most: counting only served orders hides the places where we 
 
 | # | Step | What we need | How | Done when |
 |---|---|---|---|---|
-| 1 | Demand counts | `w2` cells | A table of counts per cell, weekday and 30-minute band, for paid, refused and notify-me | Rebuilt from history; updated as orders come |
-| 2 | Forecast v1 | Step 1 | A weighted average of the same weekday and band, recent weeks counting more | Its error is measured each week |
+| 1 | Demand counts | `w2` cells | A table of counts per cell, weekday and 30-minute band, for paid, refused and notify-me | Rebuilt from history; updated as orders come. **Built (#220):** availability checks are kept in `demand_checks` (offered, no_coverage, sold_out, zone_off, out_of_service_area); `demand.Counts` adds paid orders at the gate cell. Notify-me is not counted yet |
+| 2 | Forecast v1 | Step 1 | A weighted average of the same weekday and band, recent weeks counting more | Its error is measured each week. **Built (#220):** `History.Forecast` and `History.Backtest` (mean absolute error); not yet run weekly, and not yet fed to placement (W7b) |
 | 3 | Cold start | The owner or ops | Expected demand entered by hand per area and band until real data exists (offices, colleges, events) | Placement has something to plan with on day one |
 | 4 | Forecast v2 | Months of data | Gradient-boosted trees with weather and holidays | Only if it beats v1 on the measured error |
 

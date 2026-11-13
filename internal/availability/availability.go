@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/catalog"
+	"github.com/teamprosperlink/Ninzo_backend/internal/demand"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
@@ -152,6 +153,8 @@ type Service struct {
 	Pool *pgxpool.Pool
 	Log  *slog.Logger
 	now  func() time.Time
+	// prune drops old demand checks at most once an hour (#220).
+	prune demand.Pruner
 }
 
 // MountCustomer adds getAvailability.
@@ -251,7 +254,30 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.record(r.Context(), actor.ID, lat, lng, res)
 	reply(w, res, s.clock())
+}
+
+// record keeps the check as demand (#220). It is best effort: a failure is logged, and the customer
+// still gets their answer.
+func (s *Service) record(ctx context.Context, customerID string, lat, lng float64, res Result) {
+	outcome := res.Reason
+	if res.Offer {
+		outcome = demand.Offered
+	}
+	if !demand.Known(outcome) {
+		return
+	}
+	// Bounded, so a slow write or prune cannot hold the customer's answer for long.
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	now := s.clock()
+	if err := demand.Record(ctx, s.Pool, customerID, lat, lng, now, outcome); err != nil {
+		s.Log.WarnContext(ctx, "demand not recorded", "error", err)
+	}
+	if _, err := s.prune.Maybe(ctx, s.Pool, now); err != nil {
+		s.Log.WarnContext(ctx, "demand not pruned", "error", err)
+	}
 }
 
 func reply(w http.ResponseWriter, res Result, now time.Time) {
