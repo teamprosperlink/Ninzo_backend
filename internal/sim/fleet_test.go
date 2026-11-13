@@ -179,3 +179,51 @@ func TestAStuckRideStillCostsTheRider(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 }
+
+func TestPlaceSpreadsScootersOverDemand(t *testing.T) {
+	sc := Scenario{Area: Box{12.925, 77.612, 12.945, 77.640}, Setting: start}
+	pts, plan, err := Place(context.Background(), &straightRoads{}, sc, PlaceOptions{N: 4, Q: 0.2, Capacity: 1, GridRows: 4, GridCols: 6, Demand: 120, DemandSeed: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pts) != 4 {
+		t.Fatalf("%d points", len(pts))
+	}
+	seen := map[routing.Point]bool{}
+	for _, p := range pts {
+		if seen[p] {
+			t.Fatalf("capacity 1 but %v twice", p)
+		}
+		seen[p] = true
+	}
+	// Spread out: on straight roads at 5 m/s an 80 s budget reaches 400 m; four placed scooters
+	// should cover clearly more demand than four bunched at one corner.
+	if plan.Covered <= 0.3 {
+		t.Fatalf("placed scooters cover %.2f of demand", plan.Covered)
+	}
+	for i := 1; i < len(plan.Gains); i++ {
+		if plan.Gains[i] > plan.Gains[i-1]+1e-12 {
+			t.Fatalf("gains rose: %v", plan.Gains)
+		}
+	}
+}
+
+// TestGoldenPlaceOnRealRoads places four riders on the test-zone OSRM (CI job routes).
+func TestGoldenPlaceOnRealRoads(t *testing.T) {
+	c := goldenRouter(t)
+	sc := Scenario{Area: Box{12.925, 77.612, 12.945, 77.640}, Setting: start}
+	pts, plan, err := Place(context.Background(), c, sc, PlaceOptions{N: 4, Q: 0.2, Capacity: 1, GridRows: 4, GridCols: 5, Demand: 40, DemandSeed: 1001})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("placed %v: covered %.2f, expected %.2f, gains %v", pts, plan.Covered, plan.Expected, plan.Gains)
+	// q = 0.2 makes expected coverage strictly below covered, and four riders cover something.
+	if len(pts) != 4 || plan.Covered < 0.05 || plan.Expected >= plan.Covered || plan.Expected <= 0 {
+		t.Fatalf("%d points, %+v", len(pts), plan)
+	}
+	for i := 1; i < len(plan.Gains); i++ {
+		if plan.Gains[i] > plan.Gains[i-1]+1e-12 {
+			t.Fatalf("gains rose: %v", plan.Gains)
+		}
+	}
+}

@@ -65,6 +65,8 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 	hours := fs.Float64("hours", 3, "fleet mode: hours simulated")
 	pack := fs.Float64("pack", 60, "fleet mode: packing seconds")
 	handover := fs.Float64("handover", 60, "fleet mode: handover seconds")
+	place := fs.Bool("place", false, "fleet mode: place the riders by maximum expected covering on road times instead of the fixed points")
+	busyQ := fs.Float64("q", 0.2, "with -place: the busy share for expected covering")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return errors.New("usage: sim -osrm <url> [-zone koramangala|indiranagar] [-orders N] [-seed S] [-seeds K] [settings]")
 	}
@@ -95,6 +97,16 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 		}
 		if *rate <= 0 || *rate > 600 || *hours <= 0 || *hours > 24 {
 			return errors.New("orders-per-hour must be above 0 and at most 600, hours above 0 and at most 24")
+		}
+		if *place {
+			// Placed on demand drawn with a seed of its own (1000 + seed), so the evaluation seeds
+			// below never judge placement on the demand it was fitted to.
+			pts, plan, err := sim.Place(ctx, r, sc, sim.PlaceOptions{N: *fleetN, Q: *busyQ, Capacity: 1, GridRows: 6, GridCols: 8, Demand: 150, DemandSeed: 1000 + *seed})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "placed %d riders: %.0f%% of placement demand in reach, %.0f%% expected at q %.2f\n", *fleetN, 100*plan.Covered, 100*plan.Expected, *busyQ)
+			sc.Riders = pts
 		}
 		return runFleet(ctx, r, sc, *fleetN, *rate, *hours, *pack, *handover, *seed, *seeds, out)
 	}
