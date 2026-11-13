@@ -22,7 +22,7 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 | # | Account | Create | Put in |
 |---|---|---|---|
 | 4a | Docker Desktop | Start it. It is installed but was not running | Local Postgres and Redis |
-| 5 | Supabase | Connected. `Ninzo-backend-mumbai` (`chyejfgsipcsdxnginei`) is live, on the free plan. Its session pooler string is in `.env`. The existing project belongs to a different app and stays untouched | `DATABASE_URL`: session pooler string |
+| 5 | Supabase | Connected. `ninzo-staging-sg` (`xzndsqckkywmcobdeuep`, Singapore) is live, on the free plan, since 2026-11-13 (#174); `Ninzo-backend-mumbai` (`chyejfgsipcsdxnginei`) is paused as a backup. Its session pooler string is in `.env`. The existing project belongs to a different app and stays untouched | `DATABASE_URL`: session pooler string |
 | 6 | Google Maps Platform | A billing-enabled project and a server key restricted by API and IP. Separate restricted keys go to each app | `GOOGLE_MAPS_SERVER_API_KEY` |
 | 7 | Decision | Pilot city, for map data and polygons | Reply in chat or an Issue |
 
