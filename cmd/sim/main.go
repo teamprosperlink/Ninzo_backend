@@ -14,8 +14,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/teamprosperlink/Ninzo_backend/internal/placement"
 	"github.com/teamprosperlink/Ninzo_backend/internal/routing"
 	"github.com/teamprosperlink/Ninzo_backend/internal/sim"
 )
@@ -67,6 +70,8 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 	handover := fs.Float64("handover", 60, "fleet mode: handover seconds")
 	place := fs.Bool("place", false, "fleet mode: place the riders by maximum expected covering on road times instead of the fixed points")
 	busyQ := fs.Float64("q", 0.2, "with -place: the busy share for expected covering")
+	hotspots := fs.String("hotspots", "", "uneven demand: lat,lng,share,radius_m;... (share of all gates from each; the rest uniform)")
+	placeFrom := fs.String("place-from", "draws", "with -place: fit on draws (gates drawn from the scenario's demand), uniform (as if demand were even) or forecast (a 4-week synthetic history per cell, forecast v1)")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return errors.New("usage: sim -osrm <url> [-zone koramangala|indiranagar] [-orders N] [-seed S] [-seeds K] [settings]")
 	}
@@ -81,6 +86,13 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 		return errors.New("orders must be 1 to 10000")
 	}
 	sc.Orders, sc.Seed, sc.Setting = *orders, *seed, s
+	if *hotspots != "" {
+		hs, err := parseHotspots(*hotspots)
+		if err != nil {
+			return err
+		}
+		sc.Hotspots = hs
+	}
 	if r == nil {
 		if *osrm == "" {
 			return errors.New("-osrm is required: the simulator runs on real roads")
@@ -101,7 +113,28 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 		if *place {
 			// Placed on demand drawn with a seed of its own (1000 + seed), so the evaluation seeds
 			// below never judge placement on the demand it was fitted to.
-			pts, plan, err := sim.Place(ctx, r, sc, sim.PlaceOptions{N: *fleetN, Q: *busyQ, Capacity: 1, GridRows: 6, GridCols: 8, Demand: 150, DemandSeed: 1000 + *seed})
+			o := sim.PlaceOptions{N: *fleetN, Q: *busyQ, Capacity: 1, GridRows: 6, GridCols: 8, Demand: 150, DemandSeed: 1000 + *seed}
+			var pts []routing.Point
+			var plan placement.Plan
+			var err error
+			switch *placeFrom {
+			case "draws":
+				pts, plan, err = sim.Place(ctx, r, sc, o)
+			case "uniform":
+				even := sc
+				even.Hotspots = nil
+				pts, plan, err = sim.Place(ctx, r, even, o)
+			case "forecast":
+				// Four past weeks of 150 gates each, seeds 2000 + 4·seed to 2003 + 4·seed: never the
+				// evaluation seeds, and no two fits share a week.
+				cells, w, cerr := sim.CellDemand(ctx, r, sc, 4, 150, 2000+4*(*seed), 0.8)
+				if cerr != nil {
+					return cerr
+				}
+				pts, plan, err = sim.PlaceOnCells(ctx, r, sc, cells, w, o)
+			default:
+				return errors.New("place-from must be draws, uniform or forecast")
+			}
 			if err != nil {
 				return err
 			}
@@ -196,4 +229,25 @@ func runFleet(ctx context.Context, r sim.Router, sc sim.Scenario, n int, rate, h
 			rule, p.orders, p.served, p.busy, p.reach, p.stuck, 100*per, 100*lo, 100*hi, 100*busyShare[rule])
 	}
 	return nil
+}
+
+// parseHotspots reads lat,lng,share,radius_m;... .
+func parseHotspots(s string) ([]sim.Hotspot, error) {
+	var out []sim.Hotspot
+	for _, part := range strings.Split(s, ";") {
+		f := strings.Split(strings.TrimSpace(part), ",")
+		if len(f) != 4 {
+			return nil, fmt.Errorf("hotspot %q: want lat,lng,share,radius_m", part)
+		}
+		var v [4]float64
+		for i, x := range f {
+			n, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+			if err != nil {
+				return nil, fmt.Errorf("hotspot %q: %v", part, err)
+			}
+			v[i] = n
+		}
+		out = append(out, sim.Hotspot{Lat: v[0], Lng: v[1], Share: v[2], RadiusM: v[3]})
+	}
+	return out, nil
 }

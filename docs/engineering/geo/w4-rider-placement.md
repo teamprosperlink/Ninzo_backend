@@ -89,6 +89,7 @@ With the placeholder profile and uniform demand:
   - The profile is a placeholder.
   - Scooters do not move during the day (relocation, W4 step 5).
 - Found on the way: OSRM can answer -0.2 m for a point on the destination, and routing refused the whole table. Fixed in #217.
+- **Uneven demand (#222, w7):** with synthetic hotspots, placement that sees where demand is beats the fixed points (7 of 8 placements under both rules), and beats placement as if demand were even (all 8). Fitted as if even, it can be worse than the fixed points. Forecast per cell does as well as placing on the demand draws directly; it adds nothing beyond knowing the demand here.
 
 ## Path to scale
 Exact placement with OR-Tools; plans per zone; learned values of a free scooter at a place and time once there is enough data.

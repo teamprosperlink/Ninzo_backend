@@ -41,6 +41,53 @@ type Scenario struct {
 	Orders  int
 	Seed    uint64
 	Setting Settings
+	// Hotspots make demand uneven (issue 222). None: gates are uniform across the area.
+	Hotspots []Hotspot
+}
+
+// Hotspot is a place orders come from: a share of all gates, spread around it with a Gaussian of
+// RadiusM metres in each direction. Gates not from a hotspot are uniform across the area.
+type Hotspot struct {
+	Lat, Lng, Share, RadiusM float64
+}
+
+func checkHotspots(hs []Hotspot) error {
+	sum := 0.0
+	for _, h := range hs {
+		if h.Share <= 0 || h.RadiusM <= 0 || math.IsNaN(h.Lat) || math.IsNaN(h.Lng) {
+			return errors.New("sim: a hotspot needs a share and a radius above zero")
+		}
+		sum += h.Share
+	}
+	if sum > 1+1e-9 {
+		return errors.New("sim: hotspot shares add up to more than 1")
+	}
+	return nil
+}
+
+// point draws one candidate gate. With no hotspots it makes exactly the two draws it always made, so
+// earlier runs and goldens are unchanged.
+func (sc Scenario) point(rng *rand.Rand) routing.Point {
+	if len(sc.Hotspots) > 0 {
+		u := rng.Float64()
+		for _, h := range sc.Hotspots {
+			if u < h.Share {
+				return routing.Point{
+					Lat: h.Lat + rng.NormFloat64()*h.RadiusM/111320,
+					Lng: h.Lng + rng.NormFloat64()*h.RadiusM/(111320*math.Cos(h.Lat*math.Pi/180)),
+				}
+			}
+			u -= h.Share
+		}
+	}
+	return routing.Point{
+		Lat: sc.Area.MinLat + rng.Float64()*(sc.Area.MaxLat-sc.Area.MinLat),
+		Lng: sc.Area.MinLng + rng.Float64()*(sc.Area.MaxLng-sc.Area.MinLng),
+	}
+}
+
+func (b Box) contains(p routing.Point) bool {
+	return p.Lat >= b.MinLat && p.Lat <= b.MaxLat && p.Lng >= b.MinLng && p.Lng <= b.MaxLng
 }
 
 // Rule names.
@@ -319,15 +366,18 @@ func headingAt(line []routing.Point, i int) int {
 // entrance, on a road: draw a point, snap it to the nearest road, and draw again when the nearest
 // road is far (the point fell in a park or a large building).
 func drawGates(ctx context.Context, r Router, sc Scenario) ([]routing.Point, error) {
+	if err := checkHotspots(sc.Hotspots); err != nil {
+		return nil, err
+	}
 	rng := rand.New(rand.NewPCG(sc.Seed, 205))
 	gates := make([]routing.Point, 0, sc.Orders)
 	for tries := 0; len(gates) < sc.Orders; tries++ {
 		if tries > 20*sc.Orders {
 			return nil, errors.New("sim: too few points in the area are near a road")
 		}
-		p := routing.Point{
-			Lat: sc.Area.MinLat + rng.Float64()*(sc.Area.MaxLat-sc.Area.MinLat),
-			Lng: sc.Area.MinLng + rng.Float64()*(sc.Area.MaxLng-sc.Area.MinLng),
+		p := sc.point(rng)
+		if !sc.Area.contains(p) {
+			continue // a hotspot's tail outside the area
 		}
 		snap, err := r.Nearest(ctx, p)
 		if err != nil {

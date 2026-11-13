@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-13 | #222 | uneven demand in the simulator, placement on demand per cell | See PR | PASS | [reports/222.md](reports/222.md) |
 | 2026-11-13 | #220 | demand per cell and half-hour, forecast v1 | See PR | PASS | [reports/220.md](reports/220.md) |
 | 2026-11-13 | #217 | tiny negative OSRM numbers count as 0 | See PR | PASS | [reports/217.md](reports/217.md) |
 | 2026-11-13 | #216 | placement by maximum expected covering, in the simulator | See PR | PASS | [reports/216.md](reports/216.md) |
