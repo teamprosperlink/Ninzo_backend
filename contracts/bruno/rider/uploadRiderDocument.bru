@@ -1,0 +1,26 @@
+meta {
+  name: uploadRiderDocument
+  type: http
+  seq: 57
+}
+
+post {
+  url: {{baseUrl}}/riders/me/documents
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-uploadRiderDocument-0001
+}
+
+body:json {
+  {
+    "content_type": "image/jpeg",
+    "data_base64": "/9j/4AAQ",
+    "document": "aadhaar",
+    "side": "front"
+  }
+}

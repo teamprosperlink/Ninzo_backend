@@ -1,0 +1,24 @@
+meta {
+  name: reportScooterTelemetry
+  type: http
+  seq: 42
+}
+
+post {
+  url: {{baseUrl}}/scooters/mock_id/telemetry
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-reportScooterTelemetry-0001
+}
+
+body:json {
+  {
+    "at": "2026-11-12T06:00:00Z",
+    "battery_pct": 72
+  }
+}

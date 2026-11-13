@@ -1,0 +1,17 @@
+# Secret scanning config for the CI `secrets` job (#238). It keeps every default rule and allows
+# two narrow, fake values, matched against the whole line (regexTarget = "line"):
+# - Idempotency-Key labels in the generated Bruno files, such as `bruno-takeBreak-0001`;
+# - the mock server's made-up per-scooter telemetry keys, such as `scooter-key-NZ-014`;
+# - the mock server's fixed fake token `mock-access-token`, used by CI's mock-contract job.
+# gitleaks' generic-api-key rule flags both because the names contain "Key" (#235).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake request labels and mock telemetry keys"
+regexTarget = "line"
+regexes = [
+  '''Idempotency-Key: bruno-[A-Za-z]+-[0-9]{4}''',
+  '''"X-Telemetry-Key": "scooter-key-[A-Z0-9-]+"''',
+  '''Authorization: Bearer mock-access-token''',
+]

@@ -1,0 +1,23 @@
+meta {
+  name: setPlannedEnd
+  type: http
+  seq: 48
+}
+
+post {
+  url: {{baseUrl}}/riders/me/shifts/planned-end
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-setPlannedEnd-0001
+}
+
+body:json {
+  {
+    "planned_end_at": "2099-01-01T12:00:00Z"
+  }
+}

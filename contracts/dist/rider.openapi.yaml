@@ -35,6 +35,13 @@ components:
                 maximum: 100
                 minimum: 1
                 type: integer
+        LotId:
+            description: The lot, as getStock lists it.
+            in: path
+            name: lot_id
+            required: true
+            schema:
+                $ref: '#/components/schemas/Id'
         OfferId:
             description: The offer.
             in: path
@@ -138,6 +145,21 @@ components:
                 - device_id
                 - server_time
             type: object
+        DocumentKind:
+            description: The names the rider app sends. They are not the names verification lists, so the server maps them.
+            enum:
+                - aadhaar
+                - drivingLicence
+                - vehicleRc
+                - selfie
+                - bank
+            type: string
+        DocumentSide:
+            enum:
+                - front
+                - back
+                - photo
+            type: string
         Done:
             properties:
                 server_time:
@@ -234,6 +256,30 @@ components:
             required:
                 - accepted_ids
                 - rejected
+                - server_time
+            type: object
+        FeedbackResponse:
+            properties:
+                feedback_id:
+                    $ref: '#/components/schemas/Id'
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - feedback_id
+                - server_time
+            type: object
+        GateCheck:
+            properties:
+                checked:
+                    description: False when the gate has no code. Arrival is by location either way.
+                    type: boolean
+                matched:
+                    type: boolean
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - checked
+                - matched
                 - server_time
             type: object
         HandoverEvent:
@@ -490,6 +536,9 @@ components:
                     description: Readable order number, a letter and four digits such as A2931.
                     pattern: ^[A-Z][0-9]{4}$
                     type: string
+                payment_method:
+                    $ref: '#/components/schemas/PaymentMethod'
+                    description: For the rider app (Issue 235). Optional until the server sends it (part B).
                 state:
                     enum:
                         - open
@@ -499,6 +548,9 @@ components:
                         - taken
                         - cancelled
                     type: string
+                total:
+                    $ref: '#/components/schemas/Money'
+                    description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
             required:
                 - id
                 - order_id
@@ -612,6 +664,11 @@ components:
                 - resend_after_s
                 - server_time
             type: object
+        PaymentMethod:
+            description: 'How the order was paid. A closed list, with prepaid the only value today, so a new value needs a contract change. prepaid: paid online before the order was offered, so the rider collects nothing and the handover takes the customer''s OTP.'
+            enum:
+                - prepaid
+            type: string
         ProblemEvent:
             properties:
                 device_time:
@@ -661,6 +718,20 @@ components:
                     $ref: '#/components/schemas/ServerTime'
             required:
                 - report_id
+                - server_time
+            type: object
+        QuarantineResponse:
+            properties:
+                lot_id:
+                    $ref: '#/components/schemas/Id'
+                quarantined_at:
+                    format: date-time
+                    type: string
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - lot_id
+                - quarantined_at
                 - server_time
             type: object
         RejectedEvent:
@@ -809,11 +880,23 @@ components:
                 - item_id
                 - name
             type: object
+        RestockOptionHub:
+            allOf:
+                - $ref: '#/components/schemas/HubRef'
+                - properties:
+                    manager_phone:
+                        description: The hub manager's number, for Call hub manager in the rider app. Null until the hub has one. Optional until the server sends it (Issue 235).
+                        pattern: ^\+[1-9][0-9]{7,14}$
+                        type:
+                            - string
+                            - "null"
+                  type: object
+            description: A hub the rider can order from, with the number for Call hub manager.
         RestockOptions:
             properties:
                 hubs:
                     items:
-                        $ref: '#/components/schemas/HubRef'
+                        $ref: '#/components/schemas/RestockOptionHub'
                     type: array
                 items:
                     items:
@@ -970,10 +1053,22 @@ components:
                     type:
                         - string
                         - "null"
+                area:
+                    description: Where the rider wants to work, as the rider app sends it while applying. Null when not given. The server keeps the place's name as preferred_area. Optional until the server sends it (Issue 235, part B).
+                    oneOf:
+                        - $ref: '#/components/schemas/RiderArea'
+                        - type: "null"
                 created_at:
                     description: When the account was made.
                     format: date-time
                     type: string
+                email:
+                    description: Contact only. It never signs anyone in. Null when not given. Optional until the server sends it (Issue 235, part B).
+                    format: email
+                    maxLength: 254
+                    type:
+                        - string
+                        - "null"
                 id:
                     $ref: '#/components/schemas/Id'
                 name:
@@ -981,6 +1076,10 @@ components:
                     type:
                         - string
                         - "null"
+                phone:
+                    description: The number the rider signs in with. Optional until the server sends it (Issue 235, part B).
+                    pattern: ^\+[1-9][0-9]{7,14}$
+                    type: string
                 preferred_area:
                     description: The area the rider says they want to work in, free text up to 80 characters. Null until set. The zone itself is an ops decision.
                     maxLength: 80
@@ -1003,6 +1102,112 @@ components:
                 - created_at
                 - approved_at
                 - preferred_area
+            type: object
+        RiderArea:
+            description: A place the rider picked, such as a town or a junction.
+            properties:
+                city:
+                    maxLength: 80
+                    type: string
+                lat:
+                    maximum: 90
+                    minimum: -90
+                    type: number
+                lng:
+                    maximum: 180
+                    minimum: -180
+                    type: number
+                name:
+                    maxLength: 80
+                    minLength: 1
+                    type: string
+            required:
+                - name
+                - city
+                - lat
+                - lng
+            type: object
+        RiderChoice:
+            properties:
+                check:
+                    description: Checklist items only. What the app checks itself. manual is the rider's tick, and phone_battery, scooter_battery and location are checked by the app.
+                    type: string
+                code:
+                    type: string
+                hint:
+                    type: string
+                label:
+                    type: string
+            required:
+                - code
+                - label
+            type: object
+        RiderDocumentInfo:
+            description: What is known of one uploaded photo. The photo itself is in file storage and is never sent back.
+            properties:
+                content_type:
+                    type: string
+                document:
+                    $ref: '#/components/schemas/DocumentKind'
+                side:
+                    $ref: '#/components/schemas/DocumentSide'
+                size_bytes:
+                    minimum: 1
+                    type: integer
+                uploaded_at:
+                    format: date-time
+                    type: string
+            required:
+                - document
+                - side
+                - content_type
+                - size_bytes
+                - uploaded_at
+            type: object
+        RiderDocumentList:
+            properties:
+                documents:
+                    items:
+                        $ref: '#/components/schemas/RiderDocumentInfo'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - documents
+                - server_time
+            type: object
+        RiderDocumentResponse:
+            properties:
+                document:
+                    $ref: '#/components/schemas/RiderDocumentInfo'
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - document
+                - server_time
+            type: object
+        RiderHelp:
+            properties:
+                faq:
+                    items:
+                        properties:
+                            answer:
+                                type: string
+                            id:
+                                $ref: '#/components/schemas/Id'
+                            question:
+                                type: string
+                        required:
+                            - id
+                            - question
+                            - answer
+                        type: object
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - faq
+                - server_time
             type: object
         RiderNotification:
             properties:
@@ -1102,6 +1307,9 @@ components:
                 otp_available:
                     description: True once the customer has the OTP to show. Offline, this value may be stale, so the app must still allow the rider to enter an OTP.
                     type: boolean
+                payment_method:
+                    $ref: '#/components/schemas/PaymentMethod'
+                    description: For the rider app (Issue 235). Optional until the server sends it (part B).
                 rider_accepted_at:
                     format: date-time
                     type:
@@ -1117,6 +1325,9 @@ components:
                     description: A fixed label built from this order's timer length. It does not count down.
                     example: 1.5 mins
                     type: string
+                total:
+                    $ref: '#/components/schemas/Money'
+                    description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
                 waiting_since:
                     description: When the rider said they were waiting at the gate (markWaitingAtGate). Null until then.
                     format: date-time
@@ -1172,6 +1383,139 @@ components:
                 - expires_in_s
                 - rider_id
                 - status
+                - server_time
+            type: object
+        RiderSettings:
+            description: What the rider app works by, from the rider's zone settings in the console. Null where the zone has no value.
+            properties:
+                add_time_options_s:
+                    items:
+                        type: integer
+                    type: array
+                almost_there_m:
+                    type:
+                        - integer
+                        - "null"
+                arrive_m:
+                    description: How close to the hub, the spot or the gate counts as there.
+                    type:
+                        - integer
+                        - "null"
+                away_from_spot_m:
+                    type:
+                        - integer
+                        - "null"
+                break_extension_s:
+                    description: What "+15 min" adds to a break.
+                    type: integer
+                break_options_s:
+                    items:
+                        type: integer
+                    type: array
+                cancel_pay_cap:
+                    $ref: '#/components/schemas/Money'
+                    description: The most a cancelled prepaid order pays for the trip. Under it, the order's price. It is paid only when the rider had already started moving toward the gate.
+                checklist:
+                    description: The Before you start items. Each code can be sent in startShift checklist.
+                    items:
+                        $ref: '#/components/schemas/RiderChoice'
+                    type: array
+                handover_code_length:
+                    description: Digits in the customer's handover code.
+                    type: integer
+                low_scooter_battery_pct:
+                    type:
+                        - integer
+                        - "null"
+                low_stock_qty:
+                    description: Fewer portions of an item than this suggests a refill.
+                    type:
+                        - integer
+                        - "null"
+                max_break_s:
+                    description: The console's longest break. No break option is longer, and takeBreak is capped by it.
+                    type:
+                        - integer
+                        - "null"
+                min_phone_battery_pct:
+                    type:
+                        - integer
+                        - "null"
+                min_scooter_battery_pct:
+                    type:
+                        - integer
+                        - "null"
+                not_at_gate_after_s:
+                    description: How long the handover's code step waits, empty, before offering "Customer not at the gate?".
+                    type: integer
+                problem_types:
+                    description: Each code must be one of the reportProblem type values (breakdown, accident, gate_closed, customer_absent, unsafe_route), because the app sends the code straight into reportProblem. The settings never offer any other.
+                    items:
+                        $ref: '#/components/schemas/RiderChoice'
+                    type: array
+                ride_speed_kmh:
+                    description: The straight-line speed used for ride times, until real road times.
+                    type:
+                        - integer
+                        - "null"
+                scooter_capacity_qty:
+                    type:
+                        - integer
+                        - "null"
+                shift_ending_soon_before_s:
+                    type: integer
+                skip_reasons:
+                    items:
+                        $ref: '#/components/schemas/RiderChoice'
+                    type: array
+                stock_request_ask_before_s:
+                    description: How long before the planned start the app asks if the rider is coming.
+                    type: integer
+                stock_request_reminder_before_s:
+                    description: When a rider who has not answered is reminded.
+                    type: integer
+                timer_length_s:
+                    description: The console's timer length, 90 seconds by default. The rider never sees a countdown, only a fixed label.
+                    type:
+                        - integer
+                        - "null"
+                verification_within_s:
+                    description: How soon operations usually check a rider's documents.
+                    type: integer
+            required:
+                - stock_request_ask_before_s
+                - stock_request_reminder_before_s
+                - shift_ending_soon_before_s
+                - break_extension_s
+                - not_at_gate_after_s
+                - handover_code_length
+                - cancel_pay_cap
+                - verification_within_s
+                - timer_length_s
+                - max_break_s
+                - arrive_m
+                - almost_there_m
+                - away_from_spot_m
+                - low_stock_qty
+                - scooter_capacity_qty
+                - min_phone_battery_pct
+                - min_scooter_battery_pct
+                - low_scooter_battery_pct
+                - ride_speed_kmh
+                - break_options_s
+                - add_time_options_s
+                - skip_reasons
+                - problem_types
+                - checklist
+            type: object
+        RiderSettingsResponse:
+            properties:
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+                settings:
+                    $ref: '#/components/schemas/RiderSettings'
+            required:
+                - settings
                 - server_time
             type: object
         RiderState:
@@ -1234,6 +1578,21 @@ components:
             type: string
         Shift:
             properties:
+                break:
+                    description: The break under way as the rider app reads it, the same facts as break_started_at and break_ends_at. Null when the rider is not on a break. Optional until the server sends it (Issue 235, part B).
+                    oneOf:
+                        - properties:
+                            ends_at:
+                                format: date-time
+                                type: string
+                            started_at:
+                                format: date-time
+                                type: string
+                          required:
+                            - started_at
+                            - ends_at
+                          type: object
+                        - type: "null"
                 break_ends_at:
                     description: When the current break ends on its own, at the console's longest break (max_break_s). Null when the rider is not on a break.
                     format: date-time
@@ -1264,6 +1623,18 @@ components:
                     type: string
                 node_id:
                     $ref: '#/components/schemas/Id'
+                online_at:
+                    description: When the rider went online at their spot (goOnline). Null before. Optional until the server sends it (Issue 235, part B).
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                planned_end_at:
+                    description: When the rider said the shift would end (setPlannedEnd), or the day's plan end. A record only, because shifts are open-ended. Null with none. Optional until the server sends it (Issue 235, part B).
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
                 scooter:
                     description: The scooter on this shift.
                     properties:
@@ -1300,6 +1671,12 @@ components:
             type: object
         ShiftEntry:
             properties:
+                avg_delivery_s:
+                    description: The average seconds from accept to handover. Null with no orders. Optional until the server sends it (Issue 235, part B).
+                    minimum: 0
+                    type:
+                        - integer
+                        - "null"
                 break_s:
                     minimum: 0
                     type: integer
@@ -1312,11 +1689,31 @@ components:
                     $ref: '#/components/schemas/Id'
                 node_id:
                     $ref: '#/components/schemas/Id'
+                online_at:
+                    description: When the rider went online at their spot. Null before. For the rider app (Issue 235). Optional until the server sends it (part B).
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
                 online_s:
                     description: The shift's length minus its breaks.
                     minimum: 0
                     type: integer
+                orders:
+                    description: The same count as orders_handed_over, under the name the rider app reads. Optional until the server sends it (Issue 235, part B).
+                    minimum: 0
+                    type: integer
                 orders_handed_over:
+                    minimum: 0
+                    type: integer
+                planned_end_at:
+                    description: The planned end the rider set. A record only. For the rider app (Issue 235). Optional until the server sends it (part B).
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                portions:
+                    description: Portions handed over on this shift. Optional until the server sends it (Issue 235, part B).
                     minimum: 0
                     type: integer
                 started_at:
@@ -1347,6 +1744,75 @@ components:
             required:
                 - shifts
                 - next_cursor
+                - server_time
+            type: object
+        ShiftPlan:
+            description: One day's plan for the rider, made by operations. Shifts are open-ended, so starts_at and ends_at are a guide and nothing starts or ends a shift at them.
+            properties:
+                date:
+                    description: The day, in the zone's local time.
+                    format: date
+                    type: string
+                ends_at:
+                    format: date-time
+                    type: string
+                id:
+                    $ref: '#/components/schemas/Id'
+                node_id:
+                    anyOf:
+                        - $ref: '#/components/schemas/Id'
+                        - type: "null"
+                    description: Where the shift is planned to start. Null if operations have not chosen yet.
+                packing:
+                    description: 'The hub packing the day''s stock: not_started, packing, then ready.'
+                    enum:
+                        - not_started
+                        - packing
+                        - ready
+                    type: string
+                ready_at:
+                    description: When the stock was ready, or when the hub expects it to be while packing. Null before packing.
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                replied_at:
+                    format: date-time
+                    type:
+                        - string
+                        - "null"
+                starts_at:
+                    format: date-time
+                    type: string
+                stock_reply:
+                    description: The rider's answer to the morning stock request. The hub packs only after coming.
+                    enum:
+                        - pending
+                        - coming
+                        - not_today
+                    type: string
+            required:
+                - id
+                - date
+                - node_id
+                - starts_at
+                - ends_at
+                - stock_reply
+                - replied_at
+                - packing
+                - ready_at
+            type: object
+        ShiftPlanResponse:
+            properties:
+                plan:
+                    description: Null on a day with no plan, which is the usual day.
+                    oneOf:
+                        - $ref: '#/components/schemas/ShiftPlan'
+                        - type: "null"
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - plan
                 - server_time
             type: object
         ShiftResponse:
@@ -1642,7 +2108,12 @@ components:
 info:
     contact:
         name: Ninzo backend
-    description: The API behind the rider app. The shared rules are in contracts/README.md. Field names are final only after the contract review. Until the partner API exists, hub actions come from a simulator.
+    description: |-
+        The API behind the rider app. The shared rules are in contracts/README.md. Field names are final only after the contract review. Until the partner API exists, hub actions come from a simulator.
+
+        The finished rider APK was built against a copy of this API (Issue 235), so this contract also holds every call the APK makes, with its paths, its request fields and the fields it reads. Our own operations stay as they were. Where the APK uses another path for something we already do, the APK's path is a second operation marked "Alias" in its summary. Where both use one path, the operation accepts both shapes and the reply carries both sets of fields. Fields added for the APK are optional until the server sends them (part B of Issue 235). These owner rules hold while the APK is served.
+
+        Shifts are open-ended. A shift plan exists only when operations create one, otherwise getShiftPlan returns plan null, and an answer to a plan is accepted and recorded. A planned end or added time (setPlannedEnd) is accepted and recorded, and nothing forces the shift to end at it. A break length the rider picks (takeBreak) is capped by the console's max_break_s. Help articles come from the backend and are edited in the console. The gate code check (checkGate) is accepted, but arrival is still decided by the rider's location. Masked calls stay call_not_available until a provider is chosen, and the provider's call bridge (with a key in its URL) is not part of this contract. Scooter telemetry is signed with a key of its own for each scooter, never one shared key. Document photos go to file storage (Supabase Storage), never into a database column, and the contract shape stays the one the APK sends. After wrong sign-in codes the APK is told otp_attempts_exceeded with Retry-After. That pause counts wrong codes against one sign-in request (request_id), never against a phone number, so a stranger's wrong codes cannot block the number's owner from verifying a code of their own request. The separate resend limit on requestOtp (otp_resend_limit) is counted per phone number and still exists, so someone can slow down code requests for a number, and the server must keep that limit generous and also count requests per caller. A cancelled order pays the rider only when the rider had already started moving toward the gate.
     license:
         identifier: Apache-2.0
         name: Apache-2.0
@@ -1652,7 +2123,7 @@ openapi: 3.1.0
 paths:
     /auth/otp/request:
         post:
-            description: 'Indian mobile numbers only for now. The reply is the same whether or not the account exists, and no SMS is sent if it does not. Later errors on that request_id behave the same either way. Errors: invalid_request for a bad phone number, otp_resend_limit (429) when the resend limit is reached.'
+            description: 'Indian mobile numbers only for now. The reply is the same whether or not the account exists, and no SMS is sent if it does not. Later errors on that request_id behave the same either way. Errors: invalid_phone (400) for a phone that is not an Indian mobile number in E.164 form, which the rider app shows as its invalid number screen (Issue 235, the customer contract keeps invalid_request for this), invalid_request (400) for a missing phone or a body that is not JSON, otp_resend_limit (429) when the resend limit is reached.'
             operationId: requestOtp
             requestBody:
                 content:
@@ -1689,7 +2160,7 @@ paths:
                 - auth
     /auth/otp/verify:
         post:
-            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). After a correct code, a blocked person or suspended rider gets account_blocked (403).'
+            description: 'Errors: invalid_otp and otp_expired (both 400), otp_attempts_exceeded (429). After a correct code, a blocked person or suspended rider gets account_blocked (403). The rider app (Issue 235) reads the error code and the Retry-After header of a 429 and shows the pause. The pause after wrong codes counts against this request_id only. A stranger who sends wrong codes can spoil the request they hold, but not the requests of the number''s owner. It does not stop the per-phone resend limit of requestOtp, which is a separate limit.'
             operationId: verifyOtp
             requestBody:
                 content:
@@ -2009,6 +2480,56 @@ paths:
                 "503":
                     $ref: '#/components/responses/ServiceUnavailable'
             summary: Call the customer through a masked number
+            tags:
+                - delivery
+    /orders/{order_id}/gate-check:
+        post:
+            description: For the rider app (Issue 235). Compares what the rider scanned or typed with the code printed at the gate. It changes nothing, so it takes no Idempotency-Key. It is accepted and answered, but it never decides arrival. Arrival and the timer's stop come from the rider's location alone (decision 0007), so a matched false does not block the handover and a matched true does not mark the rider as arrived. checked is false when the gate has no code, and matched is then true. The order must be one this rider accepted, or 404.
+            operationId: checkGate
+            parameters:
+                - $ref: '#/components/parameters/OrderId'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                method: code
+                                value: GATE-4821
+                            properties:
+                                method:
+                                    enum:
+                                        - qr
+                                        - code
+                                    type: string
+                                value:
+                                    maxLength: 64
+                                    minLength: 1
+                                    type: string
+                            required:
+                                - method
+                                - value
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GateCheck'
+                    description: The result.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Check the gate's QR code or code
             tags:
                 - delivery
     /orders/{order_id}/handover:
@@ -2430,7 +2951,7 @@ paths:
             tags:
                 - profile
         patch:
-            description: 'Changes the name and the area the rider would like to work in. preferred_area is free text, what an applicant says they want; the rider''s zone itself stays an ops decision at approval. Send only the fields to change. Error: invalid_request (400), for a name outside 1 to 80 characters or a preferred_area over 80. The only 409 is idempotency_in_progress. Direct only: not in the offline event batch.'
+            description: 'Changes the name and the area the rider would like to work in. preferred_area is free text, what an applicant says they want; the rider''s zone itself stays an ops decision at approval. The rider app (Issue 235) sends email and area instead. area is a place the rider picked (name, city, lat, lng), and the server keeps its name as preferred_area. Send preferred_area or area, not both, or the call gets 400. email null clears the email, and area null clears the area. A suspended rider gets 403. Send only the fields to change. Error: invalid_request (400), for a name outside 1 to 80 characters, a preferred_area over 80, or an email that is not an address. The only 409 is idempotency_in_progress. Direct only: not in the offline event batch.'
             operationId: updateRider
             parameters:
                 - $ref: '#/components/parameters/IdempotencyKey'
@@ -2443,6 +2964,18 @@ paths:
                                 preferred_area: Indiranagar
                             minProperties: 1
                             properties:
+                                area:
+                                    description: The place the rider picked while applying, as the rider app sends it. null clears it.
+                                    oneOf:
+                                        - $ref: '#/components/schemas/RiderArea'
+                                        - type: "null"
+                                email:
+                                    description: Contact only. It never signs anyone in. null clears it.
+                                    format: email
+                                    maxLength: 254
+                                    type:
+                                        - string
+                                        - "null"
                                 name:
                                     maxLength: 80
                                     minLength: 1
@@ -2624,6 +3157,88 @@ paths:
             summary: Remove a device from push
             tags:
                 - profile
+    /riders/me/documents:
+        get:
+            description: For the rider app (Issue 235). What was uploaded, one per document and side, without the photos themselves. The photos live in file storage (Supabase Storage). A suspended rider can still read this.
+            operationId: listRiderDocuments
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RiderDocumentList'
+                    description: The documents.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: List the rider's document photos
+            tags:
+                - profile
+        post:
+            description: For the rider app (Issue 235). One photo of one side of a document, as base64, at most 700 KB once decoded. A new photo replaces the one before. The server decodes it and writes the file to private file storage (Supabase Storage), and keeps only the file's path, type, size and time in the database, never the photo itself. Operations check them by hand until DigiLocker. Errors, 400 for a photo that is not a jpeg, png or webp or is too large, and 409 already_verified.
+            operationId: uploadRiderDocument
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                content_type: image/jpeg
+                                data_base64: /9j/4AAQ
+                                document: aadhaar
+                                side: front
+                            properties:
+                                content_type:
+                                    enum:
+                                        - image/jpeg
+                                        - image/png
+                                        - image/webp
+                                    type: string
+                                data_base64:
+                                    maxLength: 933336
+                                    minLength: 4
+                                    type: string
+                                document:
+                                    $ref: '#/components/schemas/DocumentKind'
+                                side:
+                                    $ref: '#/components/schemas/DocumentSide'
+                            required:
+                                - document
+                                - side
+                                - content_type
+                                - data_base64
+                            type: object
+                required: true
+            responses:
+                "201":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RiderDocumentResponse'
+                    description: Uploaded.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Upload one document photo
+            tags:
+                - profile
     /riders/me/earnings:
         get:
             description: Orders, incentives and paid repositioning time. Each order handed over earns the zone's rate at the time; the day's incentive comes once the day's orders reach the zone's level; an accepted move is paid by the started minute until it ends, up to a cap. A suspended rider can still see this.
@@ -2695,6 +3310,73 @@ paths:
             summary: Send queued offline events
             tags:
                 - location
+    /riders/me/feedback:
+        post:
+            description: For the rider app (Issue 235). What the rider writes, 1 to 2000 characters, kept for the team to read.
+            operationId: sendRiderFeedback
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                message: The map is hard to read at night.
+                            properties:
+                                message:
+                                    maxLength: 2000
+                                    minLength: 1
+                                    type: string
+                            required:
+                                - message
+                            type: object
+                required: true
+            responses:
+                "201":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/FeedbackResponse'
+                    description: Sent.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Send feedback about the app
+            tags:
+                - support
+    /riders/me/help:
+        get:
+            description: For the rider app (Issue 235). The help articles are kept by the backend and edited in the console, in the order operations set. The app has none of its own. A rider sees only the published ones.
+            operationId: getRiderHelp
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RiderHelp'
+                    description: The help centre.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Get the help centre's questions and answers
+            tags:
+                - support
     /riders/me/location:
         post:
             description: Accepted at once, and processed afterwards. This is what starts and stops the customer's timer, so send at the rate in next_ping_s.
@@ -2912,11 +3594,111 @@ paths:
             summary: List suggested restocks
             tags:
                 - restock
+    /riders/me/settings:
+        get:
+            description: For the rider app (Issue 235). The rider's zone settings (the timer, the distances, battery levels, stock limits, the straight-line speed) and every choice the app offers (break and Add time lengths, skip reasons, problem types, the Before you start checklist). The app has none of its own. The values come from the console's settings, so the timer is the console's timer_length_s (90 seconds by default), and no break option is longer than max_break_s. A value the zone has none of is null.
+            operationId: getRiderSettings
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RiderSettingsResponse'
+                    description: The settings.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Get the settings and choices the rider app works by
+            tags:
+                - profile
+    /riders/me/shift-plan:
+        get:
+            description: For the rider app (Issue 235). Shifts are open-ended, so there is no plan unless operations make one for the day. With none, plan is null (an empty plan) and the rider starts a shift whenever they like. When operations did make one, it holds when the shift is planned to start and end (informative, nothing ends the shift), the morning stock request, and how the hub's packing is going. Today is the zone's local day.
+            operationId: getShiftPlan
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ShiftPlanResponse'
+                    description: Today's plan, or null.
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Get today's planned shift
+            tags:
+                - shift
+    /riders/me/shift-plan/reply:
+        post:
+            description: 'For the rider app (Issue 235). coming lets the hub pack the rider''s stock, and not_today tells it not to. The reply is accepted and recorded, and the answer can change until the hub starts packing. Errors: 404 not_found when there is no plan today, and 409 shift_plan_closed once packing has started. The shift''s start time passing does not close it, because shifts are open-ended.'
+            operationId: replyToShiftPlan
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                reply: coming
+                            properties:
+                                reply:
+                                    enum:
+                                        - coming
+                                        - not_today
+                                    type: string
+                            required:
+                                - reply
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ShiftPlanResponse'
+                    description: The plan, with the answer.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Answer the morning stock request
+            tags:
+                - shift
     /riders/me/shifts:
         get:
-            description: The rider's shifts, newest first. online_s is the shift's length minus its breaks, worked out by the server; an open shift is counted to now. from and to are optional dates in the zone's local time and keep only shifts that started in that range. A from after to is 400 invalid_request.
+            description: The rider's shifts, newest first. online_s is the shift's length minus its breaks, worked out by the server; an open shift is counted to now. from and to are optional dates in the zone's local time and keep only shifts that started in that range. A from after to is 400 invalid_request. The rider app (Issue 235) calls this path as listShifts with days instead, the last days days in India time, today included, from 1 to 31 (the app sends 7). Without days, from, to, cursor and limit work as above. days with from or to is 400 invalid_request. Each entry also carries online_at, planned_end_at, orders, portions and avg_delivery_s, which the app reads. With days the reply holds every matching shift and next_cursor is null, because the app does not page. A suspended rider can still read this.
             operationId: listRiderShifts
             parameters:
+                - description: The rider app's way to ask. How many days back, today included.
+                  in: query
+                  name: days
+                  required: false
+                  schema:
+                    maximum: 31
+                    minimum: 1
+                    type: integer
                 - description: First day to include, in the zone's local time.
                   in: query
                   name: from
@@ -2950,7 +3732,7 @@ paths:
                     $ref: '#/components/responses/TooManyRequests'
                 "500":
                     $ref: '#/components/responses/InternalError'
-            summary: List the rider's earlier shifts
+            summary: List the rider's earlier shifts (also the rider app's listShifts)
             tags:
                 - shift
     /riders/me/shifts/{shift_id}/summary:
@@ -2977,6 +3759,82 @@ paths:
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get the summary of one shift
+            tags:
+                - shift
+    /riders/me/shifts/break:
+        post:
+            description: 'Alias for the rider app (Issue 235). startBreak at /riders/me/breaks/start is our own form, without a length. A rider on a break gets no offers until it ends. length_s counts from the break''s start, so sending a longer one extends the break under way. The break never lasts longer than the console''s max_break_s: a length_s above it is not an error, the break simply ends at max_break_s, and break_ends_at on the shift (and break.ends_at) says when. The shift''s break is sent in both forms, break_started_at and break_ends_at, and break with started_at and ends_at. Errors, all 409: no_open_shift, order_in_progress, offer_open. A rider already on a break is not an error here, the break is extended. A break start, extension or end raises the rider seq. Direct only.'
+            operationId: takeBreak
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                length_s: 900
+                            properties:
+                                length_s:
+                                    description: How long the rider asks to rest, in seconds. The break is capped by max_break_s.
+                                    maximum: 3600
+                                    minimum: 60
+                                    type: integer
+                            required:
+                                - length_s
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ShiftResponse'
+                    description: On a break.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Alias. Take a break of a length the rider picks, or make the current one longer
+            tags:
+                - shift
+    /riders/me/shifts/break/end:
+        post:
+            description: Alias of endBreak (/riders/me/breaks/end) for the rider app (Issue 235). Same answer. Offers can come again. With no break on, it answers the shift as it is. Error 409 no_open_shift.
+            operationId: endShiftBreak
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ShiftResponse'
+                    description: Back from the break.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Alias. End the break
             tags:
                 - shift
     /riders/me/shifts/end:
@@ -3009,6 +3867,80 @@ paths:
             summary: End the shift
             tags:
                 - shift
+    /riders/me/shifts/online:
+        post:
+            description: For the rider app (Issue 235). Sets online_at on the open shift once. Asking again keeps the first time and returns the shift. It changes nothing else, and it does not start offers by itself. Error 409 no_open_shift.
+            operationId: goOnline
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ShiftResponse'
+                    description: Online.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Say the rider is online at their spot
+            tags:
+                - shift
+    /riders/me/shifts/planned-end:
+        post:
+            description: For the rider app's Add time (Issue 235). Shifts are open-ended, so this is accepted and recorded on the shift as planned_end_at and nothing ends the shift at that time. planned_end_at must be in the future and within 16 hours of the shift's start, or the call gets 400 invalid_request. Error 409 no_open_shift.
+            operationId: setPlannedEnd
+            parameters:
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                planned_end_at: "2099-01-01T12:00:00Z"
+                            properties:
+                                planned_end_at:
+                                    format: date-time
+                                    type: string
+                            required:
+                                - planned_end_at
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ShiftResponse'
+                    description: The shift, with its new planned end.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Change when the shift is planned to end
+            tags:
+                - shift
     /riders/me/shifts/start:
         post:
             description: 'A suspended rider gets 403. Errors, all 409: rider_not_approved, rider_not_verified, shift_already_open, shift_limit_reached, no_scooter_at_node. A free scooter waiting at the node becomes the rider''s for the shift. A node outside the rider''s zone gets 404. device_id must be one this rider registered with registerRiderDevice, or the call gets 400 unknown_device. A rider whose open shift shows another device (a reinstall, or a new phone) sends take_over: true: the open shift of this rider then gets the new device_id and is returned (200) instead of shift_already_open. take_over needs device_id. endShift works from any of the rider''s phones.'
@@ -3020,6 +3952,12 @@ paths:
                     application/json:
                         schema:
                             properties:
+                                checklist:
+                                    description: The Before you start items the rider ticked, by the codes getRiderSettings lists, each once. Kept with the shift. The rider app (Issue 235) sends it. A code the settings do not list is ignored.
+                                    items:
+                                        type: string
+                                    maxItems: 20
+                                    type: array
                                 device_id:
                                     $ref: '#/components/schemas/Id'
                                     description: The id from registerRiderDevice for this phone, which must be one this rider registered (400 unknown_device otherwise). It is kept on the shift, so the app can tell when the shift is open on another phone.
@@ -3101,6 +4039,60 @@ paths:
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Get the scooter's stock
+            tags:
+                - stock
+    /riders/me/stock/{lot_id}/quarantine:
+        post:
+            description: 'For the rider app''s prompt after a temperature alert, or food the rider finds damaged (Issue 235). The whole lot leaves the scooter''s stock and can never be scanned again. Errors, all 409: no_open_shift, lot_not_on_scooter, lot_reserved (part of it is held for an order). A lot already quarantined by this rider answers 200 again. A lot of another rider''s scooter gets 404.'
+            operationId: quarantineLot
+            parameters:
+                - $ref: '#/components/parameters/LotId'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                reason: temperature
+                            properties:
+                                note:
+                                    maxLength: 500
+                                    type: string
+                                reason:
+                                    enum:
+                                        - temperature
+                                        - damaged
+                                        - expired
+                                        - other
+                                    type: string
+                            required:
+                                - reason
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/QuarantineResponse'
+                    description: Quarantined.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: Take a lot off the scooter into quarantine
             tags:
                 - stock
     /riders/me/stock/count:
@@ -3267,6 +4259,67 @@ paths:
             summary: Start document verification
             tags:
                 - profile
+    /scooters/{code}/telemetry:
+        post:
+            description: Called by the scooter, or the fleet system for it, never by the rider app. It is signed with a key that belongs to this one scooter (X-Telemetry-Key), made when the scooter is added in the console. There is no key shared by all scooters, so a key that leaks from one scooter cannot report for another, and the console can replace one scooter's key alone. A key that does not belong to the scooter in the path gets 401. Only a newer reading replaces the one kept, and a reading older than 30 minutes is not shown to the rider (the shift's scooter.battery_pct). It has no rider sign-in because the caller is a machine. It takes no Idempotency-Key, because the same reading sent twice is harmless.
+            operationId: reportScooterTelemetry
+            parameters:
+                - description: The scooter code shown on the vehicle.
+                  in: path
+                  name: code
+                  required: true
+                  schema:
+                    minLength: 1
+                    type: string
+                - description: The key of this scooter. Not a key for the fleet.
+                  in: header
+                  name: X-Telemetry-Key
+                  required: true
+                  schema:
+                    minLength: 1
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            example:
+                                at: "2026-11-12T06:00:00Z"
+                                battery_pct: 72
+                            properties:
+                                at:
+                                    description: When the scooter read it. At most a minute ahead of the server.
+                                    format: date-time
+                                    type: string
+                                battery_pct:
+                                    maximum: 100
+                                    minimum: 0
+                                    type: integer
+                            required:
+                                - battery_pct
+                                - at
+                            type: object
+                required: true
+            responses:
+                "202":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Done'
+                    description: Kept.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            security: []
+            summary: Report a scooter's battery
+            tags:
+                - shift
 security:
     - bearerAuth: []
 servers:

@@ -9,6 +9,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: HSTS, nosniff, no-store, no-referrer, frame and content-security headers on every API reply; `govulncheck` and gitleaks CI jobs; Dependabot for Go modules and Actions.
 - Fixed: Go 1.27.3 to 1.27.4 for GO-2026-6859 (an HTTP server crash in net/http).
 - Evidence: docs/testing/reports/238.md
+### The rider app (APK) works against our contract and mock (#235, part A)
+- Added: every call the finished rider app makes is in `contracts/rider/openapi.yaml` and the mock (52 calls: 28 already matched, 13 added as an alias path or optional fields, 11 new). New operations: goOnline, takeBreak (alias of startBreak, capped by `max_break_s`), endShiftBreak (alias), setPlannedEnd, listRiderDocuments, uploadRiderDocument, getRiderSettings, getRiderHelp, sendRiderFeedback, getShiftPlan, replyToShiftPlan, quarantineLot, checkGate, reportScooterTelemetry (a key for each scooter). updateRider also takes `email` and `area`; startShift takes `checklist`; listRiderShifts takes `days`; Rider, Shift, ShiftEntry, Offer, RiderOrder and the hub options gain optional fields.
+- Rules kept: shifts are open-ended (a plan only if operations make one), the planned end is a record, the gate code never decides arrival, masked calls stay `call_not_available`, no provider call bridge, photos go to file storage, the sign-in pause belongs to one request.
+- Changed: tests grown on purpose, listed in the report. The server follows in part B. Nothing in the server changed.
+- Evidence: docs/testing/reports/235-A.md, docs/engineering/rider_apk_compatibility.md
+
 
 ### Staging database in Singapore (#174)
 - Changed: staging uses the Supabase project `ninzo-staging-sg` in Singapore, next to the APIs; the Mumbai project is paused. Writes went from 1-3.6 s to about 0.3 s. rider-api, partner-api and console-api read `DATABASE_URL` from customer-api.

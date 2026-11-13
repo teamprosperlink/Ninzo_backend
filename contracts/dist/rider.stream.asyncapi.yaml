@@ -174,6 +174,21 @@ components:
             example: ord_01HZX3Q7
             minLength: 1
             type: string
+        Money:
+            description: An amount in minor units, such as paise. Never a decimal.
+            properties:
+                amount_minor:
+                    example: 14900
+                    minimum: 0
+                    type: integer
+                currency:
+                    example: INR
+                    pattern: ^[A-Z]{3}$
+                    type: string
+            required:
+                - amount_minor
+                - currency
+            type: object
         Offer:
             properties:
                 expires_at:
@@ -219,6 +234,9 @@ components:
                     description: Readable order number, a letter and four digits such as A2931.
                     pattern: ^[A-Z][0-9]{4}$
                     type: string
+                payment_method:
+                    $ref: '#/components/schemas/PaymentMethod'
+                    description: For the rider app (Issue 235). Optional until the server sends it (part B).
                 state:
                     enum:
                         - open
@@ -228,6 +246,9 @@ components:
                         - taken
                         - cancelled
                     type: string
+                total:
+                    $ref: '#/components/schemas/Money'
+                    description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
             required:
                 - id
                 - order_id
@@ -270,6 +291,11 @@ components:
                 - NO_SCOOTER
                 - TIMED_OUT
                 - FAILED
+            type: string
+        PaymentMethod:
+            description: 'How the order was paid. A closed list, with prepaid the only value today, so a new value needs a contract change. prepaid: paid online before the order was offered, so the rider collects nothing and the handover takes the customer''s OTP.'
+            enum:
+                - prepaid
             type: string
         RestockLine:
             properties:
@@ -451,6 +477,9 @@ components:
                 otp_available:
                     description: True once the customer has the OTP to show. Offline, this value may be stale, so the app must still allow the rider to enter an OTP.
                     type: boolean
+                payment_method:
+                    $ref: '#/components/schemas/PaymentMethod'
+                    description: For the rider app (Issue 235). Optional until the server sends it (part B).
                 rider_accepted_at:
                     format: date-time
                     type:
@@ -466,6 +495,9 @@ components:
                     description: A fixed label built from this order's timer length. It does not count down.
                     example: 1.5 mins
                     type: string
+                total:
+                    $ref: '#/components/schemas/Money'
+                    description: What the customer paid for the order. For the rider app (Issue 235). Optional until the server sends it (part B).
                 waiting_since:
                     description: When the rider said they were waiting at the gate (markWaitingAtGate). Null until then.
                     format: date-time

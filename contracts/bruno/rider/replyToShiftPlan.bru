@@ -1,0 +1,23 @@
+meta {
+  name: replyToShiftPlan
+  type: http
+  seq: 40
+}
+
+post {
+  url: {{baseUrl}}/riders/me/shift-plan/reply
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-replyToShiftPlan-0001
+}
+
+body:json {
+  {
+    "reply": "coming"
+  }
+}

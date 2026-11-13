@@ -33,6 +33,9 @@ var operationsWithoutIdempotency = map[string]bool{
 	"consoleLogin":       true,
 	"enrollTotp":         true,
 	"verifyTotp":         true,
+	// Issue 235, for the rider app. checkGate changes nothing, and a scooter reading sent twice is harmless.
+	"checkGate":              true,
+	"reportScooterTelemetry": true,
 }
 
 // operationsWithoutBearer are the only operations allowed to skip sign-in.
@@ -45,6 +48,8 @@ var operationsWithoutBearer = map[string]bool{
 	"consoleLogin":     true,
 	"enrollTotp":       true,
 	"verifyTotp":       true,
+	// Issue 235. The caller is a scooter, signed with the key of that one scooter (X-Telemetry-Key).
+	"reportScooterTelemetry": true,
 }
 
 // hiddenCustomerFields would reveal that a rider is allotted during the wait.
@@ -462,8 +467,14 @@ func TestRiderContractHasNoCountdown(t *testing.T) {
 // and no customer contact details.
 var riderOrderFields = []string{
 	"ended_reason", "fencing_token", "gate", "handed_over_at", "id", "items", "offer_id", "order_number",
-	"otp_available", "rider_accepted_at", "seq", "state", "timer_label", "waiting_since",
+	"otp_available", "payment_method", "rider_accepted_at", "seq", "state", "timer_label", "total", "waiting_since",
 }
+
+// riderOrderOptionalFields are listed above on purpose (Issue 235: the rider app reads what the customer
+// paid and how). A rider sees no countdown and no contact details in them. They stay optional until the
+// server sends them in part B of Issue 235, because a required field the server does not send yet would
+// break its database tests. Part B moves them into required, and removes this list.
+var riderOrderOptionalFields = map[string]bool{"payment_method": true, "total": true}
 
 func TestRiderOrderFieldsAreExactlyTheAllowedList(t *testing.T) {
 	l := &loader{docs: map[string]*doc{}}
@@ -490,8 +501,11 @@ func TestRiderOrderFieldsAreExactlyTheAllowedList(t *testing.T) {
 		requiredSet[name] = true
 	}
 	for _, name := range riderOrderFields {
-		if !requiredSet[name] {
+		if !requiredSet[name] && !riderOrderOptionalFields[name] {
 			t.Errorf("RiderOrder.%s must be required", name)
+		}
+		if requiredSet[name] && riderOrderOptionalFields[name] {
+			t.Errorf("RiderOrder.%s is now required, so remove it from riderOrderOptionalFields", name)
 		}
 	}
 }
