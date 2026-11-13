@@ -98,29 +98,9 @@ func Run(ctx context.Context, r Router, sc Scenario) ([]Result, error) {
 	if s.PerimeterM >= s.ZoneRadiusM || s.TimerS <= 0 || s.StraightKmh <= 0 {
 		return nil, errors.New("sim: settings contradict each other")
 	}
-	rng := rand.New(rand.NewPCG(sc.Seed, 205))
-	// A gate is a customer's entrance, on a road: draw a point, snap it to the nearest road, and
-	// draw again when the nearest road is far (the point fell in a park or a large building).
-	gates := make([]routing.Point, 0, sc.Orders)
-	for tries := 0; len(gates) < sc.Orders; tries++ {
-		if tries > 20*sc.Orders {
-			return nil, errors.New("sim: too few points in the area are near a road")
-		}
-		p := routing.Point{
-			Lat: sc.Area.MinLat + rng.Float64()*(sc.Area.MaxLat-sc.Area.MinLat),
-			Lng: sc.Area.MinLng + rng.Float64()*(sc.Area.MaxLng-sc.Area.MinLng),
-		}
-		snap, err := r.Nearest(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		if snap.Source != routing.SourceOSRM {
-			return nil, errSource
-		}
-		if snap.NoRoad || snap.Moved > maxSnapM {
-			continue
-		}
-		gates = append(gates, snap.Point)
+	gates, err := drawGates(ctx, r, sc)
+	if err != nil {
+		return nil, err
 	}
 	rides := map[string][]Ride{RuleToday: {}, RuleRoad: {}}
 	for _, gate := range gates {
@@ -333,4 +313,33 @@ func headingAt(line []routing.Point, i int) int {
 		}
 	}
 	return -1
+}
+
+// drawGates draws sc.Orders gates in the area, deterministic by seed. A gate is a customer's
+// entrance, on a road: draw a point, snap it to the nearest road, and draw again when the nearest
+// road is far (the point fell in a park or a large building).
+func drawGates(ctx context.Context, r Router, sc Scenario) ([]routing.Point, error) {
+	rng := rand.New(rand.NewPCG(sc.Seed, 205))
+	gates := make([]routing.Point, 0, sc.Orders)
+	for tries := 0; len(gates) < sc.Orders; tries++ {
+		if tries > 20*sc.Orders {
+			return nil, errors.New("sim: too few points in the area are near a road")
+		}
+		p := routing.Point{
+			Lat: sc.Area.MinLat + rng.Float64()*(sc.Area.MaxLat-sc.Area.MinLat),
+			Lng: sc.Area.MinLng + rng.Float64()*(sc.Area.MaxLng-sc.Area.MinLng),
+		}
+		snap, err := r.Nearest(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		if snap.Source != routing.SourceOSRM {
+			return nil, errSource
+		}
+		if snap.NoRoad || snap.Moved > maxSnapM {
+			continue
+		}
+		gates = append(gates, snap.Point)
+	}
+	return gates, nil
 }

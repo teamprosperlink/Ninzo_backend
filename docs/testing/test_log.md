@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-13 | #214 | the simulator gets fleet state | See PR | PASS | [reports/214.md](reports/214.md) |
 | 2026-11-13 | #211 | reach by road time when matching_by_road is on | See PR | PASS | [reports/211.md](reports/211.md) |
 | 2026-11-13 | #209 | road-time matching behind a setting | See PR | PASS | [reports/209.md](reports/209.md) |
 | 2026-11-13 | #207 | live rider positions and a rider's tier for a gate | See PR | PASS | [reports/207.md](reports/207.md) |

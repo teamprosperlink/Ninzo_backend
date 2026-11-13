@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The simulator gets fleet state (#214)
+- Added: `sim.RunFleet` and `cmd/sim -fleet N -orders-per-hour R -hours H`. Orders arrive over time, and a rider is busy from packing until they are back at their node, so refusals split into busy (a rider in reach was busy) and reach (nobody in reach), with each rider's busy share.
+- Found: on the test zones with 4 to 6 riders at 10 to 60 orders an hour, reach is the larger cause of refusals (78 to 100% for today's rule), and a busy fleet is a real second that grows with demand; riders are busy 0 to 30% of the time. Placement (W4) is the hypothesis to test next. See w8.
+- Evidence: docs/testing/reports/214.md
+
 ### With matching_by_road on, reach is by road time (#211)
 - Changed: with `matching_by_road` = 1 and routing configured, `availability` takes every scooter within `max_search_radius_m` whose rider is within `sweet_spot_budget_s` by road, fastest first, for the pick (`PickScooter`) and the menu (`At`) alike. This is the rule the simulator measured (#205). A scooter past the straight line but near by road can now serve, and one near by line but past the budget cannot. A routing outage falls back to today's straight-line reach. With the setting at 0 nothing changes.
 - Evidence: docs/testing/reports/211.md

@@ -66,6 +66,40 @@ What it shows, and what it does not:
 - **This does not yet say how many riders are needed.** Riders are free for every order, there is no placement (W4) and no demand (W7). Served counts are therefore an upper bound.
 - **For G24:** these numbers do not justify a budget on their own. They show that `sweet_spot_budget_s` decides the trade-off, and that the road test must replace the placeholder signal and speed numbers before any budget is set.
 
+## Fleet comparison (#214, 2026-11-13)
+Command: `go run ./cmd/sim -osrm <test-zone OSRM> -zone <z> -fleet <n> -orders-per-hour <r> -hours 3 -seeds 3`.
+
+The setup:
+- Riders get busy: they pack for 60 s, ride to the gate, hand over in 60 s, then ride back to their node.
+- Orders arrive as a Poisson stream. Gates are the first gates of the same draw at every rate, so the rates are compared on paired orders.
+- The other assumptions are as in the first comparison.
+
+A refusal is **busy** when the rule would have taken a rider had they been free, and **reach** when nobody is within the rule's reach, free or not. Counts are pooled over 3 seeds × 3 hours; 95% Wilson intervals are in brackets.
+
+| Zone | Riders | Orders an hour | Rule | Orders | Served | Refused: busy | Refused: reach | In time, of all orders | Riders busy |
+|---|---|---|---|---|---|---|---|---|---|
+| Koramangala | 4 | 10 | today | 81 | 15 | 0 | 66 | 9.9% (5.1–18.3) | 5% |
+| | | | road | 81 | 3 | 0 | 78 | 3.7% (1.3–10.3) | 0% |
+| | 4 | 60 | today | 493 | 70 | 24 | 399 | 10.1% (7.8–13.1) | 20% |
+| | | | road | 493 | 27 | 2 | 464 | 5.5% (3.8–7.9) | 5% |
+| | 6 | 60 | today | 493 | 105 | 39 | 349 | 13.6% (10.8–16.9) | 22% |
+| | | | road | 493 | 37 | 2 | 454 | 7.5% (5.5–10.2) | 5% |
+| Indiranagar | 4 | 60 | today | 493 | 115 | 62 | 316 | 16.0% (13.1–19.5) | 30% |
+| | | | road | 493 | 33 | 7 | 453 | 6.7% (4.8–9.3) | 7% |
+| | 6 | 30 | today | 234 | 83 | 25 | 126 | 22.2% (17.4–28.0) | 14% |
+| | | | road | 234 | 23 | 2 | 209 | 9.8% (6.6–14.3) | 3% |
+| | 6 | 60 | today | 493 | 155 | 75 | 263 | 21.9% (18.5–25.8) | 27% |
+| | | | road | 493 | 51 | 9 | 433 | 10.3% (8.0–13.3) | 7% |
+
+The full sweep (4 and 6 riders, at 10, 30 and 60 orders an hour, in both zones) is in `docs/testing/reports/214.md`.
+
+What it shows, with the placeholder profile and six fixed waiting points:
+- **Reach is the larger cause of refusals, and a busy fleet is a real second.** For today's rule, reach is 78 to 100% of refusals, and busy refusals grow with demand: from 0 to 2 of 81 orders at 10 an hour, to 24 to 75 of 493 at 60. For the road rule, which reaches less far, reach is over 97%.
+- **Riders are busy 0 to 30% of the time,** with a ride that runs past the end counted in full (under about 3 points high).
+- **More riders help a little.** Going from 4 to 6 riders raises in time per order by about 2 to 9 points for today's rule and 1 to 4 for the road rule, and cuts reach refusals (more nodes to be near). Several of these differences sit inside overlapping intervals.
+- **Hypothesis for W4, not yet measured:** placing the waiting points by demand and road time (covering models) cuts reach refusals more than adding riders at fixed points. The simulator can test this once placement exists.
+- **Not a sizing answer:** the waiting points are fixed, demand is uniform rather than from W7, and the profile is a placeholder.
+
 ## The road test (decision 0011 #4)
 
 | Item | Plan |
@@ -82,7 +116,7 @@ What it shows, and what it does not:
 |---|---|---|
 | 1 | PoC 1 | The owner has seen the cell sets on a map |
 | 2 | Simulator v1 with today's rule | It reproduces today's behaviour on a known scenario. Built (#205): `internal/sim`, `cmd/sim`; the first comparison is above |
-| 3 | Simulator with the new rules | A written comparison, attached to the matching and placement Issues |
+| 3 | Simulator with the new rules | A written comparison, attached to the matching and placement Issues. Built (#205, #214): the first comparison and the fleet comparison above |
 | 4 | Road test | The owner arranges a rider; the results recalibrate the profile and budgets |
 | 5 | Keep it running | Every geo PR that changes a rule includes a simulator run |
 
