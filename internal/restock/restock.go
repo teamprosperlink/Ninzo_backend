@@ -405,7 +405,15 @@ func (s *Service) ExpireUnaccepted(ctx context.Context, now time.Time) error {
 			if err := audit.Record(ctx, tx, audit.Event{ActorType: audit.ActorSystem, Action: "restock.unaccepted", EntityType: "restock_request", EntityID: id}); err != nil {
 				return err
 			}
-			return bumpRider(ctx, tx, rider, id)
+			if err := bumpRider(ctx, tx, rider, id); err != nil {
+				return err
+			}
+			// A confirmed request that began as a suggestion looks like the rider's draft to bumpRider
+			// once expired, but the hub has seen it since it was confirmed, so the hub's seq rises here,
+			// as in CancelTx and the console's ExpireTx (#192).
+			_, err = tx.Exec(ctx, `INSERT INTO hub_state (hub_id, seq) SELECT hub_id, 1 FROM restock_requests WHERE id = $1 AND source = 'suggested'
+				ON CONFLICT (hub_id) DO UPDATE SET seq = hub_state.seq + 1, updated_at = now()`, id)
+			return err
 		})
 		if err != nil {
 			if id == "" || ctx.Err() != nil {

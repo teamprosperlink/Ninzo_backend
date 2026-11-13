@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### An expired confirmed suggestion raises the hub's seq (#192)
+- Fixed: when no hub accepted a confirmed request that began as a suggestion, its natural expiry did not raise the hub's seq, so the hub app kept showing it. It now does, as cancel and the console's expire do.
+- Evidence: docs/testing/reports/192.md
+
 ### Placement plans per zone, weekday and half-hour (#224)
 - Added: `placement_builds` and `placement_plans` (migration 0053, append-only), and the settings `placement_busy_share_pct` (30) and `placement_weeks` (4). `internal/placementplan` (Build, Latest) places on the zone's non-test staging nodes, by recorded demand forecast per cell and road-time coverage. `cmd/placement -zone` runs it, local only unless `-remote`. `placement.GreedyCaps` and `Score`. Nothing reads plans yet: relocation v2 will, behind a setting.
 - Evidence: docs/testing/reports/224.md
