@@ -12,7 +12,7 @@
 | Setting | Choice |
 |---|---|
 | Region | Mumbai |
-| Project | `Ninzo-backend-mumbai`, ref `chyejfgsipcsdxnginei`. `cmd/migrate` refuses any other |
+| Project | `ninzo-staging-sg`, ref `xzndsqckkywmcobdeuep`, region ap-southeast-1 (Singapore), from 2026-11-13 (#174, #231). It replaced `Ninzo-backend-mumbai` (`chyejfgsipcsdxnginei`, paused): the APIs run on Railway in Singapore, and a database in Mumbai made each write cross the region 20 to 35 times. `cmd/migrate` refuses any other |
 | Connections | Session pooler, with a small connection pool per service |
 | Outbox delivery | Polling |
 | Data API | Off, or granted nothing. Migration 0006 revokes the grants, so this does not depend on a dashboard setting |

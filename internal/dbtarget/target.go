@@ -11,9 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// NinzoRef is Ninzo's Supabase project. The organisation also has another product's
+// NinzoRef is Ninzo's Supabase project: ninzo-staging-sg in Singapore (ap-southeast-1), next to
+// the APIs on Railway (#174, #231). It replaced Ninzo-backend-mumbai (chyejfgsipcsdxnginei),
+// which is paused. The organisation also has another product's
 // project, which must never be touched.
-const NinzoRef = "chyejfgsipcsdxnginei"
+const NinzoRef = "xzndsqckkywmcobdeuep"
 
 // The two logins for Ninzo's project. Migrations use one, and services use the other.
 const (
