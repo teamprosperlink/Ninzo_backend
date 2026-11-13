@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-13 | #192 | an expired confirmed suggestion raises the hub's seq | See PR | PASS | [reports/192.md](reports/192.md) |
 | 2026-11-13 | #224 | placement plans per zone, weekday and half-hour | See PR | PASS | [reports/224.md](reports/224.md) |
 | 2026-11-13 | #222 | uneven demand in the simulator, placement on demand per cell | See PR | PASS | [reports/222.md](reports/222.md) |
 | 2026-11-13 | #220 | demand per cell and half-hour, forecast v1 | See PR | PASS | [reports/220.md](reports/220.md) |
