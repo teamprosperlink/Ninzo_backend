@@ -34,10 +34,61 @@ Keep free scooters, with the right stock, at the staging nodes that cover the mo
 | 1 | Node catalogue | Ops-entered nodes with approach points and legality notes | The console (other session) already edits places; check the fields | Each pilot node is legal, reachable, and has a snapped road point |
 | 2 | Coverage matrix | `w1`, `w2` | A `tools/` or Go job: node × cell road times, stored as `node_cells` | Rebuilt with each road data version |
 | 3 | Demand per cell and band | `w7` | Read from `w7`'s counts or forecast | A test data set exists for the simulator |
-| 4 | Placement tables | Steps 2 and 3; busy share q (a setting, starting about 0.3 until measured) | Greedy maximum expected covering for n = 1 … N, per band | Stored as `placement_plans`; viewable on a map |
+| 4 | Placement tables | Steps 2 and 3; busy share q (a setting, starting about 0.3 until measured) | Greedy maximum expected covering for n = 1 … N, per band | Stored as `placement_plans`; viewable on a map. The method is built and tested in the simulator (#216, `internal/placement`); storing plans per band is next |
 | 5 | Relocation v2 | Steps 4 and the existing relocation flow | Replace "nearest node to each gate" with the table and the Hungarian assignment; keep the suggestion, pay and rest rules | The simulator shows more orders served within the budget than today's rule, at the same or fewer moves |
 | 6 | Shift start | Step 4 | A rider starting a shift is given the best open node in the table row | Tested with several riders starting together |
 | 7 | Stock-aware coverage | Stock per scooter (exists) | Coverage per item | Shown in the simulator before use |
+
+## First placement result (#216, 2026-11-13)
+`go run ./cmd/sim -osrm <test-zone OSRM> -zone <z> -fleet <n> -orders-per-hour <r> -hours 3 -seeds 3 -seed <s> [-place]`.
+
+- **Placed:** greedy maximum expected covering (q = 0.2, one scooter per point) on 6 × 8 grid points snapped to the nearest road within 60 m, which can be any road, arterials included. A point covers a gate within the 80 s sweet spot by road. Each fit uses 150 gates drawn with a seed of its own (1000 + s), and is scored on seeds s to s + 2.
+- **Fixed:** the six points hand-picked in #205 (the centre and five around it). They were never chosen to be good, so this is a weak baseline.
+- **Otherwise as the fleet comparison in w8:** busy riders, Poisson arrivals, uniform demand, the placeholder profile.
+
+### Four independent fits, 30 orders an hour
+Four fits (s = 1, 4, 7, 10) per zone, pooled: 1,034 orders per arm. The figure is in time, of all orders placed; 95% Wilson intervals are in brackets.
+
+| Zone | Rule | 4 fixed | 4 placed | 6 fixed |
+|---|---|---|---|---|
+| Indiranagar | Road | 8.4% (6.9–10.3) | **18.3%** (16.0–20.8) | 13.8% (11.9–16.1) |
+| | Today's | 17.3% (15.1–19.7) | **27.4%** (24.7–30.2) | 24.7% (22.1–27.4) |
+| Koramangala | Road | 6.7% (5.3–8.4) | **10.7%** (9.0–12.8) | 8.3% (6.8–10.2) |
+| | Today's | 13.5% (11.6–15.8) | 15.9% (13.8–18.2) | 17.7% (15.5–20.1) |
+
+The difference for each fit, in points (placed 4 minus fixed 4; placed 4 minus fixed 6). Each pair shares the same orders:
+
+| Zone | Rule | Placed 4 − fixed 4 | Placed 4 − fixed 6 |
+|---|---|---|---|
+| Indiranagar | Road | +12.0, +10.2, +7.3, +10.3 | +9.0, +5.4, +0.4, +3.6 |
+| | Today's | +8.5, +9.9, +8.1, +13.9 | +3.4, +3.7, −2.2, +6.3 |
+| Koramangala | Road | +4.7, +5.5, +0.7, +5.6 | +3.0, +4.4, −1.5, +4.0 |
+| | Today's | +3.8, +0.4, +0.4, +5.1 | +0.4, −3.2, −4.0, 0.0 |
+
+The first single-fit sweep at 4 and 6 riders and 30 and 60 an hour is in `docs/testing/reports/216.md`. It points the same way.
+
+### What it shows
+With the placeholder profile and uniform demand:
+- **Against the same number of fixed riders, placement is at least as good in every fit, and clearly better in three of the four zone and rule pairs.** All 16 per-fit differences are positive, but two of them (Koramangala, today's rule) are +0.4 points, about one order in 270, which is a tie.
+  - Road rule: +7 to +12 points in Indiranagar (about twice the in time), and +1 to +6 in Koramangala. The pooled intervals do not overlap in either zone.
+  - Today's rule: +8 to +14 in Indiranagar, where the intervals do not overlap; +0.4 to +5 in Koramangala, where they do.
+- **Placing 4 against adding 2 more fixed riders depends on the zone and the rule.**
+  - Indiranagar, road rule: 4 placed are ahead of 6 fixed on the pooled figure (18.3% against 13.8%), but the intervals just touch (16.0–20.8 against 11.9–16.1). Per fit it is +0.4 to +9, so one of four fits is a tie.
+  - Indiranagar on today's rule and Koramangala on the road rule are mixed: three fits ahead, one behind, and the pooled intervals overlap.
+  - Koramangala, today's rule: 6 fixed are as good or better.
+  - The earlier "4 placed beat 6 fixed in Indiranagar" was one fit. Pooled, it is ahead for the road rule only, and not clearly.
+- **The objective favours the road rule.** Placement maximises "road time within the sweet spot", which is exactly the road rule's acceptance test. Today's rule accepts by straight-line reach, so part of the larger road-rule gain is built in. A placement for today's rule would cover by straight-line distance.
+- **Still mostly a reach problem.** Even placed, 4 to 6 riders keep only 17 to 38% of the zone's demand within the 80 s sweet spot by road (from the single-fit sweep in the report, placement seed 1001).
+- **What these runs are not:**
+  - The hold-out is on the same uniform demand, so it tests sampling noise, not a change in where orders come from.
+  - Greedy's closeness to the best placement is not measured; it is guaranteed only within (1 − 1/e).
+  - q = 0.2 here, while step 4 starts at 0.3; the measured busy shares were 2 to 30%.
+- **Not yet real:**
+  - The placed points are road-snapped grid points, not checked legal waiting spots (W4 step 1, nodes from the console).
+  - Demand is uniform (W7).
+  - The profile is a placeholder.
+  - Scooters do not move during the day (relocation, W4 step 5).
+- Found on the way: OSRM can answer -0.2 m for a point on the destination, and routing refused the whole table. Fixed in #217.
 
 ## Path to scale
 Exact placement with OR-Tools; plans per zone; learned values of a free scooter at a place and time once there is enough data.
