@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Uneven demand in the simulator, and placement on demand per cell (#222)
+- Added: `sim.Scenario.Hotspots`, `sim.PlaceOnCells`, `sim.CellDemand` (a synthetic history, then forecast v1), and `cmd/sim -hotspots` and `-place-from`.
+- Found: with synthetic hotspots, placement on the forecast per cell beat the fixed points in 7 of 8 placements under both rules, and placement as if demand were even in all 8. It did as well as placing on demand draws directly: the gain is in knowing where demand is. Fitted as if even, it can be worse than the fixed points. The hotspots are synthetic, and the history comes from the demand it is scored on. See w7.
+- Evidence: docs/testing/reports/222.md
+
 ### Demand per cell and half-hour, and forecast v1 (#220)
 - Added: `demand_checks` (migration 0052) and the setting `demand_retention_days` (84). `GET /v1/availability` now keeps each check once per IST day, half-hour, `blr76` cell, customer (a day-salted hash) and outcome, best effort. `internal/demand` adds Counts (paid orders included), Forecast v1 (same weekday and band, recent weeks weighted), Backtest, Forget and Prune.
 - Evidence: docs/testing/reports/220.md
