@@ -5,6 +5,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Road-time matching, behind a setting (#209)
+- Added: `internal/matching`, pure ordering of the scooters that can take an order: `ByStraightLine` (today) and `ByRoad`, the fastest by road from each rider's position. Unreachable scooters go last, and a routing outage keeps today's order.
+- Added: migration 0051 and the setting `matching_by_road` (0 or 1, **0 by default**). With 1, `availability.PickScooter` keeps every filter but tries the passing scooters fastest by road, from the rider's live position (or the node when the ping is older than `signal_release_s`).
+- Changed: the customer API, where orders are placed and dispatched, reads `ROUTING_ENGINE_URL` at start-up (empty: straight lines). Which rule is better is the owner's call (w8, #205).
+- Evidence: docs/testing/reports/209.md
+
 ### Live rider positions (#207)
 - Added: migration 0050. `location_pings.cell` holds the grid cell of each new ping. `rider_positions` holds one row per rider, moved in the ping's transaction only by a ping that is newer by device time, so a late or out-of-order ping never moves a rider back.
 - Added: `internal/riderpos` (`Cell`, `Record`, `Latest`, `TierFor`: which tier of a gate's cells a rider is in). `orders.pingTx` records each ping, serving the live ping and the offline batch alike.

@@ -93,6 +93,14 @@ func PickScooterExcept(ctx context.Context, tx pgx.Tx, lat, lng float64, now tim
 		pick.Reason = ReasonNoCoverage
 		return pick, nil
 	}
+	// Today's order is by straight line from each scooter's node. With matching_by_road on and
+	// routing configured, the same scooters, busy and excluded ones already left out, are tried
+	// fastest by road first (W5, #209).
+	if byRoad, _ := settings.Get("matching_by_road"); byRoad == 1 && len(scooters) > 1 {
+		if scooters, err = orderByRoad(ctx, tx, scooters, lat, lng, now, settings); err != nil {
+			return Pick{}, err
+		}
+	}
 	count := func(scooter string) (map[string]int, error) {
 		rows, err := tx.Query(ctx, `SELECT l.item_id::text, sum(ss.on_hand - ss.reserved)::int
 			FROM scooter_stock ss JOIN lots l ON l.id = ss.lot_id
