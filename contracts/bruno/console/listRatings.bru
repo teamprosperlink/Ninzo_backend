@@ -1,0 +1,16 @@
+meta {
+  name: listRatings
+  type: http
+  seq: 45
+}
+
+get {
+  url: {{baseUrl}}/admin/ratings
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

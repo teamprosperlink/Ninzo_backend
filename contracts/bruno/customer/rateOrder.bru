@@ -1,0 +1,23 @@
+meta {
+  name: rateOrder
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/orders/mock_id/rating
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-rateOrder-0001
+}
+
+body:json {
+  {
+    "stars": 4
+  }
+}

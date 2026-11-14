@@ -1811,6 +1811,82 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/ratings:
+    get:
+      tags:
+      - orders
+      operationId: listRatings
+      summary: See how customers rated deliveries
+      description: >-
+        So ops and support can see how deliveries went, and which rider and zone they went with. Newest first (by rated_at). One row for each rated order, with the order id and number, the zone, the rider who delivered it (null when none is on record), the stars, the reason (one of the fixed list, or null) and when it was rated. There is never a customer name, phone or address, and never free text, because customers cannot type any. Filters, all optional and combined with and, are zone_id, rider_id, stars (exactly this many), from and to. The same ratings show on the order timeline (source rating, kind rating.given) and as the rider's average on rider review. Permission: orders.read, which admin, ops and support have and a hub manager does not.
+      x-permission: orders.read
+      parameters:
+      - name: zone_id
+        in: query
+        required: false
+        description: Only orders of this zone.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - name: rider_id
+        in: query
+        required: false
+        description: Only orders this rider delivered.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - name: stars
+        in: query
+        required: false
+        description: Only ratings with exactly this many stars, 1 to 5.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5
+      - name: from
+        in: query
+        required: false
+        description: Only ratings made at or after this time.
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        description: Only ratings made before this time.
+        schema:
+          type: string
+          format: date-time
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RatingList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
   /admin/quarantined-stock:
     get:
       tags:
@@ -3321,6 +3397,11 @@ components:
         applied_at:
           type: string
           format: date-time
+        rating:
+          description: >-
+            How customers rate this rider, for the reviewer (Issue 265). Optional until the server builds it in part B, then always sent.
+            An applicant has no ratings, so the count is 0 and the average is null.
+          $ref: '#/components/schemas/RiderRatingSummary'
     RiderReviewList:
       type: object
       required: [riders, next_cursor, server_time]
@@ -4279,6 +4360,67 @@ components:
           type: ['string', 'null']
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RatingReason:
+      type: string
+      description: The fixed list of reasons a customer can give. There is no free text.
+      enum: [late, cold_food, rude, wrong_items, other]
+    RatingRow:
+      type: object
+      required: [order_id, order_number, zone_id, rider, stars, reason, rated_at]
+      properties:
+        order_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        order_number:
+          type: string
+          pattern: '^[A-Z][0-9]{4}$'
+        zone_id:
+          type: ['string', 'null']
+        rider:
+          description: The rider who delivered the order. Null when none is on record.
+          oneOf:
+          - type: object
+            required: [id, name]
+            properties:
+              id:
+                $ref: ../shared/common.yaml#/components/schemas/Id
+              name:
+                type: ['string', 'null']
+          - type: 'null'
+        stars:
+          type: integer
+          minimum: 1
+          maximum: 5
+        reason:
+          oneOf:
+          - $ref: '#/components/schemas/RatingReason'
+          - type: 'null'
+        rated_at:
+          type: string
+          format: date-time
+    RatingList:
+      type: object
+      required: [ratings, next_cursor, server_time]
+      properties:
+        ratings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RatingRow'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    RiderRatingSummary:
+      type: object
+      required: [average, count]
+      properties:
+        average:
+          description: The mean of the rider's ratings, to one decimal such as 4.6. Null while count is 0.
+          type: ['number', 'null']
+          minimum: 1
+          maximum: 5
+        count:
+          type: integer
+          minimum: 0
     TimelineEvent:
       type: object
       required: [at, source, kind, actor_type, actor_name, detail]
@@ -4288,10 +4430,10 @@ components:
           format: date-time
         source:
           type: string
-          enum: [order, offer, payment, refund, remedy, problem, ticket, review, audit, stock]
+          enum: [order, offer, payment, refund, remedy, problem, ticket, review, audit, stock, rating]
         kind:
           type: string
-          description: Open list, such as order.created or payment.captured.
+          description: Open list, such as order.created or payment.captured. A customer's rating is rating.given, with source rating, and its detail holds stars, reason and nothing else.
         actor_type:
           type: string
           description: Open list, such as customer, rider, console or system.

@@ -49,6 +49,8 @@ var customerScenarios = map[string]string{
 	"failed":                   "The order has ended after a failure, and refunded",
 	"temperature_failed":       "The order has ended after a failed temperature check, and refunded",
 	"missing_food":             "The order was handed over, but food was missing, so it is refunded",
+	"already_rated":            "The order was handed over and the customer has rated it: rating is set, can_rate is false, and POST rating fails with already_rated",
+	"rating_window_closed":     "The order was handed over, but the rating window has passed: can_rate is false, and POST rating fails with rating_window_closed",
 	"eta_offer_expired":        "POST accept-eta fails with eta_offer_expired, at no_scooter",
 	"invalid_otp":              "POST verify fails with invalid_otp",
 	"otp_expired":              "POST verify fails with otp_expired",
@@ -320,6 +322,7 @@ func customerRoutes() []route {
 			}
 			c.json(200, map[string]any{"phone": "+911140000000", "expires_at": stamp(c.now.Add(5 * time.Minute))})
 		}},
+		{method: "POST", path: "/orders/{order_id}/rating", handle: rateOrder},
 		{method: "GET", path: "/orders/{order_id}/refund", handle: func(c *call) {
 			reason := storyFor(c.scenario).refund
 			if reason == "" {
