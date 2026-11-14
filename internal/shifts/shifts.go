@@ -60,7 +60,7 @@ type Service struct {
 }
 
 // MountRider adds startShift, endShift, listNodes, scanStock, getStock, startBreak, endBreak, takeBreak, goOnline, setPlannedEnd,
-// submitStockCount, listRiderShifts and getShiftSummary.
+// submitStockCount, quarantineLot, listRiderShifts and getShiftSummary.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
@@ -79,6 +79,7 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.With(idem).Post("/riders/me/shifts/online", s.goOnline)
 		g.With(idem).Post("/riders/me/shifts/planned-end", s.setPlannedEnd)
 		g.With(idem).Post("/riders/me/stock/count", s.submitStockCount)
+		g.With(idem).Post("/riders/me/stock/{lot_id}/quarantine", s.quarantineLot)
 		g.Get("/riders/me/shifts", s.listRiderShifts)
 		g.Get("/riders/me/shifts/{shift_id}/summary", s.getShiftSummary)
 	})
@@ -759,7 +760,7 @@ func (s *Service) getStock(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.Pool.Query(r.Context(), `SELECT l.id::text, l.item_id::text, ss.on_hand - ss.reserved, l.expires_at, l.temp_status, m.photo_url
 		FROM shifts sh JOIN scooter_stock ss ON ss.scooter_id = sh.scooter_id JOIN lots l ON l.id = ss.lot_id
 		JOIN menu_items m ON m.id = l.item_id
-		WHERE sh.rider_id = $1 AND sh.ended_at IS NULL AND ss.on_hand > 0 ORDER BY l.expires_at, l.id`, actor.ID)
+		WHERE sh.rider_id = $1 AND sh.ended_at IS NULL AND ss.on_hand > 0 AND l.status = 'ok' ORDER BY l.expires_at, l.id`, actor.ID)
 	if err != nil {
 		s.fail(w, r, err)
 		return

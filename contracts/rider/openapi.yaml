@@ -2208,9 +2208,13 @@ paths:
       summary: Take a lot off the scooter into quarantine
       description: >-
         For the rider app's prompt after a temperature alert, or food the rider finds damaged (Issue 235).
-        The whole lot leaves the scooter's stock and can never be scanned again.
+        The lot leaves the scooter's stock and can never be scanned again.
         Errors, all 409: no_open_shift, lot_not_on_scooter, lot_reserved (part of it is held for an order).
-        A lot already quarantined by this rider answers 200 again. A lot of another rider's scooter gets 404.
+        With lot_reserved the lot is still quarantined and the units no order holds are taken out of sale and off the
+        scooter at once; the units an order holds stay with that order, so that order is not broken. If those held units
+        are bad, the rider reports a problem on that order. Asking again changes nothing while the order holds them,
+        and takes out what the order gives back. A lot already quarantined by this rider answers 200 again, wherever
+        the lot is now. A lot of another rider's scooter, on no scooter, or that does not exist gets 404.
       parameters:
       - $ref: '#/components/parameters/LotId'
       - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
@@ -2265,12 +2269,14 @@ paths:
       operationId: checkGate
       summary: Check the gate's QR code or code
       description: >-
-        For the rider app (Issue 235). Compares what the rider scanned or typed with the code printed at the gate.
+        For the rider app (Issue 235). Compares what the rider scanned or typed with the gate.
         It changes nothing, so it takes no Idempotency-Key. It is accepted and answered, but it never decides
         arrival. Arrival and the timer's stop come from the rider's location alone (decision 0007), so a
         matched false does not block the handover and a matched true does not mark the rider as arrived.
-        checked is false when the gate has no code, and matched is then true. The order must be one this
-        rider accepted, or 404.
+        For method qr the value is NZG|<gate id>, compared with the id of the gate the order was placed to:
+        checked is true, and matched is true or false (a value in any other shape is checked true, matched false). For method
+        code, no gate has a typed code, so checked is false and matched is true. The order must be one this rider accepted
+        and still holds, and not finished, or 404.
       parameters:
       - $ref: '#/components/parameters/OrderId'
       requestBody:
@@ -4228,7 +4234,7 @@ components:
       - server_time
       properties:
         checked:
-          description: False when the gate has no code. Arrival is by location either way.
+          description: False when there is nothing to check against (a typed code, which no gate has). True for a scanned QR. Arrival is by location either way.
           type: boolean
         matched:
           type: boolean

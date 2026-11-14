@@ -2064,6 +2064,118 @@ components:
                 - reason
                 - created_at
             type: object
+        QuarantinedStock:
+            properties:
+                hub:
+                    description: The hub, for a hub quarantine. Null for a rider quarantine.
+                    properties:
+                        id:
+                            $ref: '#/components/schemas/Id'
+                        name:
+                            type: string
+                    required:
+                        - id
+                        - name
+                    type:
+                        - object
+                        - "null"
+                item:
+                    properties:
+                        id:
+                            $ref: '#/components/schemas/Id'
+                        name:
+                            type: string
+                    required:
+                        - id
+                        - name
+                    type: object
+                lot_code:
+                    type: string
+                lot_id:
+                    $ref: '#/components/schemas/Id'
+                order_ids:
+                    description: Orders that had units from this lot, newest first, at most 20. Empty if none.
+                    items:
+                        $ref: '#/components/schemas/Id'
+                    maxItems: 20
+                    type: array
+                qty:
+                    description: Units taken out of stock. For a rider it is what was on the scooter, for a hub the lot's size.
+                    minimum: 0
+                    type: integer
+                quarantined_at:
+                    format: date-time
+                    type: string
+                reason:
+                    description: The reason given (a rider can send temperature, damaged, expired or other; a hub lead also contamination). temperature means too warm.
+                    enum:
+                        - temperature
+                        - damaged
+                        - expired
+                        - contamination
+                        - other
+                    type: string
+                rider:
+                    description: Who quarantined it. Null for a hub quarantine.
+                    properties:
+                        id:
+                            $ref: '#/components/schemas/Id'
+                        name:
+                            type: string
+                    required:
+                        - id
+                        - name
+                    type:
+                        - object
+                        - "null"
+                scooter:
+                    description: The scooter the lot was on. Null for a hub quarantine.
+                    properties:
+                        code:
+                            type: string
+                        id:
+                            $ref: '#/components/schemas/Id'
+                    required:
+                        - id
+                        - code
+                    type:
+                        - object
+                        - "null"
+                source:
+                    enum:
+                        - rider
+                        - hub
+                    type: string
+            required:
+                - lot_id
+                - lot_code
+                - item
+                - qty
+                - source
+                - reason
+                - quarantined_at
+                - scooter
+                - rider
+                - hub
+                - order_ids
+            type: object
+        QuarantinedStockList:
+            properties:
+                lots:
+                    items:
+                        $ref: '#/components/schemas/QuarantinedStock'
+                    type: array
+                next_cursor:
+                    type:
+                        - string
+                        - "null"
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - lots
+                - next_cursor
+                - server_time
+            type: object
         ReasonBody:
             properties:
                 reason:
@@ -2794,6 +2906,7 @@ components:
                         - ticket
                         - review
                         - audit
+                        - stock
                     type: string
             required:
                 - at
@@ -4507,7 +4620,7 @@ paths:
             x-permission: remedies.issue
     /admin/orders/{order_id}/timeline:
         get:
-            description: 'The order, with its gate label and pin, items, timer fields, remedies and refunds, then its events oldest first (from the order, its offers, payments, refunds, remedies, problem reports, tickets, reviews and the audit log), and a summary of the rider''s pings (count, first and last time; pings are not events). The customer''s phone and address appear only as the last four digits and the gate label. Permission: orders.read.'
+            description: 'The order, with its gate label and pin, items, timer fields, remedies and refunds, then its events oldest first (from the order, its offers, payments, refunds, remedies, problem reports, tickets, reviews, the audit log, and stock quarantined on the order''s scooter from an hour before the order was made until it ended: kind stock.quarantined, source stock, with the item, lot, reason and units but never the rider''s note), and a summary of the rider''s pings (count, first and last time; pings are not events). The customer''s phone and address appear only as the last four digits and the gate label. Permission: orders.read.'
             operationId: getOrderTimeline
             parameters:
                 - description: The id.
@@ -4536,6 +4649,73 @@ paths:
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: Show an order and everything that happened to it
+            tags:
+                - orders
+            x-permission: orders.read
+    /admin/quarantined-stock:
+        get:
+            description: 'So support can answer a customer who asks why the food was not fresh, and ops can see what was thrown away. Newest first. One row for each lot that a rider quarantined on a scooter (source rider) or a hub lead quarantined at a hub (source hub). Each row names the item, the lot, the scooter and rider (rider source), the hub (hub source), the reason, how many units, when, and the orders that had units from the lot (newest first, at most 20). Never the rider''s or hub lead''s own words: the note stays out. Lots a rider quarantined also show on the timeline of an order made on that scooter around then (source stock). Hub quarantines do not, because those lots were at the hub. Permission: orders.read, which admin, ops and support have and a hub manager does not.'
+            operationId: listQuarantinedStock
+            parameters:
+                - description: Only lots of this zone (the scooter's zone, or the hub's).
+                  in: query
+                  name: zone_id
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - description: Only lots quarantined on this scooter. Hub quarantines have no scooter, so this leaves them out.
+                  in: query
+                  name: scooter_id
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - description: Only lots quarantined at or after this time.
+                  in: query
+                  name: from
+                  required: false
+                  schema:
+                    format: date-time
+                    type: string
+                - description: Only lots quarantined before this time.
+                  in: query
+                  name: to
+                  required: false
+                  schema:
+                    format: date-time
+                    type: string
+                - description: From next_cursor.
+                  in: query
+                  name: cursor
+                  required: false
+                  schema:
+                    maxLength: 200
+                    type: string
+                - description: 1 to 100. 50 by default.
+                  in: query
+                  name: limit
+                  required: false
+                  schema:
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/QuarantinedStockList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: See the lots taken out of stock, and why
             tags:
                 - orders
             x-permission: orders.read
