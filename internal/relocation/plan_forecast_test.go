@@ -131,3 +131,22 @@ func TestAnOlderPlanReportsRecentOrders(t *testing.T) {
 		t.Errorf("with no forecast, the node's recent orders are reported as before: %v", m)
 	}
 }
+
+func TestWithNoPlanTodaysRuleCanStillMoveATestRider(t *testing.T) {
+	// The setting is on, but only test riders are free, so no plan applies and today's rule runs. It
+	// still counts test scooters, as with the setting off (recorded in known_downsides, #249).
+	f := newFixture(t)
+	ctx := context.Background()
+	f.byPlan()
+	first := f.testRider(f.b)
+	f.testRider(f.b)
+	f.orders(3, 12.9425, 77.6365, 10*time.Minute) // near C, where nobody waits
+	now := time.Now()
+	f.plan(now, f.b, f.c)
+	if n, err := f.svc.Check(ctx, now); err != nil || n != 1 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if m, _ := Current(ctx, f.pool, first, now); m == nil || m.(map[string]any)["reason"] != "3 orders expected, nobody nearby" {
+		t.Errorf("today's rule should have made this move: %v", m)
+	}
+}

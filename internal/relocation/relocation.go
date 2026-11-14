@@ -541,11 +541,11 @@ func (s *Service) suggestByPlan(ctx context.Context, tx pgx.Tx, places map[strin
 	want := map[string]int{}
 	// Forecast orders per node, from the plan; a build from before #249 has none, so its moves
 	// report the node's recent orders as before.
-	forecast := map[string]float64{}
+	forecast, hasForecast := map[string]float64{}, plan.NodeOrders != nil
 	for i, id := range plan.Nodes {
 		if places[id] != nil {
 			want[id]++
-			if len(plan.NodeOrders) == len(plan.Nodes) {
+			if hasForecast {
 				forecast[id] += plan.NodeOrders[i]
 			}
 		}
@@ -577,7 +577,7 @@ func (s *Service) suggestByPlan(ctx context.Context, tx pgx.Tx, places map[strin
 			continue
 		}
 		expected := to.demand
-		if len(plan.NodeOrders) == len(plan.Nodes) {
+		if hasForecast {
 			expected = int(math.Round(forecast[to.id]))
 		}
 		ok, err := suggest(ctx, tx, from, to, "More orders are expected here soon", expected, now, ttl)

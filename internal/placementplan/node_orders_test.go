@@ -121,3 +121,15 @@ func TestAPlanFromBeforeTheForecastReadsAsNone(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeOrdersRefuseNaNAndInfinity(t *testing.T) {
+	f := newFixture(t, 1)
+	build := f.id(`INSERT INTO placement_builds (zone_id, demand_from, demand_to, busy_share_pct, budget_s, nodes, cells, plans)
+		VALUES ($1, '2026-10-01', '2026-10-28', 30, 80, 2, 1, 1) RETURNING id::text`, f.zone)
+	for _, bad := range []float64{math.NaN(), math.Inf(1)} {
+		if _, err := f.pool.Exec(context.Background(), `INSERT INTO placement_plans (build_id, weekday, band, n, node_ids, expected, covered, node_orders)
+			VALUES ($1, 5, 40, 1, $2::uuid[], 0.5, 0.6, $3::float8[])`, build, []string{f.west}, []float64{bad}); err == nil {
+			t.Errorf("stored node_orders %v", bad)
+		}
+	}
+}
