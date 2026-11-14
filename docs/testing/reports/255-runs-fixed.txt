@@ -1,0 +1,45 @@
+### zone=koramangala hotspots=none rate=20
+Koramangala (test), 6 riders on 18 nodes, 20 orders an hour for 3.0 h x 20 seeds from 1; plan fitted at q 0.20 (14% of its demand in reach for 6)
+check 30 s, window 1800 s, min orders 2, rest 900 s; matching by today's rule
+reloc   orders  served busy-refused reach-refused       in time / order  moves  move min
+none      1121     292          32          797  13.5% (11.6- 15.6%)      0         0
+today     1121     292          32          797  13.5% (11.6- 15.6%)      0         0
+plan      1121     276          48          797  15.0% (13.0- 17.2%)    377      2836
+plan vs today, paired by seed: +1.6 points in time per order on average; plan better on 11 seeds, worse on 7, equal on 2
+exit=0
+### zone=koramangala hotspots=12.941,77.636,0.5,250;12.928,77.615,0.2,200 rate=20
+Koramangala (test), 6 riders on 18 nodes, 20 orders an hour for 3.0 h x 20 seeds from 1; plan fitted at q 0.20 (22% of its demand in reach for 6)
+check 30 s, window 1800 s, min orders 2, rest 900 s; matching by today's rule
+reloc   orders  served busy-refused reach-refused       in time / order  moves  move min
+none      1121     188          22          911   8.3% ( 6.8- 10.1%)      0         0
+today     1121     188          22          911   8.3% ( 6.8- 10.1%)      0         0
+plan      1121     477         179          465  23.5% (21.1- 26.0%)    531      5096
+plan vs today, paired by seed: +15.4 points in time per order on average; plan better on 20 seeds, worse on 0, equal on 0
+exit=0
+### zone=indiranagar hotspots=none rate=20
+Indiranagar (test), 6 riders on 19 nodes, 20 orders an hour for 3.0 h x 20 seeds from 1; plan fitted at q 0.20 (29% of its demand in reach for 6)
+check 30 s, window 1800 s, min orders 2, rest 900 s; matching by today's rule
+reloc   orders  served busy-refused reach-refused       in time / order  moves  move min
+none      1121     456          73          592  28.0% (25.5- 30.7%)      0         0
+today     1121     456          73          592  28.0% (25.5- 30.7%)      0         0
+plan      1121     450          78          593  33.1% (30.4- 35.9%)    466      2216
+plan vs today, paired by seed: +5.2 points in time per order on average; plan better on 18 seeds, worse on 0, equal on 2
+exit=0
+### zone=indiranagar hotspots=12.982,77.646,0.6,250 rate=20
+Indiranagar (test), 6 riders on 19 nodes, 20 orders an hour for 3.0 h x 20 seeds from 1; plan fitted at q 0.20 (33% of its demand in reach for 6)
+check 30 s, window 1800 s, min orders 2, rest 900 s; matching by today's rule
+reloc   orders  served busy-refused reach-refused       in time / order  moves  move min
+none      1121     401         147          573  24.4% (21.9- 27.0%)      0         0
+today     1121     401         147          573  24.4% (21.9- 27.0%)      0         0
+plan      1121     602         137          382  37.6% (34.8- 40.4%)    642      3571
+plan vs today, paired by seed: +13.0 points in time per order on average; plan better on 19 seeds, worse on 1, equal on 0
+exit=0
+### zone=koramangala hotspots=12.941,77.636,0.5,250;12.928,77.615,0.2,200 rate=10
+Koramangala (test), 6 riders on 18 nodes, 10 orders an hour for 3.0 h x 20 seeds from 1; plan fitted at q 0.20 (22% of its demand in reach for 6)
+check 30 s, window 1800 s, min orders 2, rest 900 s; matching by today's rule
+reloc   orders  served busy-refused reach-refused       in time / order  moves  move min
+none       568     105           6          457   8.5% ( 6.4- 11.0%)      0         0
+today      568     105           6          457   8.5% ( 6.4- 11.0%)      0         0
+plan       568     274          54          240  27.3% (23.8- 31.1%)    418      3855
+plan vs today, paired by seed: +19.0 points in time per order on average; plan better on 20 seeds, worse on 0, equal on 0
+exit=0

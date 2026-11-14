@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Relocation rules compared in the simulator (#255)
+- Added: `sim.RunRelocation`, `sim.PlanPicks` and `cmd/sim -relocate [-start fixed|plan]`: none, today's rule and the plan rule on the same orders, with moves and move minutes.
+- Found: starting riders at the plan's spots beats both moving rules; moving by the plan mid-shift costs 0.5 to 3.5 points at 16 to 29 moves per 3 h. `relocation_by_plan` stays off.
+- Evidence: docs/testing/reports/255.md
+
 ### Push notifications over FCM (#252)
 - Added: `internal/fcm`, an FCM HTTP v1 sender behind the existing `orders.Pusher` (service-account OAuth, token cached until a minute before expiry, a new one after a 401). Rider offers and the customer handover stages (rider close, arrived, waiting) go at high priority with a short expiry (1 and 5 minutes); other order pushes expire after an hour. A newer push about the same order replaces the shown one (Android tag, APNs collapse id), when the system shows it; with the app open, the app draws it. Fixed texts that name nobody; the payload as `data`. Only FCM's UNREGISTERED deletes a token; SENDER_ID_MISMATCH and INVALID_ARGUMENT are logged and dropped; other failures retry through the outbox.
 - Added: `FCM_SERVICE_ACCOUNT_JSON` on customer-api replaces `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_FILE`. Unset keeps the log stand-in; broken stops the API from starting. Owner steps: docs/planning/firebase_setup.md.

@@ -77,6 +77,7 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 	windowS := fs.Float64("reloc-window", 1800, "with -relocate: relocation_window_s")
 	minOrders := fs.Int("reloc-min", 2, "with -relocate: relocation_min_orders")
 	restS := fs.Float64("reloc-rest", 900, "with -relocate: relocation_rest_s")
+	startAt := fs.String("start", "fixed", "with -relocate: riders start at the zone's fixed points, or at the plan's first n spots (plan), as assignment at check-in would place them")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return errors.New("usage: sim -osrm <url> [-zone koramangala|indiranagar] [-orders N] [-seed S] [-seeds K] [settings]")
 	}
@@ -119,7 +120,7 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 			if *place {
 				return errors.New("-relocate and -place are separate experiments")
 			}
-			return runRelocate(ctx, r, sc, *fleetN, *rate, *hours, *pack, *handover, *seed, *seeds, *busyQ, *checkS, *windowS, *minOrders, *restS, out)
+			return runRelocate(ctx, r, sc, *fleetN, *rate, *hours, *pack, *handover, *seed, *seeds, *busyQ, *checkS, *windowS, *minOrders, *restS, *startAt, out)
 		}
 		if *place {
 			// Placed on demand drawn with a seed of its own (1000 + seed), so the evaluation seeds
@@ -266,13 +267,21 @@ func parseHotspots(s string) ([]sim.Hotspot, error) {
 // runRelocate compares relocation rules (issue 255): the riders start at the scenario's points,
 // the staging nodes are a road-snapped grid, and the plan is fitted once on demand drawn with a seed
 // of its own (5000), never on the evaluated orders.
-func runRelocate(ctx context.Context, r sim.Router, sc sim.Scenario, n int, rate, hours, pack, handover float64, seed uint64, seeds int, q, checkS, windowS float64, minOrders int, restS float64, out io.Writer) error {
+func runRelocate(ctx context.Context, r sim.Router, sc sim.Scenario, n int, rate, hours, pack, handover float64, seed uint64, seeds int, q, checkS, windowS float64, minOrders int, restS float64, startAt string, out io.Writer) error {
+	if startAt != "fixed" && startAt != "plan" {
+		return errors.New("start must be fixed or plan")
+	}
 	o := sim.PlaceOptions{N: n, Q: q, Capacity: 2, GridRows: 4, GridCols: 5, Demand: 200, DemandSeed: 5000}
 	nodes, picks, plan, err := sim.PlanPicks(ctx, r, sc, o)
 	if err != nil {
 		return err
 	}
-	sc.Riders = sc.Riders[:n]
+	sc.Riders = append([]routing.Point(nil), sc.Riders[:n]...) // a copy: the zone's points stay as they are
+	if startAt == "plan" {
+		for i := range n {
+			sc.Riders[i] = nodes[picks[i]]
+		}
+	}
 	type pooled struct {
 		orders, served, busy, reach, inTime, moves int
 		moveS                                      float64

@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-14 | #255 | relocation rules compared in the simulator | See PR | PASS | [reports/255.md](reports/255.md) |
 | 2026-11-14 | #252 | push notifications over FCM, refund processed push | See PR | PASS | [reports/252.md](reports/252.md) |
 | 2026-11-14 | #249 | relocation by plan: non-test scooters for n, the forecast in orders_waiting | See PR | PASS | [reports/249.md](reports/249.md) |
 | 2026-11-13 | #237 | Razorpay payments in test mode | See PR | PASS | [reports/237.md](reports/237.md) |
