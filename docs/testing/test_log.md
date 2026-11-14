@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-14 | #249 | relocation by plan: non-test scooters for n, the forecast in orders_waiting | See PR | PASS | [reports/249.md](reports/249.md) |
 | 2026-11-13 | #237 | Razorpay payments in test mode | See PR | PASS | [reports/237.md](reports/237.md) |
 | 2026-11-13 | #238 | security headers (HSTS and more), govulncheck and gitleaks in CI, Dependabot, Go 1.27.4 | See PR | PASS | [reports/238.md](reports/238.md) |
 | 2026-11-13 | #235 | rider app (APK) compatibility, part A: contract and mock (52 calls: 28 a, 13 b, 11 c) | See PR | PASS | [reports/235-A.md](reports/235-A.md) |

@@ -62,7 +62,7 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `orders` | `availability_notifications` | "Notify me" requests | v0.6.0 |
 | `demand` | `demand_checks` | Each availability check, once per day, half-hour, cell, customer (day-salted hash) and outcome (#220) | v1.0.0 |
 | `placement` | `placement_builds` | One build of a zone's placement plans: demand window, settings used, counts (#224) | v1.0.0 |
-| `placement` | `placement_plans` | Per build, weekday, half-hour and number of free scooters: the staging nodes they wait at, and the expected and covered share (#224) | v1.0.0 |
+| `placement` | `placement_plans` | Per build, weekday, half-hour and number of free scooters: the staging nodes they wait at, the expected and covered share (#224), and the forecast paid orders per entry (`node_orders`, #249) | v1.0.0 |
 | `payments` | `payments` | One row per Razorpay attempt, so a retry is a new row | v0.4.0 |
 | `payments` | `refunds` | Refunds, with reason, method and status | v0.4.0 |
 | `payments` | `webhook_events` | Razorpay events already handled, by event id (#237) | v1.0.0 |
