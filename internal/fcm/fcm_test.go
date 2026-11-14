@@ -470,3 +470,19 @@ func TestBadAccountsAreRefused(t *testing.T) {
 		t.Fatal("the test server should be http on 127.0.0.1")
 	}
 }
+
+func TestABadAPNsKeyKeepsOurAccessToken(t *testing.T) {
+	f := newFake(t)
+	f.reply = func() (int, string) {
+		return 401, `{"error":{"code":401,"details":[{"errorCode":"THIRD_PARTY_AUTH_ERROR"}]}}`
+	}
+	s, _ := f.sender(t)
+	for range 2 {
+		if err := s.Push(context.Background(), "ios", "t", "push.customer", map[string]any{"stage": "ended"}); err == nil {
+			t.Fatal("an APNs auth failure is still a failure")
+		}
+	}
+	if f.tokens != 1 {
+		t.Fatalf("the APNs key was wrong, not our token: %d tokens", f.tokens)
+	}
+}

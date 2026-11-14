@@ -206,7 +206,7 @@ func (s *Sender) Push(ctx context.Context, platform, token, topic string, payloa
 		// account would make every token look foreign.
 		s.log().ErrorContext(ctx, "fcm: push dropped", "status", resp.StatusCode, "error_code", code, "topic", topic, "platform", platform)
 		return nil
-	case resp.StatusCode == http.StatusUnauthorized:
+	case resp.StatusCode == http.StatusUnauthorized && code != "THIRD_PARTY_AUTH_ERROR": // our token, not the APNs key
 		s.forget()
 	}
 	return fmt.Errorf("fcm: send refused (%d %s)", resp.StatusCode, code)
