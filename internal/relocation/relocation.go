@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -356,6 +357,9 @@ type place struct {
 	free     []string // Free riders waiting here who may be asked to move, longest waiting first.
 	waiting  int      // Every free rider waiting here.
 	incoming bool     // A move toward here is already in play.
+	// The same two for riders on non-test scooters only: plans are built for those (#249).
+	realFree    []string
+	realWaiting int
 }
 
 func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now time.Time) (int, error) {
@@ -417,7 +421,7 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 	// that ended within the rest time, are counted but never asked again.
 	rows, err = tx.Query(ctx, `SELECT sh.node_id::text, sh.rider_id::text,
 			NOT EXISTS (SELECT 1 FROM relocations v WHERE v.rider_id = sh.rider_id
-				AND (v.state IN ('suggested', 'accepted') OR v.state_changed_at > $2))
+				AND (v.state IN ('suggested', 'accepted') OR v.state_changed_at > $2)), c.is_test
 		FROM shifts sh JOIN riders r ON r.id = sh.rider_id AND r.status = 'active'
 			JOIN people pe ON pe.id = r.person_id AND pe.status = 'active'
 			JOIN scooters c ON c.id = sh.scooter_id AND c.status = 'active'
@@ -428,12 +432,18 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 		return 0, err
 	}
 	var rider string
-	var askable bool
-	if _, err := pgx.ForEachRow(rows, []any{&node, &rider, &askable}, func() error {
+	var askable, test bool
+	if _, err := pgx.ForEachRow(rows, []any{&node, &rider, &askable, &test}, func() error {
 		if pl := places[node]; pl != nil {
 			pl.waiting++
 			if askable {
 				pl.free = append(pl.free, rider)
+			}
+			if !test {
+				pl.realWaiting++
+				if askable {
+					pl.realFree = append(pl.realFree, rider)
+				}
 			}
 		}
 		return nil
@@ -441,11 +451,12 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 		return 0, err
 	}
 	// With relocation_by_plan on, follow the zone's placement plan for now and this many free riders
-	// (#226). With no plan for this moment, today's rule below runs as before.
+	// (#226). Plans are built for non-test scooters, so only riders on those are counted for n or
+	// asked to move by the plan (#249). With no plan for this moment, today's rule below runs as before.
 	if byPlan, _ := settings.Get("relocation_by_plan"); byPlan == 1 {
 		free := 0
 		for _, pl := range places {
-			free += pl.waiting
+			free += pl.realWaiting
 		}
 		if free > 0 {
 			plan, ok, err := placementplan.Latest(ctx, tx, zone, now, free)
@@ -453,7 +464,13 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 				return 0, err
 			}
 			if ok {
-				return s.suggestByPlan(ctx, tx, places, order, plan, now, ttl)
+				planned := map[string]*place{}
+				for id, pl := range places {
+					c := *pl
+					c.free, c.waiting = pl.realFree, pl.realWaiting
+					planned[id] = &c
+				}
+				return s.suggestByPlan(ctx, tx, planned, order, plan, now, ttl)
 			}
 		}
 	}
@@ -483,7 +500,7 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 		if from == nil {
 			continue
 		}
-		ok, err := suggest(ctx, tx, from, to, fmt.Sprintf("%d orders expected, nobody nearby", to.demand), now, ttl)
+		ok, err := suggest(ctx, tx, from, to, fmt.Sprintf("%d orders expected, nobody nearby", to.demand), to.demand, now, ttl)
 		if err != nil {
 			return made, err
 		}
@@ -495,13 +512,14 @@ func (s *Service) suggestIn(ctx context.Context, tx pgx.Tx, zone string, now tim
 }
 
 // suggest asks from's longest-waiting askable rider to move to to: the same row, TTL and rider_state
-// bump for either rule. It reports false when the rider's shift ended during this check.
-func suggest(ctx context.Context, tx pgx.Tx, from, to *place, reason string, now time.Time, ttl int) (bool, error) {
+// bump for either rule, with expected orders at to stored as orders_waiting. It reports false when
+// the rider's shift ended during this check.
+func suggest(ctx context.Context, tx pgx.Tx, from, to *place, reason string, expected int, now time.Time, ttl int) (bool, error) {
 	who := from.free[0]
 	var id string
 	if err := tx.QueryRow(ctx, `INSERT INTO relocations (rider_id, shift_id, from_node_id, to_node_id, reason, expires_at, state_changed_at, orders_waiting)
 		SELECT $1, sh.id, $2, $3, $4, $5, $6, $7 FROM shifts sh WHERE sh.rider_id = $1 AND sh.ended_at IS NULL RETURNING id::text`,
-		who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now, to.demand).Scan(&id); err != nil {
+		who, from.id, to.id, reason, now.Add(time.Duration(ttl)*time.Second), now, expected).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil // The shift ended during this check.
 		}
@@ -521,9 +539,15 @@ func suggest(ctx context.Context, tx pgx.Tx, from, to *place, reason string, now
 // play, and the same suggestion row and flow. Plan nodes no longer in the zone are ignored.
 func (s *Service) suggestByPlan(ctx context.Context, tx pgx.Tx, places map[string]*place, order []string, plan placementplan.Plan, now time.Time, ttl int) (int, error) {
 	want := map[string]int{}
-	for _, id := range plan.Nodes {
+	// Forecast orders per node, from the plan; a build from before #249 has none, so its moves
+	// report the node's recent orders as before.
+	forecast, hasForecast := map[string]float64{}, plan.NodeOrders != nil
+	for i, id := range plan.Nodes {
 		if places[id] != nil {
 			want[id]++
+			if hasForecast {
+				forecast[id] += plan.NodeOrders[i]
+			}
 		}
 	}
 	short := []*place{}
@@ -552,7 +576,11 @@ func (s *Service) suggestByPlan(ctx context.Context, tx pgx.Tx, places map[strin
 		if from == nil {
 			continue
 		}
-		ok, err := suggest(ctx, tx, from, to, "More orders are expected here soon", now, ttl)
+		expected := to.demand
+		if hasForecast {
+			expected = int(math.Round(forecast[to.id]))
+		}
+		ok, err := suggest(ctx, tx, from, to, "More orders are expected here soon", expected, now, ttl)
 		if err != nil {
 			return made, err
 		}

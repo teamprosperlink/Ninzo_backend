@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Relocation by plan, before it is turned on (#249)
+- Changed: with `relocation_by_plan` on, only riders on non-test scooters are counted for the plan's n and asked to move by the plan, as plans are built for non-test scooters. Today's rule (the setting off, the default) is unchanged.
+- Added: migration 0057, `placement_plans.node_orders`: per plan entry, the forecast paid orders in that half-hour of the cells it is the first to cover. A plan move's `orders_waiting` is the rounded forecast for its target node instead of the node's recent orders (usually 0). Builds made before this report recent orders as before. Contract unchanged.
+- Evidence: docs/testing/reports/249.md
+
 ### Razorpay payments in test mode (#237)
 - Added: Razorpay orders, the signed webhook `POST /v1/webhooks/razorpay` (payment captured, failed, order paid, refund processed and failed), and refunds sent by a background pass that never sends one twice. Migration 0055. Razorpay is used when its keys are set, and live keys are refused outside production. The free test-payment endpoint is off whenever Razorpay is on.
 - Evidence: docs/testing/reports/237.md
