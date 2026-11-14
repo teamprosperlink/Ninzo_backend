@@ -17,13 +17,14 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 )
 
-// MountOrders adds the order search and the order timeline (v0.10.0 part A). Both only read, and
+// MountOrders adds the order search, the order timeline (v0.10.0 part A) and listQuarantinedStock. All only read, and
 // reads are not audited, as for the audit log and the review queue.
 func (s *Service) MountOrders(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	r.Group(func(g chi.Router) {
 		g.Use(signedIn...)
 		g.With(s.Require("orders.read", false)).Get("/admin/orders", s.listOrders)
 		g.With(s.Require("orders.read", false)).Get("/admin/orders/{order_id}/timeline", s.orderTimeline)
+		g.With(s.Require("orders.read", false)).Get("/admin/quarantined-stock", s.listQuarantinedStock)
 	})
 }
 
@@ -550,6 +551,35 @@ func loadTimeline(ctx context.Context, tx pgx.Tx, id string) (map[string]any, []
 		return nil, nil, nil, err
 	}
 
+	// Lots a rider quarantined on this order's scooter, from an hour before the order was made until it
+	// ended (or now, while it is open): food that may not have been fresh. The rider's note is free text
+	// and stays out, as every typed note does. A hub lead's quarantine happens at a hub, not on the
+	// scooter, so it is not here.
+	rows, err = tx.Query(ctx, `SELECT l.quarantined_at, l.id::text, l.code, i.id::text, i.name, l.quarantine_reason, -g.delta_on_hand, rd.name,
+			EXISTS (SELECT 1 FROM reservations x WHERE x.order_id = o.id AND x.lot_id = l.id)
+		FROM orders o JOIN stock_ledger g ON g.scooter_id = o.scooter_id AND g.reason = 'quarantine'
+		JOIN lots l ON l.id = g.lot_id AND l.quarantined_by_rider IS NOT NULL AND l.quarantined_at IS NOT NULL
+		JOIN menu_items i ON i.id = l.item_id LEFT JOIN riders rd ON rd.id = l.quarantined_by_rider
+		WHERE o.id = $1 AND l.quarantined_at >= o.created_at - interval '1 hour'
+			AND l.quarantined_at <= CASE WHEN o.state IN ('HANDED_OVER', 'COMPLETED', 'CANCELLED', 'TIMED_OUT', 'FAILED')
+				THEN coalesce(o.ended_at, o.handed_over_at, o.updated_at) ELSE now() END
+		ORDER BY l.quarantined_at, l.id`, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var qat time.Time
+	var qlot, qcode, qitem, qitemName, qreason string
+	var qqty int
+	var qrider *string
+	var qheld bool
+	if _, err := pgx.ForEachRow(rows, []any{&qat, &qlot, &qcode, &qitem, &qitemName, &qreason, &qqty, &qrider, &qheld}, func() error {
+		add(qat, "stock", "stock.quarantined", "rider", qrider, map[string]any{"lot_id": qlot, "lot_code": qcode, "item_id": qitem, "item_name": qitemName,
+			"reason": qreason, "qty": qqty, "had_units_for_this_order": qheld})
+		return nil
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+
 	// Oldest first. Equal times fall back to the order of the sources in the contract, then to the
 	// order they were read in (the sort is stable).
 	sort.SliceStable(evs, func(i, j int) bool {
@@ -578,4 +608,4 @@ func loadTimeline(ctx context.Context, tx pgx.Tx, id string) (map[string]any, []
 }
 
 // sourceRank breaks ties between events with the same time, in the contract's order.
-var sourceRank = map[string]int{"order": 0, "offer": 1, "payment": 2, "refund": 3, "remedy": 4, "problem": 5, "ticket": 6, "review": 7, "audit": 8}
+var sourceRank = map[string]int{"order": 0, "offer": 1, "payment": 2, "refund": 3, "remedy": 4, "problem": 5, "ticket": 6, "review": 7, "audit": 8, "stock": 9}

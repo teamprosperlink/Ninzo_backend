@@ -23,7 +23,7 @@ import (
 )
 
 // MountRider adds the rider's offers and orders: getRiderState, listOffers, acceptOffer,
-// declineOffer, markReady, getRiderOrder, handOver and markWaitingAtGate.
+// declineOffer, markReady, getRiderOrder, checkGate, handOver and markWaitingAtGate.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
 	r.Group(func(g chi.Router) {
@@ -35,6 +35,7 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		g.With(idem).Post("/offers/{offer_id}/ready", s.markReady)
 		g.Get("/orders/{order_id}", s.riderOrder)
 		g.Get("/orders/{order_id}/route", s.getRoute)
+		g.Post("/orders/{order_id}/gate-check", s.checkGate)
 		g.With(idem).Post("/orders/{order_id}/handover", s.handOver)
 		g.With(idem).Post("/orders/{order_id}/waiting", s.markWaitingAtGate)
 		g.With(idem).Post("/orders/{order_id}/call", s.startRiderCall)

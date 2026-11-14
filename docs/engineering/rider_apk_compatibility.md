@@ -160,3 +160,24 @@ The numbers the order flow shares (`timer_length_s`, `arrive_m`, `almost_there_m
 | `createShiftPlan` | POST `/admin/shift-plans` | `shift_plans.manage` |
 
 Shift plans are informational. Ops can make one plan per rider and day (today to 60 days ahead, India time) and read the riders' answers, but cannot edit or delete one yet.
+
+## Part B3 (server): done for these calls
+
+The real rider API now serves calls 36 (`quarantineLot`) and 45 (`checkGate`) as the contract says. Migration 0059 adds `lots.quarantined_by_rider` and the stock ledger reason `quarantine`. Evidence: `docs/testing/reports/235-B3.md`.
+
+| Call | Behaviour |
+|---|---|
+| `quarantineLot` | Takes the whole lot off the rider's own scooter. The lot's `status` becomes `quarantined`, the same status a hub lead's quarantine uses, so availability, order holds and restock suggestions, which already count only `ok` lots, stop counting it in the same transaction. The scooter's `on_hand` for the lot goes to 0 (the row stays, so the lot can never be scanned again: `lot_quarantined`) with one `quarantine` ledger entry, so the rider's stock list, the stock count and the shift summary stop counting it too. The reason, the rider's note, who (`quarantined_by_rider`) and when are kept on the lot. Raises the rider's seq and writes the audit row `lot.quarantined`. 409 `no_open_shift`, `lot_not_on_scooter` (the rider's own lot is not on the scooter now: all sold, or still in their packed cassette) and `lot_reserved` (part of it is held for an order: the lot is still quarantined and the units no order holds are taken out of sale and off the scooter at once, while the held units stay with their order, so the rider reports a problem on that order if they are bad; asking again changes nothing until the order gives its units back, then takes them out). 404 for a lot that does not exist, is on no scooter, or is on another scooter, and the reply is the same in all three. The same rider asking again answers 200 with the first time, even after changing scooter or losing the stock row, and changes nothing |
+| `checkGate` | Reads only. A scanned QR (`NZG|<gate id>`, the rider app's format) is compared with the id of the gate the order was placed to: `checked` true, `matched` true or false (a QR in any other shape is checked true, matched false). A typed code has nothing to check against, because no gate has one, so `checked` false and `matched` true. The value is checked for shape and then dropped. Only for an order this rider accepted, still holds and has not finished, else 404. It never changes the order, the timer, arrival or the seq. The mock still answers a typed code as checked (its sample code is `GATE-4821`), which the real server does not |
+
+**Where a rider's quarantine shows**
+
+| Place | What it shows |
+|---|---|
+| The rider's stock list, count and shift summary | Nothing for the lot |
+| Customer availability and order holds | Nothing for the lot |
+| Restock suggestions | The lower stock, so a suggestion can follow |
+| Console hub operations (`quarantined_lots`) | Counts the lot for the hub that packed it, as it does a lot quarantined at the hub |
+| Console `listQuarantinedStock` (new, `orders.read`: admin, ops, support) | Every rider and hub-lead quarantine: item, lot, scooter, rider, reason, units, time and the orders that had units from the lot. Never the typed note |
+| Console order timeline | Source `stock`, kind `stock.quarantined`, for lots a rider quarantined on the order's scooter from an hour before the order until it ended |
+| The hub's own lot list (partner app) | Nothing: the lot is not at the hub any more |

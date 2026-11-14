@@ -19,6 +19,12 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 - Added: a `refund_processed` customer push, queued once when Razorpay settles a refund, by webhook or straight from the refund call.
 - Not here (console session, #253): hub staff pushes, ops sending offers and news, the rider reassigned or cancelled push.
 - Evidence: docs/testing/reports/252.md
+### The rider API quarantines a lot, checks a gate code, and support sees quarantines (#235, part B3)
+- Added: migration 0059 (`lots.quarantined_by_rider`, `quarantine` as a stock ledger reason, and an index on `reservations(lot_id)`). The real rider API now serves `quarantineLot`: the lot is quarantined at once (its status becomes `quarantined`, so availability, order holds and restock suggestions skip it) and the units on the rider's scooter that no order holds go to 0 with one ledger entry; units an order holds stay with that order (409 `lot_reserved`), with the reason, the rider's note, who and when kept. 409 `no_open_shift`, `lot_not_on_scooter`, `lot_reserved`; 404 for another rider's lot, the same as for a lot that does not exist. The same rider asking again answers 200 with the first time. Raises the rider's seq and is audited.
+- Added: `checkGate` is read-only and never decides arrival. A scanned QR (`NZG|<gate id>`) is compared with the order's gate (`checked` true, `matched` true or false); a typed code has nothing to check, as no gate has one (`checked` false, `matched` true). For an order the rider holds and that has not finished, else 404.
+- Added: the console read `listQuarantinedStock` (`GET /admin/quarantined-stock`, permission `orders.read`: admin, ops and support) lists rider and hub-lead quarantines newest first, with filters (zone, scooter, from, to), paging, and the orders that had units from the lot. The order timeline gains the source `stock` (kind `stock.quarantined`). Neither shows the typed note. Contract, mock and tests together.
+- Changed: the hub operations count `quarantined_lots` also counts lots a rider quarantined that the hub packed.
+- Evidence: docs/testing/reports/235-B3.md
 
 ### Relocation by plan, before it is turned on (#249)
 - Changed: with `relocation_by_plan` on, only riders on non-test scooters are counted for the plan's n and asked to move by the plan, as plans are built for non-test scooters. Today's rule (the setting off, the default) is unchanged.

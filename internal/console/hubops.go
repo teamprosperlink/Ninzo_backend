@@ -102,7 +102,9 @@ func (s *Service) listHubOps(w http.ResponseWriter, r *http.Request) {
 				count(*) FILTER (WHERE state = 'partial'), count(*) FILTER (WHERE state = 'ready'), count(*) FILTER (WHERE state = 'picked_up'),
 				count(*) FILTER (WHERE state IN ('confirmed', 'hub_accepted', 'packing') AND state_changed_at < $2::timestamptz - make_interval(secs => $3::double precision)),
 				(SELECT count(*) FROM shortfalls f JOIN restock_requests q ON q.id = f.request_id WHERE q.hub_id = $1 AND f.status = 'open'),
-				(SELECT count(*) FROM lots WHERE hub_id = $1 AND status = 'quarantined'),
+				(SELECT count(*) FROM lots l WHERE l.status = 'quarantined' AND (l.hub_id = $1
+					-- A lot a rider quarantined on a scooter has left the hub, so it is the hub that packed it that counts it.
+					OR (l.quarantined_by_rider IS NOT NULL AND EXISTS (SELECT 1 FROM restock_lots x JOIN restock_requests q ON q.id = x.request_id WHERE x.lot_id = l.id AND q.hub_id = $1)))),
 				(SELECT count(*) FROM hub_staff WHERE hub_id = $1 AND status = 'active')
 			FROM restock_requests WHERE hub_id = $1`, h.id, now, float64(after)).
 			Scan(&c[0], &c[1], &c[2], &c[3], &c[4], &c[5], &stuck, &shortfalls, &lots, &staff)
