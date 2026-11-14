@@ -31,7 +31,7 @@ What the owner must create or supply, so that work does not stop. Updated: 2026-
 | # | Account | Create | Put in |
 |---|---|---|---|
 | 8 | Razorpay | Test mode account and keys. Payment is charged up front, so holds are not needed | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` |
-| 9 | Firebase | A project with Cloud Messaging, and a service account file kept outside the repo | `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_FILE` |
+| 9 | Firebase | One project for all three apps (customer, rider, partner), with the APNs key uploaded, and a service account key (Project settings, Service accounts, Generate new private key) | `FCM_SERVICE_ACCOUNT_JSON` on customer-api in Railway (the whole JSON). Steps: `firebase_setup.md` |
 | 10 | SMS gateway | In progress on the owner's side (2026-11-09). An account with an Indian provider (for example MSG91), and DLT registration, which takes time. Steps: `sms_setup.md` | `SMS_*` |
 | 11 | Telephony | A masked-calling provider (for example Exotel). Can wait, because masked calls are P2 for now | `TELEPHONY_*` |
 

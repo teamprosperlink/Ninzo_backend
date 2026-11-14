@@ -14,6 +14,7 @@ import (
 
 	"github.com/teamprosperlink/Ninzo_backend/internal/availability"
 	"github.com/teamprosperlink/Ninzo_backend/internal/catalog"
+	"github.com/teamprosperlink/Ninzo_backend/internal/fcm"
 	"github.com/teamprosperlink/Ninzo_backend/internal/geo"
 	"github.com/teamprosperlink/Ninzo_backend/internal/identity"
 	"github.com/teamprosperlink/Ninzo_backend/internal/orders"
@@ -30,6 +31,9 @@ import (
 // razorpay is set in Validate when the Razorpay keys are set (issue 237); nil keeps the test payment.
 var razorpay *orders.Razorpay
 
+// push is set in Validate when FCM_SERVICE_ACCOUNT_JSON is set (issue 252); nil keeps the log stand-in.
+var push *fcm.Sender
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -41,9 +45,11 @@ func main() {
 			if rzErr == nil {
 				rzErr = orders.CheckRazorpayKeys(cfg.Env, razorpay)
 			}
+			var fcmErr error
+			push, fcmErr = fcm.FromEnv(os.Getenv)
 			// Road-time matching (#209) reads ROUTING_ENGINE_URL; empty keeps straight lines.
 			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg), rzErr,
-				availability.ConfigureRouting(os.Getenv))
+				fcmErr, availability.ConfigureRouting(os.Getenv))
 		},
 		Mount: func(r chi.Router, d service.Deps) {
 			limits := identity.NewLimits(ratelimit.NewMemory(), d.Config, d.Log)
@@ -84,8 +90,15 @@ func main() {
 			}
 			ordering.MountCustomerStream(r, &orders.Streams{Signer: sessions.Signer})
 			ordering.MountSupport(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
-			// Pushes go through the outbox. The log pusher stands in until FCM is connected.
-			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(orders.LogPusher{Log: d.Log}), Log: d.Log, Topics: orders.PushTopics}
+			// Pushes go through the outbox: FCM when its service account is set (issue 252), else the log
+			// stand-in.
+			var pusher orders.Pusher = orders.LogPusher{Log: d.Log}
+			if push != nil {
+				push.Devices = d.DB
+				pusher = push
+				d.Log.Info("push: FCM", "project", push.Project())
+			}
+			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(pusher), Log: d.Log, Topics: orders.PushTopics}
 			go pushes.Run(ctx)
 			// Restock's own jobs: the stock check and the expiry of uncollected cassettes. Hub staff do
 			// the hub's part through the partner API; the simulator is for tests only.

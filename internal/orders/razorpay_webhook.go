@@ -115,6 +115,16 @@ func alert(ctx context.Context, tx pgx.Tx, orderID, reason string, details map[s
 	return outbox.Add(ctx, tx, "support.alert", payload)
 }
 
+// refunded tells the customer their refund went back (issue 252), in the transaction that marks it
+// processed, so the push is queued once, whichever of the webhook or the sender gets there first.
+func refunded(ctx context.Context, tx pgx.Tx, refundID, orderID string) error {
+	var customer string
+	if err := tx.QueryRow(ctx, "SELECT customer_id::text FROM orders WHERE id = $1", orderID).Scan(&customer); err != nil {
+		return err
+	}
+	return outbox.Add(ctx, tx, "push.customer", map[string]any{"customer_id": customer, "order_id": orderID, "refund_id": refundID, "stage": "refund_processed"})
+}
+
 func (s *Service) applyRazorpay(ctx context.Context, tx pgx.Tx, ev rzEvent, now time.Time) error {
 	switch ev.Event {
 	case "payment.captured", "order.paid", "payment.failed":
@@ -189,7 +199,7 @@ func (s *Service) applyRazorpay(ctx context.Context, tx pgx.Tx, ev rzEvent, now 
 			// The money did not go back; a person must act (refund again, or another way).
 			return alert(ctx, tx, orderID, "refund_failed", map[string]any{"refund_id": refundID, "razorpay_refund_id": rf.ID})
 		}
-		return nil
+		return refunded(ctx, tx, refundID, orderID)
 	default:
 		return nil // Events we did not ask for are kept as seen and ignored.
 	}
@@ -261,8 +271,11 @@ func (s *Service) SendRefunds(ctx context.Context, p *Razorpay, now time.Time) (
 			tag, err := tx.Exec(ctx, `UPDATE refunds SET provider_refund_id = coalesce(provider_refund_id, $2),
 					status = $3, last_error = NULL, updated_at = now() WHERE id = $1 AND status = 'pending'`,
 				d.id, made.ID, status)
-			if err != nil || tag.RowsAffected() == 0 || status != "failed" {
+			if err != nil || tag.RowsAffected() == 0 || status == "pending" {
 				return err // A webhook may have settled it already; its state stays.
+			}
+			if status == "processed" {
+				return refunded(ctx, tx, d.id, d.order)
 			}
 			return alert(ctx, tx, d.order, "refund_failed", map[string]any{"refund_id": d.id, "razorpay_refund_id": made.ID})
 		})

@@ -5,6 +5,13 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Push notifications over FCM (#252)
+- Added: `internal/fcm`, an FCM HTTP v1 sender behind the existing `orders.Pusher` (service-account OAuth, token cached until a minute before expiry, a new one after a 401). Rider offers go at high priority (time-sensitive on iOS); a collapse key per order or kind; fixed texts that name nobody; the payload as `data`. A token FCM reports as UNREGISTERED, or a 404, is deleted; other failures retry through the outbox.
+- Added: `FCM_SERVICE_ACCOUNT_JSON` on customer-api replaces `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_FILE`. Unset keeps the log stand-in; broken stops the API from starting. Owner steps: docs/planning/firebase_setup.md.
+- Added: a `refund_processed` customer push, queued once when Razorpay settles a refund, by webhook or straight from the refund call.
+- Not here (console session, #253): hub staff pushes, ops sending offers and news, the rider reassigned or cancelled push.
+- Evidence: docs/testing/reports/252.md
+
 ### Relocation by plan, before it is turned on (#249)
 - Changed: with `relocation_by_plan` on, only riders on non-test scooters are counted for the plan's n and asked to move by the plan, as plans are built for non-test scooters. Today's rule (the setting off, the default) is unchanged.
 - Added: migration 0057, `placement_plans.node_orders`: per plan entry, the forecast paid orders in that half-hour of the cells it is the first to cover. A plan move's `orders_waiting` is the rounded forecast for its target node instead of the node's recent orders (usually 0). Builds made before this report recent orders as before. Contract unchanged.
