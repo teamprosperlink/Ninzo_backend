@@ -32,7 +32,9 @@ import (
 var razorpay *orders.Razorpay
 
 // push is set in Validate when FCM_SERVICE_ACCOUNT_JSON is set (issue 252); nil keeps the log stand-in.
-var push *fcm.Sender
+// pushCustomer is the customer app's own Firebase project, FCM_CUSTOMER_SERVICE_ACCOUNT_JSON (issue
+// 257); when it is unset, customer pushes go through push, as before.
+var push, pushCustomer *fcm.Sender
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -45,8 +47,10 @@ func main() {
 			if rzErr == nil {
 				rzErr = orders.CheckRazorpayKeys(cfg.Env, razorpay)
 			}
-			var fcmErr error
+			var fcmErr, fcmCustomerErr error
 			push, fcmErr = fcm.FromEnv(os.Getenv)
+			pushCustomer, fcmCustomerErr = fcm.FromEnvKey(os.Getenv, "FCM_CUSTOMER_SERVICE_ACCOUNT_JSON")
+			fcmErr = errors.Join(fcmErr, fcmCustomerErr)
 			// Road-time matching (#209) reads ROUTING_ENGINE_URL; empty keeps straight lines.
 			return errors.Join(identity.RequireSMS(cfg), identity.RequireMethods(cfg), identity.RequireClientIP(cfg), orders.RequirePayments(cfg), rzErr,
 				fcmErr, availability.ConfigureRouting(os.Getenv))
@@ -92,12 +96,7 @@ func main() {
 			ordering.MountSupport(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Pushes go through the outbox: FCM when its service account is set (issue 252), else the log
 			// stand-in.
-			var pusher orders.Pusher = orders.LogPusher{Log: d.Log}
-			if push != nil {
-				push.Devices = d.DB
-				pusher = push
-				d.Log.Info("push: FCM", "project", push.Project())
-			}
+			pusher := choosePushers(orders.LogPusher{Log: d.Log}, push, pushCustomer, d)
 			pushes := &outbox.Worker{Pool: d.DB, Handle: ordering.Deliver(pusher), Log: d.Log, Topics: orders.PushTopics}
 			go pushes.Run(ctx)
 			// Restock's own jobs: the stock check and the expiry of uncollected cassettes. Hub staff do

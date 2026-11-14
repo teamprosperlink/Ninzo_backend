@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Customer pushes can use their own Firebase project (#257)
+- Added: the optional `FCM_CUSTOMER_SERVICE_ACCOUNT_JSON` on customer-api. Customer pushes go through it when set, rider pushes through `FCM_SERVICE_ACCOUNT_JSON`. Unset keeps today's behaviour.
+- Evidence: docs/testing/reports/257.md
+
 ### Push notifications over FCM (#252)
 - Added: `internal/fcm`, an FCM HTTP v1 sender behind the existing `orders.Pusher` (service-account OAuth, token cached until a minute before expiry, a new one after a 401). Rider offers and the customer handover stages (rider close, arrived, waiting) go at high priority with a short expiry (1 and 5 minutes); other order pushes expire after an hour. A newer push about the same order replaces the shown one (Android tag, APNs collapse id), when the system shows it; with the app open, the app draws it. Fixed texts that name nobody; the payload as `data`. Only FCM's UNREGISTERED deletes a token; SENDER_ID_MISMATCH and INVALID_ARGUMENT are logged and dropped; other failures retry through the outbox.
 - Added: `FCM_SERVICE_ACCOUNT_JSON` on customer-api replaces `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_FILE`. Unset keeps the log stand-in; broken stops the API from starting. Owner steps: docs/planning/firebase_setup.md.
