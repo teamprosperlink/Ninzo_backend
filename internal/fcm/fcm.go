@@ -101,7 +101,13 @@ func New(serviceAccount []byte) (*Sender, error) {
 // FromEnv builds a sender from FCM_SERVICE_ACCOUNT_JSON. Unset gives nil and no error, so the log
 // stand-in stays; set but unusable is an error, so the API does not start half configured.
 func FromEnv(getenv func(string) string) (*Sender, error) {
-	raw := strings.TrimSpace(getenv("FCM_SERVICE_ACCOUNT_JSON"))
+	return FromEnvKey(getenv, "FCM_SERVICE_ACCOUNT_JSON")
+}
+
+// FromEnvKey is FromEnv for a named variable, so each Firebase project has its own key: the customer
+// app is in its own project (FCM_CUSTOMER_SERVICE_ACCOUNT_JSON, issue 257).
+func FromEnvKey(getenv func(string) string, name string) (*Sender, error) {
+	raw := strings.TrimSpace(getenv(name))
 	if raw == "" {
 		return nil, nil
 	}

@@ -277,6 +277,22 @@ func (p LogPusher) Push(_ context.Context, platform, _, topic string, payload ma
 	return nil
 }
 
+// TopicPusher sends each topic through its own pusher, because a device token works only with the
+// Firebase project its app is registered in: riders and customers can be in different projects
+// (issue 257). A topic with no pusher of its own goes to Fallback.
+type TopicPusher struct {
+	ByTopic  map[string]Pusher
+	Fallback Pusher
+}
+
+// Push implements Pusher.
+func (p TopicPusher) Push(ctx context.Context, platform, token, topic string, payload map[string]any) error {
+	if q, ok := p.ByTopic[topic]; ok && q != nil {
+		return q.Push(ctx, platform, token, topic, payload)
+	}
+	return p.Fallback.Push(ctx, platform, token, topic, payload)
+}
+
 // Deliver is the outbox handler: a push goes to every device of its customer or rider. Other
 // topics are support events, which the console will read; they are marked delivered.
 func (s *Service) Deliver(p Pusher) outbox.Handler {

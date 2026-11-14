@@ -486,3 +486,19 @@ func TestABadAPNsKeyKeepsOurAccessToken(t *testing.T) {
 		t.Fatalf("the APNs key was wrong, not our token: %d tokens", f.tokens)
 	}
 }
+
+// Each Firebase project has its own variable (issue 257): FromEnvKey reads only the one it names.
+func TestFromEnvKeyReadsOnlyItsOwnVariable(t *testing.T) {
+	f := newFake(t)
+	env := func(set map[string]string) func(string) string { return func(k string) string { return set[k] } }
+	if s, err := FromEnvKey(env(map[string]string{"FCM_SERVICE_ACCOUNT_JSON": string(f.account)}), "FCM_CUSTOMER_SERVICE_ACCOUNT_JSON"); s != nil || err != nil {
+		t.Errorf("another variable counted: %v %v", s, err)
+	}
+	if _, err := FromEnvKey(env(map[string]string{"FCM_CUSTOMER_SERVICE_ACCOUNT_JSON": "nonsense"}), "FCM_CUSTOMER_SERVICE_ACCOUNT_JSON"); err == nil {
+		t.Error("a broken customer key was accepted")
+	}
+	s, err := FromEnvKey(env(map[string]string{"FCM_CUSTOMER_SERVICE_ACCOUNT_JSON": string(f.account)}), "FCM_CUSTOMER_SERVICE_ACCOUNT_JSON")
+	if err != nil || s == nil || s.Project() != "ninzo-test" {
+		t.Errorf("%v %v", s, err)
+	}
+}
