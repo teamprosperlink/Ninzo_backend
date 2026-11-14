@@ -28,6 +28,10 @@ type RelocScenario struct {
 	WindowS   float64 // relocation_window_s
 	MinOrders int     // relocation_min_orders
 	RestS     float64 // relocation_rest_s, counted from arrival
+	// MoverTakesOrders is the optimistic bound on a move's cost: a rider with a move in play counts
+	// as waiting at the target (as production does once the move is accepted) and can take orders as
+	// if already there. Off: a moving rider takes no order until arrival (the pessimistic bound).
+	MoverTakesOrders bool
 }
 
 // RelocResult sums one relocation rule over a scenario. Orders are matched by today's rule.
@@ -43,7 +47,8 @@ type mover struct {
 	freeAt   float64 // free from then: after an order or a move
 	busy     float64
 	restTill float64
-	moving   bool // freeAt is the end of a move toward node
+	moving   bool // a move toward node started; it is in play until arriveAt
+	arriveAt float64
 }
 
 // PlanPicks fits the plan the way placementplan does, on demand drawn with o.DemandSeed: candidate
@@ -65,9 +70,18 @@ func PlanPicks(ctx context.Context, r Router, sc Scenario, o PlaceOptions) ([]ro
 	for i := range w {
 		w[i] = 1
 	}
-	cands, err := candidates(ctx, r, sc, o)
+	all, err := candidates(ctx, r, sc, o)
 	if err != nil {
 		return nil, nil, placement.Plan{}, err
+	}
+	// Two grid points can snap to the same road point; keep one, so no node is a copy of another.
+	seen := map[routing.Point]bool{}
+	var cands []routing.Point
+	for _, p := range all {
+		if !seen[p] {
+			seen[p] = true
+			cands = append(cands, p)
+		}
 	}
 	cov, err := placement.Matrix(ctx, r, cands, gates, float64(sc.Setting.SweetSpotS), float64(sc.Setting.StraightKmh))
 	if err != nil {
@@ -255,9 +269,11 @@ func relocate(ctx context.Context, r Router, rs RelocScenario, rule string, ride
 	}
 	var waitingIdx []int
 	for i, rd := range riders {
-		if rd.moving && rd.freeAt > t {
+		if rd.moving && rd.arriveAt > t {
 			spots[rd.node].incoming = true
-			continue
+			if !rs.MoverTakesOrders {
+				continue
+			}
 		}
 		if rd.freeAt <= t {
 			waitingIdx = append(waitingIdx, i)
@@ -287,7 +303,10 @@ func relocate(ctx context.Context, r Router, rs RelocScenario, rule string, ride
 		if !leg.Reachable {
 			d = routing.Metres(rs.Nodes[from.id], rs.Nodes[to.id]) / (float64(rs.Setting.StraightKmh) / 3.6)
 		}
-		riders[who].node, riders[who].freeAt, riders[who].moving = to.id, t+d, true
+		riders[who].node, riders[who].moving, riders[who].arriveAt = to.id, true, t+d
+		if !rs.MoverTakesOrders {
+			riders[who].freeAt = t + d
+		}
 		riders[who].restTill = t + d + rs.RestS
 		res.Moves++
 		res.MoveS += d

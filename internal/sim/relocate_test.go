@@ -225,3 +225,31 @@ func TestNoneNeverMoves(t *testing.T) {
 		t.Fatal(res)
 	}
 }
+
+func TestAMoverCanTakeOrdersInTheOptimisticBound(t *testing.T) {
+	// The plan moves the only rider from A to C at the first check. An order at C at 60 s, while they
+	// ride: refused in the pessimistic bound, served from C in the optimistic one.
+	for _, takes := range []bool{false, true} {
+		rs := relocScenario(2)
+		rs.FleetScenario = fleet(nodeA)
+		rs.MoverTakesOrders = takes
+		res, err := runReloc(context.Background(), &straightRoads{}, rs, RelocPlan, []float64{60}, []routing.Point{nodeC})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Moves != 1 || (res.Served == 1) != takes {
+			t.Fatalf("takes orders %v: %+v", takes, res)
+		}
+	}
+	// In the optimistic bound a mover counts as waiting at the target, not askable, and the target
+	// has a move in play.
+	rs := relocScenario(1, 2, 0)
+	rs.MoverTakesOrders = true
+	riders := at(0, 0, 0)
+	if res := check(t, rs, RelocPlan, riders, nil, 300); res.Moves != 2 {
+		t.Fatal(res)
+	}
+	if res := check(t, rs, RelocPlan, riders, nil, 330); res.Moves != 0 {
+		t.Fatal("the movers are at their targets already: nothing is short")
+	}
+}
