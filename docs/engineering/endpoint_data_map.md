@@ -29,6 +29,9 @@ Each table belongs to one module, and only that module has SQL for it (`project_
 | `identity` | `refresh_tokens` | Hashed refresh tokens and their chains | v0.2.0 |
 | `notify` | `devices` | Push tokens | v0.2.0 |
 | `notify` | `rider_notifications` | What was pushed to a rider, kept 30 days | v0.10.0 |
+| `riderapp` | `help_articles` | The rider app's help questions and answers, written in the console. Nothing is seeded (#235) | v0.10.0 |
+| `riderapp` | `rider_feedback` | What a rider sent from the app, read in the console (#235) | v0.10.0 |
+| `riderapp` | `shift_plans` | One rider's plan for one day, made by ops, with the rider's answer and the hub's packing progress. Informational: shifts stay open-ended (#235) | v0.10.0 |
 | `notify` | `customer_notification_settings` | Which optional pushes a customer turned off (offers and news, support replies) | v0.10.0 |
 | `geo` | `zones` | Service areas | v0.3.0 |
 | `geo` | `zone_settings` | Timer length, perimeter, waits and limits, by version. One global row, overridden per zone | v0.3.0 |
@@ -207,20 +210,20 @@ Until a later table exists, an endpoint simply does not use it: `listNodes` has 
 | `cancelRestock` | `restock_requests` | `restock_requests`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | |
 | `markWaitingAtGate` | `offers`, `orders`, `location_pings` | `orders`, `order_events`, `rider_state`, `outbox_events`, `audit_events`, `idempotency_keys` | Fan-out | Push, to the customer |
 | `submitStockCount` | `shifts`, `scooters`, `scooter_stock`, `lots`, `menu_items` | `stock_counts`, `stock_count_lines`, `audit_events`, `idempotency_keys` | | |
-| `goOnline` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Adds `shifts.online_at`, no new table |
+| `goOnline` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Real since #235 part B2. Sets `shifts.online_at` once on the open shift (a repeat changes nothing and writes no audit row). It only records: it never gates or starts offers |
 | `takeBreak` | `shifts`, `shift_breaks`, `offers`, `zone_settings` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Real since #235 part B1. An alias of `startBreak` that takes `length_s`, capped by `zone_settings` `max_break_s`; a longer length extends the break, never shortens it |
 | `endShiftBreak` | `shifts`, `shift_breaks` | `shifts`, `shift_breaks`, `rider_state`, `audit_events`, `idempotency_keys` | Fan-out | Real since #235 part B1. An alias of `endBreak` |
-| `setPlannedEnd` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Records `shifts.planned_end_at`, and nothing ends the shift |
+| `setPlannedEnd` | `shifts` | `shifts`, `rider_state`, `audit_events`, `idempotency_keys` | | Real since #235 part B2. Records `shifts.planned_end_at`; the time must be in the future and within 16 hours of the shift's start. Nothing ends the shift and no reminder is sent |
 | `listRiderDocuments` | `riders` | | | Mock only until part B of #235. File metadata needs a table that part B plans. The photos are in Supabase Storage |
 | `uploadRiderDocument` | `riders`, `rider_verifications` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Supabase Storage, a private bucket, never a database column. File metadata needs a table that part B plans |
-| `getRiderSettings` | `riders`, `zones`, `zone_settings` | | | Mock only until part B of #235 |
-| `getRiderHelp` | `riders` | | | Mock only until part B of #235. Help articles need a table that part B plans, edited in the console |
-| `sendRiderFeedback` | `riders` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. Feedback needs a table that part B plans |
+| `getRiderSettings` | `riders`, `zones`, `zone_settings` | | | Real since #235 part B2. The rider's zone settings (global with none), read only (`geo.LoadSettings`). Twelve settings were added for it (migration 0058); the choices and labels are constants in `internal/riderapp` |
+| `getRiderHelp` | `riders`, `help_articles` | | | Real since #235 part B2. The active rider articles by `sort`; empty until ops write some in the console |
+| `sendRiderFeedback` | `riders` | `rider_feedback`, `audit_events`, `idempotency_keys` | | Real since #235 part B2. The audit row holds the message length, never the words |
 | `reportScooterTelemetry` | `scooters` | `scooters` | | Mock only until part B of #235. A key for each scooter, held as a hash on `scooters`. Not the rider app |
 | `quarantineLot` | `shifts`, `scooters`, `scooter_stock`, `lots`, `offers` | `lots`, `scooter_stock`, `stock_ledger`, `rider_state`, `audit_events`, `idempotency_keys` | | Mock only until part B of #235 |
 | `checkGate` | `offers`, `orders`, `gates` | | | Mock only until part B of #235. Changes nothing, and never decides arrival |
-| `getShiftPlan` | `riders` | | | Mock only until part B of #235. Plans need a table that part B plans. Null while operations have made none |
-| `replyToShiftPlan` | `riders` | `audit_events`, `idempotency_keys` | | Mock only until part B of #235. The reply is stored on the plan table that part B plans |
+| `getShiftPlan` | `riders`, `shift_plans` | | | Real since #235 part B2. Today's plan (India time) or null |
+| `replyToShiftPlan` | `riders`, `shift_plans` | `shift_plans`, `audit_events`, `idempotency_keys` | | Real since #235 part B2. 404 with no plan today, 409 `shift_plan_closed` once packing started. Records only; no shift starts or ends by it |
 
 ## 4.1 Partner API
 
@@ -312,6 +315,13 @@ The console's endpoints (#133, decision 0015). v0.9.0 parts B to F build them; u
 | `listStuckRestocks` | `restock_requests`, `hubs`, `riders`, `zone_settings`, `console_users` |  |  | Built (#149). Longest waiting first, paged by (`state_changed_at`, id); each zone uses its own `restock_stuck_s`. The rider's name and id only, no phone, no customer. A hub_manager sees only their own hub |
 | `expireRestock` | `restock_requests`, `restock_lots`, `shortfalls`, `riders`, `console_users` | `restock_requests`, `restock_lots`, `shortfalls`, `hub_state`, `rider_state`, `rider_notifications`, `outbox_events`, `audit_events`, `idempotency_keys` |  | Built (#149, `restock.ExpireTx`). FCM, through `deliver_outbox`. Only in confirmed, hub_accepted, packing or partial (else 409 `restock_not_expirable`); locks the request row; the same end as an expiry on its own (`endRequest`: lots back on the hub's shelf, open shortfall refused), then the rider's seq, push and notification and the hub's seq. `reason` is `expired_by_console`; the staff's words are in the audit row |
 | `getLiveZone` | `zones`, `shifts`, `scooters`, `staging_nodes`, `riders`, `location_pings`, `offers`, `relocations`, `scooter_stock`, `orders`, `gate_history`, `incidents` |  | Built (#150). Read-only, one repeatable-read snapshot, four statements for the whole zone. A rider is on an open shift whose scooter is in the zone, at their latest ping (index `location_pings_rider_idx`) or, with none, at their shift node. State: `on_order` over `offered` over `moving` over `on_break` over `idle`. Orders in progress are the paid, not-yet-handed-over states, by the partial index `orders_live_zone_idx` (migration 0047). `incidents_open` takes an incident's zone from its order, else its rider. No customer, phone, label or entry notes are read. 429 `rate_limited` inside 5 s per user and zone, kept in memory |
+| `listHelpArticles` | `help_articles`, `console_users` |  |  | Built (#235 part B2). Every article, active or not, by `audience`, `sort`, `created_at`. No articles are seeded |
+| `createHelpArticle` | `help_articles`, `console_users` | `help_articles`, `audit_events`, `idempotency_keys` |  | Built (#235 part B2). Active at once; 409 `slug_taken` on `UNIQUE (audience, slug)`; `help.manage` |
+| `updateHelpArticle` | `help_articles`, `console_users` | `help_articles`, `audit_events`, `idempotency_keys` |  | Built (#235 part B2). Locks the row; question, answer, sort or active; audit holds before and after and the reason |
+| `deactivateHelpArticle` | `help_articles`, `console_users` | `help_articles`, `audit_events`, `idempotency_keys` |  | Built (#235 part B2). Sets `active` false; already hidden is not an error |
+| `listRiderFeedback` | `rider_feedback`, `riders` |  |  | Built (#235 part B2). Newest first by `rider_feedback_newest_idx`; the rider's id and name, never a customer; `tickets.manage` |
+| `listShiftPlans` | `shift_plans`, `riders` |  |  | Built (#235 part B2). Newest first; `rider_id` and `date` filters; shows each plan's `stock_reply` and `replied_at` |
+| `createShiftPlan` | `riders`, `staging_nodes`, `shift_plans`, `console_users` | `shift_plans`, `audit_events`, `idempotency_keys` |  | Built (#235 part B2). One plan per rider and day (409 `shift_plan_exists`); the node must be in the rider's zone; informational, nothing starts or ends a shift |
 
 **New columns (v0.10.0). Migration 0042 (#147) added the first four:**
 - `refunds`: `requested_by` (the console user, null for an automatic refund) and `note` (the reason staff typed). A console refund has its own `reason_code`, `support_refund_<n>`, because of `UNIQUE (payment_id, reason_code)`, so partial refunds on one payment do not collide.

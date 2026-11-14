@@ -65,6 +65,7 @@ var riderScenarios = map[string]string{
 	"lot_reserved":         "Quarantine fails with lot_reserved, because part of the lot is held for an order",
 	"shift_plan_today":     "GET shift plan has today's plan, made by operations. Without this scenario the plan is null",
 	"shift_plan_closed":    "Answering the shift plan fails with shift_plan_closed, because the hub started packing",
+	"help_empty":           "GET help has no articles, as it is until operations write the first one in the console",
 	"already_verified":     "Uploading a document fails with already_verified",
 }
 

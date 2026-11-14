@@ -1,0 +1,16 @@
+meta {
+  name: listRiderFeedback
+  type: http
+  seq: 44
+}
+
+get {
+  url: {{baseUrl}}/admin/rider-feedback
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

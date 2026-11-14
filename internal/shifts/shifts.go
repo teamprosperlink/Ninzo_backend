@@ -27,6 +27,7 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/outbox"
 	"github.com/teamprosperlink/Ninzo_backend/internal/relocation"
+	"github.com/teamprosperlink/Ninzo_backend/internal/riderapp"
 )
 
 var idPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -58,7 +59,7 @@ type Service struct {
 	now  func() time.Time // Tests set the clock. Nil means the real one.
 }
 
-// MountRider adds startShift, endShift, listNodes, scanStock, getStock, startBreak, endBreak, takeBreak,
+// MountRider adds startShift, endShift, listNodes, scanStock, getStock, startBreak, endBreak, takeBreak, goOnline, setPlannedEnd,
 // submitStockCount, listRiderShifts and getShiftSummary.
 func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.Handler) {
 	idem := idempotency.Middleware(s.Pool, idempotency.Options{Actor: identity.ActorID, Log: s.Log})
@@ -74,6 +75,9 @@ func (s *Service) MountRider(r chi.Router, signedIn ...func(http.Handler) http.H
 		// The rider app's forms (Issue 235): a break of a length it picks, and the same end.
 		g.With(idem).Post("/riders/me/shifts/break", s.takeBreak)
 		g.With(idem).Post("/riders/me/shifts/break/end", s.endBreak)
+		// Record only: nothing ends a shift or gates offers by these.
+		g.With(idem).Post("/riders/me/shifts/online", s.goOnline)
+		g.With(idem).Post("/riders/me/shifts/planned-end", s.setPlannedEnd)
 		g.With(idem).Post("/riders/me/stock/count", s.submitStockCount)
 		g.Get("/riders/me/shifts", s.listRiderShifts)
 		g.Get("/riders/me/shifts/{shift_id}/summary", s.getShiftSummary)
@@ -256,19 +260,20 @@ func optStamp(t *time.Time) *string {
 var checkCode = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
 
 // cleanChecklist checks the Before you start codes. More than 20, an empty code or a repeated one is
-// refused. A code of another shape cannot be one the settings list, so it is ignored, as the contract says
-// of a code the settings do not list. It returns the codes to keep, never nil.
+// refused. A code the settings call does not list (riderapp.Checklist) is ignored, as the contract says,
+// whatever its shape. It returns the codes to keep, never nil.
 func cleanChecklist(in []string) ([]string, bool) {
 	if len(in) > 20 {
 		return nil, false
 	}
+	known := riderapp.ChecklistCodes()
 	out, seen := []string{}, map[string]bool{}
 	for _, code := range in {
 		if code == "" || seen[code] {
 			return nil, false
 		}
 		seen[code] = true
-		if checkCode.MatchString(code) {
+		if checkCode.MatchString(code) && known[code] {
 			out = append(out, code)
 		}
 	}

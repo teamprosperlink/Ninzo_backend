@@ -1,0 +1,25 @@
+meta {
+  name: createHelpArticle
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/admin/help-articles
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-createHelpArticle-0001
+}
+
+body:json {
+  {
+    "answer": "Tap Report a problem, then Gate is closed. Support will help.",
+    "question": "What if the gate is closed?",
+    "slug": "gate-closed"
+  }
+}

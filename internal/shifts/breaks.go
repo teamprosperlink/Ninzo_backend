@@ -18,10 +18,12 @@ import (
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/database"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/httpserver"
 	"github.com/teamprosperlink/Ninzo_backend/internal/platform/idempotency"
+	"github.com/teamprosperlink/Ninzo_backend/internal/riderapp"
 )
 
-// defaultMaxBreak is used only when no settings row holds max_break_s (the console's value wins).
-const defaultMaxBreak = 1800 * time.Second
+// defaultMaxBreak is used only when no settings row holds max_break_s (the console's value wins). It is
+// the same number the rider settings call falls back to.
+const defaultMaxBreak = riderapp.DefaultMaxBreakS * time.Second
 
 func (s *Service) clock() time.Time {
 	if s.now != nil {

@@ -1,0 +1,23 @@
+meta {
+  name: deactivateHelpArticle
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/admin/help-articles/mock_id/deactivate
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-deactivateHelpArticle-0001
+}
+
+body:json {
+  {
+    "reason": "mock_value"
+  }
+}

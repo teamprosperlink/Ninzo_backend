@@ -1,0 +1,16 @@
+meta {
+  name: listShiftPlans
+  type: http
+  seq: 46
+}
+
+get {
+  url: {{baseUrl}}/admin/shift-plans
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}

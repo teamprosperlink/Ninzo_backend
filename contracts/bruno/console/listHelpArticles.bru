@@ -1,0 +1,16 @@
+meta {
+  name: listHelpArticles
+  type: http
+  seq: 40
+}
+
+get {
+  url: {{baseUrl}}/admin/help-articles
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+}
