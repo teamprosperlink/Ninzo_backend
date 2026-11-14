@@ -5,6 +5,10 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### The test payment stays on staging next to Razorpay (#263)
+- Changed: `POST /test/payments/{order_id}` is mounted on every environment except production, also with Razorpay keys, so the apps can pay on staging before they add Razorpay Checkout. A payment settled through it becomes a test payment, so its refunds are processed at once and never sent to Razorpay.
+- Evidence: docs/testing/reports/263.md
+
 ### Customer pushes can use their own Firebase project (#257)
 - Added: the optional `FCM_CUSTOMER_SERVICE_ACCOUNT_JSON` on customer-api. Customer pushes go through it when set, rider pushes through `FCM_SERVICE_ACCOUNT_JSON`. Unset keeps today's behaviour.
 - Evidence: docs/testing/reports/257.md
