@@ -1,0 +1,24 @@
+meta {
+  name: updateHelpArticle
+  type: http
+  seq: 63
+}
+
+patch {
+  url: {{baseUrl}}/admin/help-articles/mock_id
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  X-Mock-Scenario: {{scenario}}
+  Idempotency-Key: bruno-updateHelpArticle-0001
+}
+
+body:json {
+  {
+    "answer": "Tap Report a problem. Support will help.",
+    "reason": "Clearer words"
+  }
+}

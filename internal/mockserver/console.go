@@ -53,6 +53,11 @@ var consoleScenarios = map[string]string{
 	"source_open":               "Closing an incident fails with source_open: its ticket or arrival review is still open",
 	"user_cannot_take":          "Assigning an incident fails with user_cannot_take: the user is inactive or lacks incidents.manage",
 	"poll_too_fast":             "The live zone answers 429 rate_limited: polled faster than every 5 seconds",
+	"help_empty":                "The help article list is empty, as it is until operations write the first one",
+	"slug_taken":                "Writing a help article fails with slug_taken",
+	"feedback_empty":            "No rider has sent feedback",
+	"shift_plans_empty":         "No shift plans are made",
+	"shift_plan_exists":         "Making a shift plan fails with shift_plan_exists: the rider has a plan for that day",
 }
 
 const consoleUserID = "usr_mock01"
@@ -71,10 +76,10 @@ var rolePermissions = map[string][]string{
 	"admin": {"users.manage", "approvals.read", "approvals.decide", "riders.review", "flags.manage", "zones.read", "settings.read", "settings.request",
 		"zones.kill_switch", "menu.manage", "gates.read", "gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "audit.read", "reviews.read",
 		"reviews.decide", "alerts.read", "orders.read", "tickets.manage", "refunds.request", "remedies.issue", "incidents.read", "incidents.manage",
-		"hub_ops.read", "hub_ops.manage", "map.read"},
+		"hub_ops.read", "hub_ops.manage", "map.read", "help.manage", "shift_plans.manage"},
 	"ops": {"approvals.read", "riders.review", "zones.read", "settings.read", "settings.request", "zones.kill_switch", "menu.manage", "gates.read",
 		"gates.manage", "hubs.read", "hubs.manage", "hub_staff.manage", "reviews.read", "reviews.decide", "alerts.read", "orders.read", "remedies.issue",
-		"incidents.read", "incidents.manage", "hub_ops.read", "hub_ops.manage", "map.read"},
+		"incidents.read", "incidents.manage", "hub_ops.read", "hub_ops.manage", "map.read", "help.manage", "shift_plans.manage"},
 	"support": {"zones.read", "gates.read", "reviews.read", "reviews.decide", "alerts.read", "orders.read", "tickets.manage", "refunds.request",
 		"remedies.issue", "incidents.read", "incidents.manage", "map.read"},
 	"hub_manager": {"hubs.read", "hub_staff.manage", "hub_ops.read"},
@@ -257,7 +262,7 @@ func consoleRoutes() []route {
 	page := func(c *call, key string, items any) {
 		c.json(200, map[string]any{key: items, "next_cursor": nil})
 	}
-	return []route{
+	routes := []route{
 		{method: "POST", path: "/auth/login", open: true, noIdempotent: true, handle: func(c *call) {
 			if _, ok := needsBody(c, "login_id", "password"); !ok {
 				return
@@ -857,6 +862,7 @@ func consoleRoutes() []route {
 				"incidents_open": 2})
 		}},
 	}
+	return append(routes, riderAppRoutes(denied, fail)...)
 }
 
 func settingsChange(denied func(*call) bool, fail func(*call, ...string) bool) func(*call) {
@@ -884,6 +890,12 @@ func settingsChange(denied func(*call) bool, fail func(*call, ...string) bool) f
 func consolePermission(c *call) string {
 	path := c.r.URL.Path
 	switch {
+	case contains(path, "/admin/help-articles"):
+		return "help.manage"
+	case contains(path, "/admin/rider-feedback"):
+		return "tickets.manage"
+	case contains(path, "/admin/shift-plans"):
+		return "shift_plans.manage"
 	case contains(path, "/admin/orders") && contains(path, "/refund"):
 		return "refunds.request"
 	case contains(path, "/admin/orders") && (contains(path, "/replacement") || contains(path, "/credit")):

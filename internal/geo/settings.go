@@ -67,6 +67,18 @@ var Settings = []Setting{
 	{"relocation_max_paid_s", "seconds", 60, 3600, true, "The most moving time paid for one move"},
 	{"max_break_s", "seconds", 300, 7200, false, "The longest break a rider can take. After it the break ends on its own"},
 	{"refund_approval_paise", "paise", 0, 10000000, false, "A console refund is made at once up to this much on an order; above it a second admin must approve"},
+	{"away_from_spot_m", "metres", 50, 2000, false, "How far from the spot a rider can be before the rider app says they have left it"},
+	{"scooter_capacity_qty", "units", 1, 200, false, "Portions a scooter carries, as the rider app shows it (the server does not enforce it)"},
+	{"min_phone_battery_pct", "percent", 0, 100, false, "Phone charge the rider app asks for before a shift"},
+	{"min_scooter_battery_pct", "percent", 0, 100, false, "Scooter charge the rider app asks for before a shift"},
+	{"low_scooter_battery_pct", "percent", 0, 100, false, "Scooter charge below which the rider app warns the rider"},
+	{"cancel_pay_cap_paise", "paise", 0, 100000, false, "The most a cancelled prepaid order pays for the trip, when the rider had started moving"},
+	{"break_extension_s", "seconds", 60, 3600, false, "What the rider app's extend-break button adds"},
+	{"not_at_gate_after_s", "seconds", 5, 300, false, "How long the handover code step waits before the rider app offers 'Customer not at the gate?'"},
+	{"shift_ending_soon_before_s", "seconds", 60, 7200, false, "How long before a planned end the rider app says the shift is ending soon"},
+	{"stock_request_ask_before_s", "seconds", 300, 86400, false, "How long before a planned start the rider app asks if the rider is coming"},
+	{"stock_request_reminder_before_s", "seconds", 60, 86400, false, "When a rider who has not answered the stock question is reminded"},
+	{"verification_within_s", "seconds", 3600, 604800, false, "How soon operations usually check a rider's documents, as the rider app tells them"},
 }
 
 // ErrInvalidSetting means a change was refused, and nothing was stored.

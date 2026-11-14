@@ -503,8 +503,8 @@ paths:
                 checklist:
                   description: >-
                     The Before you start items the rider ticked, each once (a repeated or empty code is 400 invalid_request).
-                    Kept with the shift. The rider app (Issue 235) sends it. Until getRiderSettings is served (part B of Issue 235),
-                    codes matching ^[a-z0-9_]{1,40}$ are stored and any other code is ignored; checking against the settings comes with getRiderSettings.
+                    Kept with the shift. The rider app (Issue 235) sends it. Only codes listed in the checklist of getRiderSettings are stored;
+                    any other code is ignored, not an error.
                     It is stored only when the shift is started by this call. When the reply is a take_over or a 409 shift_already_open, the checklist is not stored.
                   type: array
                   maxItems: 20
@@ -2043,7 +2043,9 @@ paths:
         the straight-line speed) and every choice the app offers (break and Add time lengths, skip reasons, problem types,
         the Before you start checklist). The app has none of its own. The values come from the console's settings, so the
         timer is the console's timer_length_s (90 seconds by default), and no break option is longer than max_break_s.
-        A value the zone has none of is null.
+        Where the console has no value for a number, the server sends its documented default, so the app always has one;
+        only the numbers the order flow shares (the timer, the arrive and almost-there distances, low stock, the ride speed)
+        can be null. problem_types holds only values of the reportProblem type, and the checklist is the list startShift checks against.
       responses:
         '200':
           description: The settings.
@@ -2067,7 +2069,8 @@ paths:
       summary: Get the help centre's questions and answers
       description: >-
         For the rider app (Issue 235). The help articles are kept by the backend and edited in the console,
-        in the order operations set. The app has none of its own. A rider sees only the published ones.
+        in the order operations set. The app has none of its own. A rider sees only the active ones. Nothing is written to start
+        with, so faq is an empty list until operations write the first article, and the app must show an empty help centre.
       responses:
         '200':
           description: The help centre.

@@ -276,6 +276,10 @@ func riderAPKRoutes() []route {
 			c.json(200, map[string]any{"settings": riderAppSettings()})
 		}},
 		{method: "GET", path: "/riders/me/help", handle: func(c *call) {
+			if c.scenario == "help_empty" {
+				c.json(200, map[string]any{"faq": []map[string]any{}})
+				return
+			}
 			c.json(200, map[string]any{"faq": []map[string]any{
 				{"id": "faq_mock01", "question": "How do I start a shift?", "answer": "Open the app, pick your spot and tap Start shift."},
 				{"id": "faq_mock02", "question": "What if the gate is closed?", "answer": "Tap Report a problem, then Gate is closed. Support will help."},

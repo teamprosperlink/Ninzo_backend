@@ -109,4 +109,54 @@ The app also reads keys such as `phase`, `spot`, `previews`, `manifest`, `welcom
 
 ## Part B1 (server): done for these calls
 
-The real rider API now serves, as the contract says: calls 1 (`invalid_phone`), 5 and 6 (`phone`, `email`, `area`), 7 and 16 (shift `online_at`, `planned_end_at`, `break`, and `total` and `payment_method` on offers and orders), 24 (`checklist`), 26 (`days` and the extra entry fields), 28 and 29 (`takeBreak`, and the `endBreak` alias), 37 to 41 and 44 (`total`, `payment_method`) and 47 (`manager_phone`). `total` and `payment_method` are now required on Offer and RiderOrder. The columns `shifts.online_at` and `planned_end_at` exist, but nothing sets them yet: `goOnline` and `setPlannedEnd` are part B2. The console cannot set `hubs.manager_phone` yet, because its contract has no such field.
+The real rider API now serves, as the contract says: calls 1 (`invalid_phone`), 5 and 6 (`phone`, `email`, `area`), 7 and 16 (shift `online_at`, `planned_end_at`, `break`, and `total` and `payment_method` on offers and orders), 24 (`checklist`), 26 (`days` and the extra entry fields), 28 and 29 (`takeBreak`, and the `endBreak` alias), 37 to 41 and 44 (`total`, `payment_method`) and 47 (`manager_phone`). `total` and `payment_method` are now required on Offer and RiderOrder. The columns `shifts.online_at` and `planned_end_at` are set by `goOnline` and `setPlannedEnd` since part B2. The console cannot set `hubs.manager_phone` yet, because its contract has no such field.
+
+## Part B2 (server): done for these calls
+
+The real rider API now serves calls 18 to 22, 27 and 30 as the contract says: `getRiderSettings`, `getRiderHelp`, `sendRiderFeedback`, `getShiftPlan`, `replyToShiftPlan`, `goOnline` and `setPlannedEnd`. `goOnline` and `setPlannedEnd` set the `shifts.online_at` and `planned_end_at` columns that part B1 added. Migration 0057 adds `help_articles`, `rider_feedback`, `shift_plans` and twelve zone settings. Evidence: `docs/testing/reports/235-B2.md`.
+
+**What each call does**
+
+| Call | Behaviour |
+|---|---|
+| `goOnline` | Sets `online_at` on the open shift the first time only. A repeat returns the shift and changes nothing (no audit row, no seq). It records and never gates or starts offers. 409 `no_open_shift` with no shift |
+| `setPlannedEnd` | Records `planned_end_at`. The time must be in the future and within 16 hours of the shift's start, or 400 `invalid_request`. Nothing ends the shift, no reminder is sent, and the same time again changes nothing |
+| `getRiderSettings` | Built from the rider's zone settings (the global ones for a rider with no zone), read only. See the table below |
+| `getRiderHelp` | The active rider articles by `sort`. Nothing is seeded, so `faq` is `[]` until ops write the first article in the console. The mock has the scenario `help_empty` so the app's developers can check how the app shows an empty help centre. We have not checked that the finished app does |
+| `sendRiderFeedback` | Stores the trimmed message (1 to 2000 characters, counted as characters). The audit row holds its length only. The contract has no category, so none is stored |
+| `getShiftPlan` | Today's plan in India time, or `plan: null`. A plan exists only if ops made one in the console |
+| `replyToShiftPlan` | Records `coming` or `not_today` on today's plan. The same answer again keeps the first time. 404 `not_found` with no plan today, 409 `shift_plan_closed` once `packing` is no longer `not_started`. Nothing starts, ends or schedules a shift |
+
+**Where each settings value comes from**
+
+| Value | Source |
+|---|---|
+| `timer_length_s`, `max_break_s` | The console's settings of the same name (`max_break_s` falls back to 1800 if a row has none) |
+| `arrive_m` | `arrival_perimeter_m` (the distance that stops the timer) |
+| `almost_there_m` | `zone_radius_m` (the zone where the timer can start) |
+| `low_stock_qty` | `restock_low_qty` |
+| `ride_speed_kmh` | `straight_line_speed_kmh` |
+| `away_from_spot_m`, `scooter_capacity_qty`, `min_phone_battery_pct`, `min_scooter_battery_pct`, `low_scooter_battery_pct`, `break_extension_s`, `not_at_gate_after_s`, `shift_ending_soon_before_s`, `stock_request_ask_before_s`, `stock_request_reminder_before_s`, `verification_within_s` | New console settings (migration 0057, `geo.Settings`). Every stored version holds the numbers the mock shows (400, 24, 20, 30, 15, 900, 30, 900, 3600, 1800, 86400); the code uses the same numbers if a row has none. `scooter_capacity_qty` is only shown to the app: the server does not enforce it |
+| `cancel_pay_cap` | The new setting `cancel_pay_cap_paise` (4000 paise to start), as a Money. Nothing pays by it yet: that is part B6 |
+| `break_options_s` | The constant list 300, 600, 900, 1800, with any option longer than `max_break_s` left out |
+| `add_time_options_s` | The constant list 900, 1800, 3600 |
+| `handover_code_length` | The constant 4, because `orders` makes four-digit codes |
+| `skip_reasons`, `problem_types`, `checklist` | Constant lists with their labels (`internal/riderapp/settings.go`). `problem_types` holds only the five `reportProblem` types, and a test keeps it so. `checklist` is the list `startShift` checks against |
+
+The numbers the order flow shares (`timer_length_s`, `arrive_m`, `almost_there_m`, `low_stock_qty`, `ride_speed_kmh`) are null if the zone has none. The new ones always have a number.
+
+**startShift** now keeps only the checklist codes the settings call lists (`helmet`, `phone_battery`, `scooter_battery`, `location`). Any other code is ignored, not an error.
+
+**Console operations added** (contract, mock and tests together). All writes need an Idempotency-Key and are audited.
+
+| Operation | Path | Permission |
+|---|---|---|
+| `listHelpArticles` | GET `/admin/help-articles` | `help.manage` (admin, ops) |
+| `createHelpArticle` | POST `/admin/help-articles` | `help.manage` |
+| `updateHelpArticle` | PATCH `/admin/help-articles/{article_id}` | `help.manage` |
+| `deactivateHelpArticle` | POST `/admin/help-articles/{article_id}/deactivate` | `help.manage` |
+| `listRiderFeedback` | GET `/admin/rider-feedback` | `tickets.manage` (admin, support) |
+| `listShiftPlans` | GET `/admin/shift-plans` | `shift_plans.manage` (admin, ops) |
+| `createShiftPlan` | POST `/admin/shift-plans` | `shift_plans.manage` |
+
+Shift plans are informational. Ops can make one plan per rider and day (today to 60 days ahead, India time) and read the riders' answers, but cannot edit or delete one yet.

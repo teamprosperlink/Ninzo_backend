@@ -51,6 +51,8 @@ tags:
   description: Hub queues and stuck restocks.
 - name: map
   description: The live zone.
+- name: rider_app
+  description: What the rider app shows, written or read here. Help articles, rider feedback and shift plans.
 paths:
   /auth/login:
     post:
@@ -2521,6 +2523,313 @@ paths:
           $ref: ../shared/common.yaml#/components/responses/TooManyRequests
         '500':
           $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/help-articles:
+    get:
+      tags:
+      - rider_app
+      operationId: listHelpArticles
+      summary: List the help articles
+      description: >-
+        Every article, active or not, in the order riders see them (sort, then when each was made). The rider app's
+        help centre shows only the active ones. None are written to start with: operations write them, so the list
+        is empty until then, and the rider app then shows an empty help centre. Permission: help.manage.
+      x-permission: help.manage
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpArticleList'
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    post:
+      tags:
+      - rider_app
+      operationId: createHelpArticle
+      summary: Write a help article
+      description: >-
+        Active at once, so riders see it as soon as this returns. Audited. Errors: slug_taken (409), when another article
+        has the slug. Permission: help.manage.
+      x-permission: help.manage
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HelpArticleCreate'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpArticleResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/help-articles/{article_id}:
+    patch:
+      tags:
+      - rider_app
+      operationId: updateHelpArticle
+      summary: Change a help article
+      description: >-
+        Any of question, answer, sort and active. Setting active back to true shows an article again. The slug
+        never changes. At least one field is needed. Audited with the reason. Permission: help.manage.
+      x-permission: help.manage
+      parameters:
+      - name: article_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HelpArticleUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpArticleResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/help-articles/{article_id}/deactivate:
+    post:
+      tags:
+      - rider_app
+      operationId: deactivateHelpArticle
+      summary: Hide a help article from riders
+      description: >-
+        The article is kept, so it can be shown again with updateHelpArticle. Already hidden is not an error:
+        the article comes back as it is. Audited with the reason. Permission: help.manage.
+      x-permission: help.manage
+      parameters:
+      - name: article_id
+        in: path
+        required: true
+        description: The id.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonBody'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpArticleResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/rider-feedback:
+    get:
+      tags:
+      - rider_app
+      operationId: listRiderFeedback
+      summary: Read what riders sent from the app
+      description: >-
+        Newest first. The rider's own words, with the rider's id and name and nothing about customers. Read only.
+        Permission: tickets.manage.
+      x-permission: tickets.manage
+      parameters:
+      - name: rider_id
+        in: query
+        required: false
+        description: Only this rider's feedback.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiderFeedbackList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+  /admin/shift-plans:
+    get:
+      tags:
+      - rider_app
+      operationId: listShiftPlans
+      summary: List the shift plans, with the riders' answers
+      description: >-
+        Newest first. Each plan carries the rider's answer to the morning stock request (stock_reply and replied_at).
+        Plans are informational: shifts stay open-ended, and nothing starts, ends or forces a shift by a plan.
+        Permission: shift_plans.manage.
+      x-permission: shift_plans.manage
+      parameters:
+      - name: rider_id
+        in: query
+        required: false
+        description: Only this rider's plans.
+        schema:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+      - name: date
+        in: query
+        required: false
+        description: Only plans for this day (India time).
+        schema:
+          type: string
+          format: date
+      - name: cursor
+        in: query
+        required: false
+        description: From next_cursor.
+        schema:
+          type: string
+          maxLength: 200
+      - name: limit
+        in: query
+        required: false
+        description: 1 to 100. 50 by default.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftPlanList'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
+    post:
+      tags:
+      - rider_app
+      operationId: createShiftPlan
+      summary: Make a rider's plan for a day
+      description: >-
+        One plan for each rider and day. The day is today or a day up to 60 days ahead, in India time, and starts_at
+        falls on it. ends_at is after starts_at, up to 24 hours later. node_id, if sent, is a node in the rider's zone.
+        The plan is a guide the rider sees in the rider app: it does not start, end or schedule a shift. Audited.
+        Errors: shift_plan_exists (409), when the rider already has a plan for that day; not_found (404), for a rider
+        that does not exist. Permission: shift_plans.manage.
+      x-permission: shift_plans.manage
+      parameters:
+      - $ref: ../shared/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShiftPlanCreate'
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminShiftPlanResponse'
+        '400':
+          $ref: ../shared/common.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/common.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/common.yaml#/components/responses/Forbidden
+        '404':
+          $ref: ../shared/common.yaml#/components/responses/NotFound
+        '409':
+          $ref: ../shared/common.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/common.yaml#/components/responses/IdempotencyKeyReused
+        '429':
+          $ref: ../shared/common.yaml#/components/responses/TooManyRequests
+        '500':
+          $ref: ../shared/common.yaml#/components/responses/InternalError
 components:
   securitySchemes:
     bearerAuth:
@@ -2542,14 +2851,15 @@ components:
         approvals.read, riders.review, zones.read, settings.read, settings.request, zones.kill_switch,
         menu.manage, gates.read, gates.manage, hubs.read, hubs.manage, hub_staff.manage, reviews.read,
         reviews.decide, alerts.read, orders.read, remedies.issue, incidents.read, incidents.manage,
-        hub_ops.read, hub_ops.manage, map.read; support has zones.read, gates.read, reviews.read,
+        hub_ops.read, hub_ops.manage, map.read, help.manage, shift_plans.manage; support has zones.read, gates.read, reviews.read,
         reviews.decide, alerts.read, orders.read, tickets.manage, refunds.request, remedies.issue,
         incidents.read, incidents.manage, map.read; hub_manager has hubs.read, hub_staff.manage and
         hub_ops.read, for their own hub. approvals.decide is admin only.
       enum: [users.manage, approvals.read, approvals.decide, riders.review, flags.manage, zones.read, settings.read,
         settings.request, zones.kill_switch, menu.manage, gates.read, gates.manage, hubs.read, hubs.manage,
         hub_staff.manage, audit.read, reviews.read, reviews.decide, alerts.read, orders.read, tickets.manage,
-        refunds.request, remedies.issue, incidents.read, incidents.manage, hub_ops.read, hub_ops.manage, map.read]
+        refunds.request, remedies.issue, incidents.read, incidents.manage, hub_ops.read, hub_ops.manage, map.read, help.manage,
+        shift_plans.manage]
     Role:
       type: string
       description: admin runs users, settings and approvals; ops runs zones, hubs, riders and reviews; support handles customers and reviews; hub_manager runs one hub.
@@ -4262,3 +4572,247 @@ components:
           minimum: 0
         server_time:
           $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HelpArticle:
+      type: object
+      required: [id, audience, slug, question, answer, sort, active, created_at, updated_at, updated_by]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        audience:
+          type: string
+          enum: [rider]
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,59}$'
+        question:
+          type: string
+          minLength: 1
+          maxLength: 200
+        answer:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        sort:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          description: The console user who last changed it.
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              $ref: ../shared/common.yaml#/components/schemas/Id
+            name:
+              type: string
+    HelpArticleList:
+      type: object
+      required: [articles, server_time]
+      properties:
+        articles:
+          type: array
+          items:
+            $ref: '#/components/schemas/HelpArticle'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HelpArticleResponse:
+      type: object
+      required: [article, server_time]
+      properties:
+        article:
+          $ref: '#/components/schemas/HelpArticle'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    HelpArticleCreate:
+      type: object
+      required: [slug, question, answer]
+      additionalProperties: false
+      example:
+        slug: gate-closed
+        question: What if the gate is closed?
+        answer: Tap Report a problem, then Gate is closed. Support will help.
+      properties:
+        audience:
+          description: Only rider for now. Rider by default.
+          type: string
+          enum: [rider]
+        slug:
+          description: A short name that stays the same, such as gate-closed. Lower-case letters, digits and hyphens.
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,59}$'
+        question:
+          type: string
+          minLength: 1
+          maxLength: 200
+        answer:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        sort:
+          description: Lower comes first. 100 by default.
+          type: integer
+          minimum: 0
+          maximum: 10000
+    HelpArticleUpdate:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      example:
+        answer: Tap Report a problem. Support will help.
+        reason: Clearer words
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 200
+        answer:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        sort:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        active:
+          type: boolean
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    RiderFeedback:
+      type: object
+      required: [id, rider, message, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        rider:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              $ref: ../shared/common.yaml#/components/schemas/Id
+            name:
+              type: string
+        message:
+          description: What the rider wrote, 1 to 2000 characters.
+          type: string
+          minLength: 1
+          maxLength: 2000
+        created_at:
+          type: string
+          format: date-time
+    RiderFeedbackList:
+      type: object
+      required: [feedback, next_cursor, server_time]
+      properties:
+        feedback:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiderFeedback'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminShiftPlan:
+      type: object
+      description: >-
+        One rider's plan for one day, as the rider app reads it (stock_reply, replied_at, packing and ready_at are the
+        rider's answer and the hub's progress), with the rider and when it was made.
+      required: [id, rider, date, node_id, starts_at, ends_at, stock_reply, replied_at, packing, ready_at, created_at]
+      properties:
+        id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        rider:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              $ref: ../shared/common.yaml#/components/schemas/Id
+            name:
+              type: string
+        date:
+          description: The day, in India time.
+          type: string
+          format: date
+        node_id:
+          anyOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        stock_reply:
+          type: string
+          enum: [pending, coming, not_today]
+        replied_at:
+          type: ['string', 'null']
+          format: date-time
+        packing:
+          type: string
+          enum: [not_started, packing, ready]
+        ready_at:
+          type: ['string', 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    ShiftPlanList:
+      type: object
+      required: [plans, next_cursor, server_time]
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminShiftPlan'
+        next_cursor:
+          type: ['string', 'null']
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    AdminShiftPlanResponse:
+      type: object
+      required: [plan, server_time]
+      properties:
+        plan:
+          $ref: '#/components/schemas/AdminShiftPlan'
+        server_time:
+          $ref: ../shared/common.yaml#/components/schemas/ServerTime
+    ShiftPlanCreate:
+      type: object
+      required: [rider_id, date, starts_at, ends_at]
+      additionalProperties: false
+      example:
+        rider_id: rdr_01HZX3Q7
+        date: '2099-01-01'
+        starts_at: '2099-01-01T04:00:00Z'
+        ends_at: '2099-01-01T10:00:00Z'
+      properties:
+        rider_id:
+          $ref: ../shared/common.yaml#/components/schemas/Id
+        date:
+          description: The day, in India time. Today, or up to 60 days ahead.
+          type: string
+          format: date
+        node_id:
+          description: Where the shift is planned to start, a node in the rider's zone. Null or left out if not chosen yet.
+          anyOf:
+          - $ref: ../shared/common.yaml#/components/schemas/Id
+          - type: 'null'
+        starts_at:
+          description: A guide only. It falls on date in India time.
+          type: string
+          format: date-time
+        ends_at:
+          description: A guide only. After starts_at, up to 24 hours later. Nothing ends a shift at this time.
+          type: string
+          format: date-time

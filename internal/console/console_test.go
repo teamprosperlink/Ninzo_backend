@@ -60,6 +60,7 @@ func newFixture(t *testing.T) *fixture {
 		f.svc.MountSupport(r, signedIn)
 		f.svc.MountIncidents(r, signedIn)
 		f.svc.MountLive(r, signedIn)
+		f.svc.MountRiderApp(r, signedIn)
 	}))
 	t.Cleanup(f.srv.Close)
 	return f

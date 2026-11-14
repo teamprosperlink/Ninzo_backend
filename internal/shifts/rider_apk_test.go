@@ -90,8 +90,8 @@ func TestStartShiftKeepsTheChecklist(t *testing.T) {
 	if n := f.count("SELECT count(*) FROM shifts WHERE rider_id = $1", rider); n != 0 {
 		t.Fatalf("a refused start made %d shifts", n)
 	}
-	// Up to 20 is allowed. A code of a shape the settings never use is ignored, not an error.
-	code, out := start(`,"checklist":[` + strings.Join(twenty[:19], ",") + `,"Not A Code"]`)
+	// Up to 20 is allowed. A code the settings do not list (part B2: riderapp.Checklist), of any shape, is ignored, not an error.
+	code, out := start(`,"checklist":["helmet",` + strings.Join(twenty[:17], ",") + `,"Not A Code","location"]`)
 	if code != 200 {
 		t.Fatalf("%d %v", code, out)
 	}
@@ -100,7 +100,7 @@ func TestStartShiftKeepsTheChecklist(t *testing.T) {
 	if err := f.s.Pool.QueryRow(t.Context(), "SELECT checklist FROM shifts WHERE rider_id = $1", rider).Scan(&kept); err != nil {
 		t.Fatal(err)
 	}
-	if len(kept) != 19 || kept[0] != "item_00" || kept[18] != "item_18" {
+	if len(kept) != 2 || kept[0] != "helmet" || kept[1] != "location" {
 		t.Errorf("kept %v", kept)
 	}
 	// No checklist keeps an empty one, never null.

@@ -52,6 +52,7 @@ func main() {
 			svc.MountIncidents(r, signedIn...)
 			svc.MountHubOps(r, signedIn...)
 			svc.MountLive(r, signedIn...)
+			svc.MountRiderApp(r, signedIn...)
 		},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "console-api:", err)
