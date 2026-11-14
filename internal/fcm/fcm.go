@@ -3,8 +3,9 @@
 //
 // A push carries only what the app needs to open a screen: the outbox payload (ids, stage, kind)
 // as data, and a fixed title and body chosen here by its stage or kind. Never names, phones or
-// addresses. Rider offers go at high priority (time-sensitive on iOS); the rest at normal. A newer
-// push about the same order, or the same kind, replaces the older one on the device.
+// addresses. Rider offers and the customer handover stages go at high priority and expire fast;
+// the rest at normal. A newer push about the same order, or the same kind, replaces the older one
+// on the device (the Android tag and the APNs collapse id).
 package fcm
 
 import (
@@ -21,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,6 +50,7 @@ type Sender struct {
 	// BaseURL is FCM's address; tests point it at a fake server.
 	BaseURL string
 	Client  *http.Client
+	Log     *slog.Logger // nil is slog.Default
 	Now     func() time.Time
 
 	mu      sync.Mutex
@@ -138,10 +141,14 @@ func (s *Sender) token(ctx context.Context) (string, error) {
 	defer resp.Body.Close()
 	var out struct {
 		AccessToken string `json:"access_token"`
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
 		ExpiresIn   int    `json:"expires_in"`
 	}
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil || out.AccessToken == "" {
-		return "", fmt.Errorf("fcm: token refused (%d)", resp.StatusCode)
+	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out)
+	if resp.StatusCode != http.StatusOK || decodeErr != nil || out.AccessToken == "" {
+		// Google's error and description (such as invalid_grant) name no secret.
+		return "", fmt.Errorf("fcm: token refused (%d %s: %s)", resp.StatusCode, clip(out.Error), clip(out.Description))
 	}
 	if out.ExpiresIn <= 0 {
 		out.ExpiresIn = 3600
@@ -163,7 +170,7 @@ func (s *Sender) Push(ctx context.Context, platform, token, topic string, payloa
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(map[string]any{"message": Message(platform, token, topic, payload)})
+	body, err := json.Marshal(map[string]any{"message": Message(platform, token, topic, payload, s.Now())})
 	if err != nil {
 		return err
 	}
@@ -178,44 +185,58 @@ func (s *Sender) Push(ctx context.Context, platform, token, topic string, payloa
 		return fmt.Errorf("fcm: send: %w", err)
 	}
 	defer resp.Body.Close()
+	reply, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16)) // read through, so the connection is reused
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
-	reply, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if resp.StatusCode == http.StatusNotFound || unregistered(reply) {
+	code := errorCode(reply)
+	switch {
+	case code == "UNREGISTERED":
+		// Only FCM's own word that the token is dead deletes it. A bare 404 (a wrong project or
+		// address) would otherwise delete every token on the first pass.
 		if s.Devices == nil {
 			return errors.New("fcm: no device store to drop an unregistered token")
 		}
-		if _, err := s.Devices.Exec(ctx, "DELETE FROM devices WHERE push_token = $1", token); err != nil {
-			return err
-		}
+		_, err := s.Devices.Exec(ctx, "DELETE FROM devices WHERE push_token = $1", token)
+		return err
+	case code == "SENDER_ID_MISMATCH" || code == "INVALID_ARGUMENT":
+		// Sending this message to this device can never work (a token from another Firebase project,
+		// or a malformed token or message). Retrying would repeat the push to the person's other
+		// devices every hour, so it is logged and dropped. The token is kept: a wrong service
+		// account would make every token look foreign.
+		s.log().ErrorContext(ctx, "fcm: push dropped", "status", resp.StatusCode, "error_code", code, "topic", topic, "platform", platform)
 		return nil
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
+	case resp.StatusCode == http.StatusUnauthorized:
 		s.forget()
 	}
-	return fmt.Errorf("fcm: send refused (%d)", resp.StatusCode)
+	return fmt.Errorf("fcm: send refused (%d %s)", resp.StatusCode, code)
 }
 
-// unregistered says whether an FCM error reply names the UNREGISTERED error code.
-func unregistered(reply []byte) bool {
+func (s *Sender) log() *slog.Logger {
+	if s.Log != nil {
+		return s.Log
+	}
+	return slog.Default()
+}
+
+// errorCode is the FCM error code in an error reply (details[].errorCode), or "".
+func errorCode(reply []byte) string {
 	var e struct {
 		Error struct {
-			Status  string `json:"status"`
 			Details []struct {
 				ErrorCode string `json:"errorCode"`
 			} `json:"details"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(reply, &e) != nil {
-		return false
+		return ""
 	}
 	for _, d := range e.Error.Details {
-		if d.ErrorCode == "UNREGISTERED" {
-			return true
+		if d.ErrorCode != "" {
+			return d.ErrorCode
 		}
 	}
-	return false
+	return ""
 }
 
 type text struct{ title, body string }
@@ -254,8 +275,19 @@ func what(payload map[string]any) string {
 	return s
 }
 
-// Message builds the FCM v1 message for one device.
-func Message(platform, token, topic string, payload map[string]any) map[string]any {
+// urgent are the pushes that must arrive at once: a rider's offer, and the customer stages of the
+// short handover (the rider is close, has arrived, is waiting). They go at high priority, which
+// FCM allows for notifications the person sees, and expire quickly: late, they would mislead.
+var urgent = map[string]map[string]time.Duration{
+	"push.rider":    {"offer": time.Minute},
+	"push.customer": {"timer_running": 5 * time.Minute, "arrived": 5 * time.Minute, "rider_waiting": 5 * time.Minute},
+}
+
+// orderTTL is how long any other push about an order may wait for the device.
+const orderTTL = time.Hour
+
+// Message builds the FCM v1 message for one device, at now.
+func Message(platform, token, topic string, payload map[string]any, now time.Time) map[string]any {
 	kind := what(payload)
 	t, ok := texts[topic][kind]
 	if !ok {
@@ -272,23 +304,32 @@ func Message(platform, token, topic string, payload map[string]any) map[string]a
 			data[k] = string(b)
 		}
 	}
-	urgent := topic == "push.rider" && kind == "offer"
+	ttl, high := urgent[topic][kind]
 	collapse := topic + ":" + kind
 	if id, _ := payload["order_id"].(string); id != "" {
 		collapse = "order:" + id
+		if !high {
+			ttl = orderTTL
+		}
 	}
 	if len(collapse) > 64 { // apns-collapse-id is at most 64 bytes
 		sum := sha256.Sum256([]byte(collapse))
 		collapse = base64.RawURLEncoding.EncodeToString(sum[:])
 	}
-	android := map[string]any{"priority": "normal", "collapse_key": collapse}
+	// collapse_key only merges messages FCM still holds; the tag replaces a shown notification.
+	android := map[string]any{"priority": "normal", "collapse_key": collapse, "notification": map[string]string{"tag": collapse}}
 	aps := map[string]any{}
 	headers := map[string]string{"apns-priority": "5", "apns-collapse-id": collapse}
-	if urgent {
+	if high {
 		android["priority"] = "high"
 		headers["apns-priority"] = "10"
+		// Shown as time-sensitive only if the iOS app has that capability; otherwise as active.
 		aps["interruption-level"] = "time-sensitive"
 		aps["sound"] = "default"
+	}
+	if ttl > 0 {
+		android["ttl"] = fmt.Sprintf("%ds", int(ttl.Seconds()))
+		headers["apns-expiration"] = fmt.Sprint(now.Add(ttl).Unix())
 	}
 	m := map[string]any{
 		"token":        token,
@@ -302,4 +343,11 @@ func Message(platform, token, topic string, payload map[string]any) map[string]a
 		m["apns"] = map[string]any{"headers": headers, "payload": map[string]any{"aps": aps}}
 	}
 	return m
+}
+
+func clip(s string) string {
+	if len(s) > 120 {
+		return s[:120]
+	}
+	return s
 }

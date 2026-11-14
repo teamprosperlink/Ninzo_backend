@@ -1,6 +1,7 @@
 package fcm
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -10,7 +11,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +24,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+var at = time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
 
 type fakeDevices struct {
 	mu      sync.Mutex
@@ -142,7 +147,7 @@ func TestAPushIsSignedAndSent(t *testing.T) {
 	if s.Project() != "ninzo-test" {
 		t.Fatal(s.Project())
 	}
-	err := s.Push(context.Background(), "android", "tok-1", "push.customer", map[string]any{"customer_id": "c1", "order_id": "o1", "stage": "arrived", "seq": 7})
+	err := s.Push(context.Background(), "android", "tok-1", "push.customer", map[string]any{"customer_id": "c1", "order_id": "o1", "stage": "rider_accepted", "seq": 7})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,10 +156,10 @@ func TestAPushIsSignedAndSent(t *testing.T) {
 	}
 	m := f.sent[0]
 	data := m["data"].(map[string]any)
-	if m["token"] != "tok-1" || data["order_id"] != "o1" || data["stage"] != "arrived" || data["seq"] != "7" || data["topic"] != "push.customer" {
+	if m["token"] != "tok-1" || data["order_id"] != "o1" || data["stage"] != "rider_accepted" || data["seq"] != "7" || data["topic"] != "push.customer" {
 		t.Fatalf("%v", m)
 	}
-	if n := m["notification"].(map[string]any); n["title"] != "Your rider has arrived" {
+	if n := m["notification"].(map[string]any); n["title"] != "Your order is on its way" {
 		t.Fatalf("%v", n)
 	}
 	if a := m["android"].(map[string]any); a["priority"] != "normal" || a["collapse_key"] != "order:o1" {
@@ -193,18 +198,13 @@ func TestTheAccessTokenIsKeptUntilNearItsEnd(t *testing.T) {
 }
 
 func TestAnUnregisteredTokenIsDeleted(t *testing.T) {
-	for name, reply := range map[string]func() (int, string){
-		"unregistered": func() (int, string) {
-			return 404, `{"error":{"code":404,"status":"NOT_FOUND","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":"UNREGISTERED"}]}}`
-		},
-		"unregistered as 400": func() (int, string) {
-			return 400, `{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[{"errorCode":"UNREGISTERED"}]}}`
-		},
-		"plain 404": func() (int, string) { return 404, `not found` },
+	for name, reply := range map[string]string{
+		"as 404": `{"error":{"code":404,"status":"NOT_FOUND","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":"UNREGISTERED"}]}}`,
+		"as 400": `{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[{"errorCode":"UNREGISTERED"}]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFake(t)
-			f.reply = reply
+			f.reply = func() (int, string) { return 404, reply }
 			s, d := f.sender(t)
 			if err := s.Push(context.Background(), "android", "dead", "push.customer", map[string]any{"customer_id": "c", "stage": "ended"}); err != nil {
 				t.Fatalf("a dead token is not a failure to retry: %v", err)
@@ -217,18 +217,55 @@ func TestAnUnregisteredTokenIsDeleted(t *testing.T) {
 }
 
 func TestOtherFailuresAreRetriedAndKeepTheToken(t *testing.T) {
-	for name, code := range map[string]int{"invalid argument": 400, "quota": 429, "server": 500, "unavailable": 503, "forbidden": 403} {
+	// A bare 404 is a wrong project or address, not a dead token: deleting on it would delete every
+	// token on the first pass.
+	for name, r := range map[string]struct {
+		code int
+		body string
+	}{
+		"bare 404":    {404, `<html>Not Found</html>`},
+		"project 404": {404, `{"error":{"code":404,"status":"NOT_FOUND","message":"Requested entity was not found."}}`},
+		"quota":       {429, `{"error":{"code":429,"details":[{"errorCode":"QUOTA_EXCEEDED"}]}}`},
+		"internal":    {500, `{"error":{"code":500,"details":[{"errorCode":"INTERNAL"}]}}`},
+		"unavailable": {503, `{"error":{"code":503,"details":[{"errorCode":"UNAVAILABLE"}]}}`},
+		"apns auth":   {401, `{"error":{"code":401,"details":[{"errorCode":"THIRD_PARTY_AUTH_ERROR"}]}}`},
+	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFake(t)
-			f.reply = func() (int, string) {
-				return code, `{"error":{"code":` + http.StatusText(code) + `,"details":[{"errorCode":"INVALID_ARGUMENT"}]}}`
-			}
+			f.reply = func() (int, string) { return r.code, r.body }
 			s, d := f.sender(t)
 			if err := s.Push(context.Background(), "android", "live", "push.customer", map[string]any{"customer_id": "c", "stage": "ended"}); err == nil {
 				t.Fatal("a refused push must return an error, so the outbox retries")
 			}
 			if len(d.deleted) != 0 {
 				t.Fatal("a live token was deleted")
+			}
+		})
+	}
+}
+
+func TestAPushThatCanNeverWorkIsDroppedAndTheTokenKept(t *testing.T) {
+	for name, r := range map[string]struct {
+		code int
+		body string
+	}{
+		"another project": {403, `{"error":{"code":403,"status":"PERMISSION_DENIED","details":[{"errorCode":"SENDER_ID_MISMATCH"}]}}`},
+		"invalid":         {400, `{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[{"errorCode":"INVALID_ARGUMENT"}]}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.reply = func() (int, string) { return r.code, r.body }
+			s, d := f.sender(t)
+			var logged bytes.Buffer
+			s.Log = slog.New(slog.NewTextHandler(&logged, nil))
+			if err := s.Push(context.Background(), "android", "foreign", "push.customer", map[string]any{"customer_id": "c", "stage": "ended"}); err != nil {
+				t.Fatalf("retrying can never help, and repeats the push to the other devices: %v", err)
+			}
+			if len(d.deleted) != 0 {
+				t.Fatal("a wrong service account would make every token look foreign: never delete on this")
+			}
+			if !strings.Contains(logged.String(), "fcm: push dropped") || strings.Contains(logged.String(), "foreign") {
+				t.Fatalf("logged without the token: %q", logged.String())
 			}
 		})
 	}
@@ -278,34 +315,84 @@ func TestARefusedTokenRequestSendsNothing(t *testing.T) {
 	}
 }
 
-func TestOffersAreUrgentAndTheRestAreNot(t *testing.T) {
-	ios := Message("ios", "t", "push.rider", map[string]any{"rider_id": "r", "kind": "offer"})
-	apns := ios["apns"].(map[string]any)
-	h := apns["headers"].(map[string]string)
-	aps := apns["payload"].(map[string]any)["aps"].(map[string]any)
-	if h["apns-priority"] != "10" || aps["interruption-level"] != "time-sensitive" || h["apns-collapse-id"] != "push.rider:offer" {
-		t.Fatalf("%v", apns)
+func TestTheHandoverIsUrgentAndShortLived(t *testing.T) {
+	cases := []struct {
+		topic   string
+		payload map[string]any
+		ttl     time.Duration
+	}{
+		{"push.rider", map[string]any{"rider_id": "r", "kind": "offer"}, time.Minute},
+		{"push.customer", map[string]any{"order_id": "o", "stage": "timer_running"}, 5 * time.Minute},
+		{"push.customer", map[string]any{"order_id": "o", "stage": "arrived"}, 5 * time.Minute},
+		{"push.customer", map[string]any{"order_id": "o", "stage": "arrived", "kind": "rider_waiting"}, 5 * time.Minute},
 	}
-	if a := Message("android", "t", "push.rider", map[string]any{"kind": "offer"})["android"].(map[string]any); a["priority"] != "high" {
+	for _, c := range cases {
+		ios := Message("ios", "t", c.topic, c.payload, at)
+		apns := ios["apns"].(map[string]any)
+		h := apns["headers"].(map[string]string)
+		aps := apns["payload"].(map[string]any)["aps"].(map[string]any)
+		if h["apns-priority"] != "10" || aps["interruption-level"] != "time-sensitive" || h["apns-expiration"] != fmt.Sprint(at.Add(c.ttl).Unix()) {
+			t.Fatalf("%v: %v", c.payload, apns)
+		}
+		a := Message("android", "t", c.topic, c.payload, at)["android"].(map[string]any)
+		if a["priority"] != "high" || a["ttl"] != fmt.Sprintf("%ds", int(c.ttl.Seconds())) {
+			t.Fatalf("%v: %v", c.payload, a)
+		}
+	}
+	if h := Message("ios", "t", "push.rider", map[string]any{"kind": "offer"}, at)["apns"].(map[string]any)["headers"].(map[string]string); h["apns-collapse-id"] != "push.rider:offer" {
+		t.Fatalf("%v", h)
+	}
+}
+
+func TestTheRestAreNormalAndOrderPushesExpireInAnHour(t *testing.T) {
+	for _, c := range []struct {
+		topic   string
+		payload map[string]any
+		ttl     string // "" is FCM's default
+	}{
+		{"push.rider", map[string]any{"kind": "relocation"}, ""},
+		{"push.rider", map[string]any{"kind": "restock"}, ""},
+		{"push.customer", map[string]any{"order_id": "o", "stage": "rider_accepted"}, "3600s"},
+		{"push.customer", map[string]any{"order_id": "o", "stage": "refund_processed"}, "3600s"},
+		{"push.customer", map[string]any{"kind": "offer"}, ""}, // only a rider's offer is urgent
+	} {
+		m := Message("ios", "t", c.topic, c.payload, at)
+		apns := m["apns"].(map[string]any)
+		h := apns["headers"].(map[string]string)
+		if h["apns-priority"] != "5" || len(apns["payload"].(map[string]any)["aps"].(map[string]any)) != 0 {
+			t.Fatalf("%v: %v", c.payload, apns)
+		}
+		a := Message("android", "t", c.topic, c.payload, at)["android"].(map[string]any)
+		if a["priority"] != "normal" {
+			t.Fatalf("%v is urgent", c.payload)
+		}
+		got, _ := a["ttl"].(string)
+		if got != c.ttl || (c.ttl == "") != (h["apns-expiration"] == "") {
+			t.Fatalf("%v: ttl %q expiration %q", c.payload, got, h["apns-expiration"])
+		}
+	}
+}
+
+func TestANewerPushReplacesTheShownOneOnAndroid(t *testing.T) {
+	a := Message("android", "t", "push.customer", map[string]any{"order_id": "o1", "stage": "arrived"}, at)["android"].(map[string]any)
+	if a["collapse_key"] != "order:o1" || a["notification"].(map[string]string)["tag"] != "order:o1" {
 		t.Fatalf("%v", a)
 	}
-	for _, p := range []map[string]any{{"kind": "relocation"}, {"kind": "restock"}, {"stage": "arrived", "order_id": "o"}} {
-		topic := "push.rider"
-		if p["stage"] != nil {
-			topic = "push.customer"
-		}
-		m := Message("ios", "t", topic, p)
-		apns := m["apns"].(map[string]any)
-		if apns["headers"].(map[string]string)["apns-priority"] != "5" || len(apns["payload"].(map[string]any)["aps"].(map[string]any)) != 0 {
-			t.Fatalf("%v: %v", p, apns)
-		}
-		if Message("android", "t", topic, p)["android"].(map[string]any)["priority"] != "normal" {
-			t.Fatalf("%v is urgent", p)
-		}
-	}
-	// A customer push about an "offer" stage is not a rider offer.
-	if Message("android", "t", "push.customer", map[string]any{"kind": "offer"})["android"].(map[string]any)["priority"] != "normal" {
-		t.Fatal("only rider offers are urgent")
+}
+
+func TestATokenRefusalSaysWhy(t *testing.T) {
+	f := newFake(t)
+	var a map[string]string
+	_ = json.Unmarshal(f.account, &a)
+	other, _ := rsa.GenerateKey(rand.Reader, 2048)
+	der, _ := x509.MarshalPKCS8PrivateKey(other)
+	a["private_key"] = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	raw, _ := json.Marshal(a)
+	s, _ := New(raw)
+	s.BaseURL = f.srv.URL
+	err := s.Push(context.Background(), "android", "t", "push.customer", map[string]any{"stage": "ended"})
+	if err == nil || !strings.Contains(err.Error(), "invalid_grant") || strings.Contains(err.Error(), "PRIVATE") {
+		t.Fatalf("%v", err)
 	}
 }
 
@@ -314,25 +401,25 @@ func TestEveryPushWeSendHasItsOwnText(t *testing.T) {
 	// refunds; offers, relocation, restock, break end).
 	customer := []string{"payment_failed", "no_scooter", "rider_accepted", "timer_running", "arrived", "handed_over", "ended", "available", "ticket_reply", "refund_processed"}
 	for _, st := range customer {
-		if n := Message("android", "t", "push.customer", map[string]any{"stage": st})["notification"].(map[string]string); n["title"] == fallback.title {
+		if n := Message("android", "t", "push.customer", map[string]any{"stage": st}, at)["notification"].(map[string]string); n["title"] == fallback.title {
 			t.Errorf("customer %s has no text", st)
 		}
 	}
-	if n := Message("android", "t", "push.customer", map[string]any{"stage": "arrived", "kind": "rider_waiting"})["notification"].(map[string]string); n["title"] != "Your rider is waiting at the gate" {
+	if n := Message("android", "t", "push.customer", map[string]any{"stage": "arrived", "kind": "rider_waiting"}, at)["notification"].(map[string]string); n["title"] != "Your rider is waiting at the gate" {
 		t.Errorf("%v", n)
 	}
 	for _, k := range []string{"offer", "relocation", "restock", "shift"} {
-		if n := Message("android", "t", "push.rider", map[string]any{"kind": k})["notification"].(map[string]string); n["title"] == fallback.title {
+		if n := Message("android", "t", "push.rider", map[string]any{"kind": k}, at)["notification"].(map[string]string); n["title"] == fallback.title {
 			t.Errorf("rider %s has no text", k)
 		}
 	}
-	if n := Message("android", "t", "push.rider", map[string]any{"kind": "something_new"})["notification"].(map[string]string); n["title"] != fallback.title || n["body"] != fallback.body {
+	if n := Message("android", "t", "push.rider", map[string]any{"kind": "something_new"}, at)["notification"].(map[string]string); n["title"] != fallback.title || n["body"] != fallback.body {
 		t.Errorf("an unknown kind should fall back: %v", n)
 	}
 }
 
 func TestALongCollapseKeyIsShortened(t *testing.T) {
-	m := Message("ios", "t", "push.customer", map[string]any{"order_id": strings.Repeat("x", 80), "stage": "ended"})
+	m := Message("ios", "t", "push.customer", map[string]any{"order_id": strings.Repeat("x", 80), "stage": "ended"}, at)
 	if id := m["apns"].(map[string]any)["headers"].(map[string]string)["apns-collapse-id"]; len(id) > 64 || id == "" {
 		t.Fatalf("%q", id)
 	}

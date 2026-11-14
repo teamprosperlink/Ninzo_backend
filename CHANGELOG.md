@@ -6,7 +6,7 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 ## [Unreleased]
 
 ### Push notifications over FCM (#252)
-- Added: `internal/fcm`, an FCM HTTP v1 sender behind the existing `orders.Pusher` (service-account OAuth, token cached until a minute before expiry, a new one after a 401). Rider offers go at high priority (time-sensitive on iOS); a collapse key per order or kind; fixed texts that name nobody; the payload as `data`. A token FCM reports as UNREGISTERED, or a 404, is deleted; other failures retry through the outbox.
+- Added: `internal/fcm`, an FCM HTTP v1 sender behind the existing `orders.Pusher` (service-account OAuth, token cached until a minute before expiry, a new one after a 401). Rider offers and the customer handover stages (rider close, arrived, waiting) go at high priority with a short expiry (1 and 5 minutes); other order pushes expire after an hour. A newer push about the same order replaces the shown one (Android tag, APNs collapse id). Fixed texts that name nobody; the payload as `data`. Only FCM's UNREGISTERED deletes a token; SENDER_ID_MISMATCH and INVALID_ARGUMENT are logged and dropped; other failures retry through the outbox.
 - Added: `FCM_SERVICE_ACCOUNT_JSON` on customer-api replaces `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_FILE`. Unset keeps the log stand-in; broken stops the API from starting. Owner steps: docs/planning/firebase_setup.md.
 - Added: a `refund_processed` customer push, queued once when Razorpay settles a refund, by webhook or straight from the refund call.
 - Not here (console session, #253): hub staff pushes, ops sending offers and news, the rider reassigned or cancelled push.
