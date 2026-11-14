@@ -24,3 +24,10 @@ func TestBadArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestRelocateAndPlaceAreSeparate(t *testing.T) {
+	err := run(context.Background(), []string{"-osrm", "http://127.0.0.1:1", "-fleet", "3", "-relocate", "-place"}, nil, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "separate") {
+		t.Fatal(err)
+	}
+}

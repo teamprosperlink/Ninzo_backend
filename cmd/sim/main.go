@@ -72,6 +72,11 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 	busyQ := fs.Float64("q", 0.2, "with -place: the busy share for expected covering")
 	hotspots := fs.String("hotspots", "", "uneven demand: lat,lng,share,radius_m;... (share of all gates from each; the rest uniform)")
 	placeFrom := fs.String("place-from", "draws", "with -place: fit on draws (gates drawn from the scenario's demand), uniform (as if demand were even) or forecast (a 4-week synthetic history per cell, forecast v1)")
+	relocate := fs.Bool("relocate", false, "fleet mode: compare relocation rules (none, today, plan) on staging nodes from a grid; the plan is fitted on demand drawn with its own seed")
+	checkS := fs.Float64("check", 30, "with -relocate: seconds between relocation checks")
+	windowS := fs.Float64("reloc-window", 1800, "with -relocate: relocation_window_s")
+	minOrders := fs.Int("reloc-min", 2, "with -relocate: relocation_min_orders")
+	restS := fs.Float64("reloc-rest", 900, "with -relocate: relocation_rest_s")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return errors.New("usage: sim -osrm <url> [-zone koramangala|indiranagar] [-orders N] [-seed S] [-seeds K] [settings]")
 	}
@@ -109,6 +114,12 @@ func run(ctx context.Context, args []string, r sim.Router, out io.Writer) error 
 		}
 		if *rate <= 0 || *rate > 600 || *hours <= 0 || *hours > 24 {
 			return errors.New("orders-per-hour must be above 0 and at most 600, hours above 0 and at most 24")
+		}
+		if *relocate {
+			if *place {
+				return errors.New("-relocate and -place are separate experiments")
+			}
+			return runRelocate(ctx, r, sc, *fleetN, *rate, *hours, *pack, *handover, *seed, *seeds, *busyQ, *checkS, *windowS, *minOrders, *restS, out)
 		}
 		if *place {
 			// Placed on demand drawn with a seed of its own (1000 + seed), so the evaluation seeds
@@ -250,4 +261,77 @@ func parseHotspots(s string) ([]sim.Hotspot, error) {
 		out = append(out, sim.Hotspot{Lat: v[0], Lng: v[1], Share: v[2], RadiusM: v[3]})
 	}
 	return out, nil
+}
+
+// runRelocate compares relocation rules (issue 255): the riders start at the scenario's points,
+// the staging nodes are a road-snapped grid, and the plan is fitted once on demand drawn with a seed
+// of its own (5000), never on the evaluated orders.
+func runRelocate(ctx context.Context, r sim.Router, sc sim.Scenario, n int, rate, hours, pack, handover float64, seed uint64, seeds int, q, checkS, windowS float64, minOrders int, restS float64, out io.Writer) error {
+	o := sim.PlaceOptions{N: n, Q: q, Capacity: 2, GridRows: 4, GridCols: 5, Demand: 200, DemandSeed: 5000}
+	nodes, picks, plan, err := sim.PlanPicks(ctx, r, sc, o)
+	if err != nil {
+		return err
+	}
+	sc.Riders = sc.Riders[:n]
+	type pooled struct {
+		orders, served, busy, reach, inTime, moves int
+		moveS                                      float64
+		perSeed                                    []float64
+	}
+	rules := []string{sim.RelocNone, sim.RelocToday, sim.RelocPlan}
+	totals := map[string]*pooled{}
+	for _, rule := range rules {
+		totals[rule] = &pooled{}
+	}
+	for i := range seeds {
+		sc.Seed = seed + uint64(i)
+		results, err := sim.RunRelocation(ctx, r, sim.RelocScenario{
+			FleetScenario: sim.FleetScenario{Scenario: sc, OrdersPerHour: rate, Hours: hours, PackS: pack, HandoverS: handover},
+			Nodes:         nodes, PlanPicks: picks, CheckS: checkS, WindowS: windowS, MinOrders: minOrders, RestS: restS,
+		})
+		if err != nil {
+			return err
+		}
+		for _, res := range results {
+			p := totals[res.Relocation]
+			p.orders += res.Orders
+			p.served += res.Served
+			p.busy += res.RefusedBusy
+			p.reach += res.RefusedReach
+			p.inTime += res.InTime
+			p.moves += res.Moves
+			p.moveS += res.MoveS
+			p.perSeed = append(p.perSeed, res.InTimePerOrder)
+		}
+	}
+	fmt.Fprintf(out, "%s, %d riders on %d nodes, %.0f orders an hour for %.1f h x %d seeds from %d; plan fitted at q %.2f (%.0f%% of its demand in reach for %d)\n",
+		sc.Name, n, len(nodes), rate, hours, seeds, seed, q, 100*plan.Covered, n)
+	fmt.Fprintf(out, "check %.0f s, window %.0f s, min orders %d, rest %.0f s; matching by today's rule\n", checkS, windowS, minOrders, restS)
+	fmt.Fprintf(out, "%-6s %7s %7s %11s %12s %21s %6s %9s\n", "reloc", "orders", "served", "busy-refused", "reach-refused", "in time / order", "moves", "move min")
+	for _, rule := range rules {
+		p := totals[rule]
+		lo, hi := sim.Wilson(p.inTime, p.orders)
+		per := 0.0
+		if p.orders > 0 {
+			per = float64(p.inTime) / float64(p.orders)
+		}
+		fmt.Fprintf(out, "%-6s %7d %7d %11d %12d %5.1f%% (%4.1f-%5.1f%%) %6d %9.0f\n",
+			rule, p.orders, p.served, p.busy, p.reach, 100*per, 100*lo, 100*hi, p.moves, p.moveS/60)
+	}
+	// Paired by seed: the same orders under both rules.
+	better, worse := 0, 0
+	diff := 0.0
+	for i := range totals[sim.RelocPlan].perSeed {
+		d := totals[sim.RelocPlan].perSeed[i] - totals[sim.RelocToday].perSeed[i]
+		diff += d / float64(seeds)
+		switch {
+		case d > 1e-12:
+			better++
+		case d < -1e-12:
+			worse++
+		}
+	}
+	fmt.Fprintf(out, "plan vs today, paired by seed: %+.1f points in time per order on average; plan better on %d seeds, worse on %d, equal on %d\n",
+		100*diff, better, worse, seeds-better-worse)
+	return nil
 }
