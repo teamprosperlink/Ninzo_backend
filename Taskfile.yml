@@ -132,6 +132,9 @@ tasks:
   geo:db:migrate:
     desc: Apply migrations to the geo session's local Postgres only
     cmds: ["DATABASE_URL='postgres://ninzo:ninzo_local@localhost:5433/ninzo?sslmode=disable' go run ./cmd/migrate -local up"]
+  bench:relocation:
+    desc: "Relocation benchmark (SIM, #255): every rule, both starts, both move bounds, 20 seeds, on the OSRM test zones (task geo:osrm:up first; clean checkout)"
+    cmds: ["tools/bench/relocation.sh docs/benchmarks/results/$(date -u +%Y-%m-%d)_$(git rev-parse --short HEAD)/relocation"]
   geo:test:db:
     desc: Run the database tests on the geo session's local Postgres (5433)
     cmds:
