@@ -2,7 +2,7 @@
 
 LIVE. Summary of the current situation. GitHub Issues are the source of truth; if they disagree, the Issues win.
 
-Last updated: 2026-11-13
+Last updated: 2026-11-14
 
 ## Current milestone
 `v0.1.0`: contracts and mock servers. The owner gave the go-ahead on 2026-11-04.
@@ -26,6 +26,17 @@ Last updated: 2026-11-13
 |---|---|---|
 
 ## Next actions
+
+**Pilot operating model (decision 0016, #261, 2026-11-14):**
+- The system assigns each rider's spot at check-in from the placement plan; hub staff or ops can override with a reason; the rider app never chooses.
+- Check-in is a tap plus the hub geofence, with staff confirmation for the first 2–3 weeks.
+- No-show at 15 min; late join until 60 min.
+- Shift windows: 11:00–15:00 and 18:30–23:00, ending automatically at +30 min, with the night close.
+- The pilot zone is about 1 km² in Koramangala or Indiranagar, picked by simulation.
+- Far riders get "about X min" with no timer up to about 2 min of riding, then a refusal.
+- OSRM runs on Railway; the cost goes to the owner first.
+- Ops seed hotspots and legal waiting spots in the console.
+- Geo build order: check-in and spot assignment, then shift windows, then gain-threshold relocation.
 
 **`v1.0.0` geo (#162, 2026-11-11):** the timer stays at 90 seconds for now (owner). The design and research record for maps, H3, OSRM, rider placement and matching is in `docs/engineering/geo/`: a draft for owner review, with its open questions in section 9. No geo code yet. Its own local Postgres (5433) and Redis (6381) are in `deploy/compose.geo.yml` (#169); geo database tests run with `task geo:test:db`. The OSRM client `internal/routing` is built (#180), not yet used by matching. OSRM runs locally on Bengaluru with the scooter profile (#183); staging waits for G23. Golden routes run in CI (#187); each OSRM build is recorded in `road_data_versions` (#190). The grid is our own hexagon grid `internal/hexgrid` (G18, #193). Each gate version gets a road-time cell set (`gate_cells`, #196), and its tiers are read from the settings in force (#199). The simulator (#205) shows today's straight-line pick breaking the 90 s timer on about a third of the orders it accepts, while a road-time pick refuses more instead; the trade-off is in `w8`. Each ping now keeps its grid cell, and `rider_positions` holds where each rider is (#207). Road-time matching is built behind `matching_by_road`, off until the owner chooses (#209). Placement by road-time coverage does at least as well as the fixed points at the same fleet size in the simulator, and clearly better in three of four zone and rule pairs (#216, w4). Demand is now recorded per cell and half-hour from availability checks, with a forecast v1 (#220, W7). In the simulator, placing where demand is (from that forecast) beats placing as if demand were even (#222, w7). Placement plans over the zone's staging nodes are built and stored per weekday and half-hour (#224), and relocation can follow them behind `relocation_by_plan`, off until the owner turns it on (#226).
 

@@ -19,3 +19,5 @@ Accepted decisions are never edited; to reverse one, write a new decision and ma
 | [0012](0012-gate-verification.md) | Gates are verified by the area they are in | Accepted | 2026-11-07 |
 | [0013](0013-v040-answers.md) | Answers before v0.4.0 | Accepted | 2026-11-09 |
 | [0014](0014-v070-to-v0100-answers.md) | Answers for v0.7.0 to v0.10.0: admin-entered rates and hubs, staff sign-in, roles and approvals | Accepted | 2026-11-10 |
+| [0015](0015-console-sign-in-and-approvals.md) | Console sign-in, roles and approvals | Accepted | 2026-11-11 |
+| [0016](0016-pilot-operating-model.md) | Pilot operating model: check-in, spot assignment at check-in, shift windows, a 1 km² zone, far riders, OSRM, cold start | Accepted | 2026-11-14 |
