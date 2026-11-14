@@ -4,6 +4,7 @@ Index of test evidence. One row per feature (or phase) validated. Evidence is in
 
 | Date | Issue | Feature / phase | Commit | Result | Report |
 |---|---|---|---|---|---|
+| 2026-11-14 | #263 | the test payment stays on staging next to Razorpay | See PR | PASS | [reports/263.md](reports/263.md) |
 | 2026-11-14 | #257 | a second Firebase key, so customer pushes can use their own project | See PR | PASS | [reports/257.md](reports/257.md) |
 | 2026-11-14 | #252 | push notifications over FCM, refund processed push | See PR | PASS | [reports/252.md](reports/252.md) |
 | 2026-11-14 | #249 | relocation by plan: non-test scooters for n, the forecast in orders_waiting | See PR | PASS | [reports/249.md](reports/249.md) |

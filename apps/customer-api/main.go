@@ -77,14 +77,16 @@ func main() {
 			reach := &availability.Service{Pool: d.DB, Log: d.Log}
 			reach.MountCustomer(r, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Razorpay when its keys are set (issue 237); otherwise the test payment, which stands in for it
-			// (decision 0013). The staging-only test-payment endpoint exists only with the test payment, so
-			// nobody can mark a real Razorpay order paid without paying.
+			// (decision 0013). The test-payment endpoint is on every environment except production, also
+			// next to Razorpay (owner, issue 263), so the apps can pay on staging before they add Razorpay
+			// Checkout. A payment settled through it becomes a test payment, which no Razorpay refund
+			// ever follows. Production never mounts it.
 			var pay orders.Payments = orders.TestPayments{}
 			if razorpay != nil {
 				pay = razorpay
 			}
 			ordering := &orders.Service{Pool: d.DB, Log: d.Log, Payments: pay}
-			ordering.MountCustomer(r, razorpay == nil && d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
+			ordering.MountCustomer(r, d.Config.Env != config.EnvProduction, identity.RequireActor(sessions.Signer, identity.TypeCustomer), limits.BySession())
 			// Holds end and order clocks move in the background, inside this API for now (decision 0013).
 			go ordering.RunJobs(ctx, 5*time.Second)
 			if razorpay != nil {

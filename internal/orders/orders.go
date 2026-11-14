@@ -729,6 +729,13 @@ func (s *Service) testPayment(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		// On staging this route sits next to Razorpay (issue 263). A payment settled here never reached
+		// Razorpay, so it becomes a test payment: its refunds are processed at once with no money, and
+		// are never sent to Razorpay, where they would wait forever.
+		if _, err := tx.Exec(r.Context(), "UPDATE payments SET provider = 'test', updated_at = now() WHERE order_id = $1 AND provider_order_id = $2 AND provider <> 'test'",
+			id, providerOrder); err != nil {
+			return err
+		}
 		if err := Confirm(r.Context(), tx, id, providerOrder, body.Result == "paid", now); err != nil {
 			return err
 		}
