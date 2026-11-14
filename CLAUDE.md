@@ -31,7 +31,7 @@ Go modular monolith with separately deployed services. Layout: `docs/engineering
 | What is real, and what is a stand-in or mock only | `docs/engineering/real_and_stand_ins.md` |
 | Maps, H3, routing, rider placement and matching: options, decisions, research | `docs/engineering/geo/` |
 | Per-app docs | `apps/<name>/docs/` |
-| Accounts, keys and details the owner must supply | `docs/planning/owner_setup_checklist.md`, `docs/planning/sms_setup.md` |
+| Accounts, keys and details the owner must supply | `docs/planning/owner_setup_checklist.md`, `docs/planning/sms_setup.md`, `docs/planning/firebase_setup.md` |
 | Non-functional requirements | `docs/engineering/engineering_requirements.md` |
 | Constraints and policies | `docs/engineering/constraints_policies.md` |
 | Fixed scope per version, and build order | `docs/planning/milestones.md` |
