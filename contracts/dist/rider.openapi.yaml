@@ -1090,6 +1090,9 @@ components:
                     type:
                         - string
                         - "null"
+                rating:
+                    $ref: '#/components/schemas/RiderRating'
+                    description: How customers rate this rider (Issue 265). Optional until the server builds it in part B, then always sent. It holds only the average and the count, never who rated or which order.
                 status:
                     description: Open list, including applicant, active, suspended.
                     type: string
@@ -1357,6 +1360,23 @@ components:
                 - waiting_since
                 - total
                 - payment_method
+            type: object
+        RiderRating:
+            properties:
+                average:
+                    description: The mean of all ratings, to one decimal such as 4.6. Null while count is 0.
+                    maximum: 5
+                    minimum: 1
+                    type:
+                        - number
+                        - "null"
+                count:
+                    description: How many ratings the average is from.
+                    minimum: 0
+                    type: integer
+            required:
+                - average
+                - count
             type: object
         RiderResponse:
             properties:

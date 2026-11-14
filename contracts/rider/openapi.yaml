@@ -2556,6 +2556,26 @@ components:
           - string
           - 'null'
           format: date-time
+        rating:
+          description: >-
+            How customers rate this rider (Issue 265). Optional until the server builds it in part B, then always sent.
+            It holds only the average and the count, never who rated or which order.
+          $ref: '#/components/schemas/RiderRating'
+    RiderRating:
+      type: object
+      required: [average, count]
+      properties:
+        average:
+          description: The mean of all ratings, to one decimal such as 4.6. Null while count is 0.
+          type:
+          - number
+          - 'null'
+          minimum: 1
+          maximum: 5
+        count:
+          type: integer
+          minimum: 0
+          description: How many ratings the average is from.
     RiderResponse:
       type: object
       required:

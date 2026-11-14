@@ -529,6 +529,9 @@ components:
         Order:
             description: What the customer may see of an order. It never includes the true order state or rider_accepted_at. See Order states and customer stages in contracts/README.md.
             properties:
+                can_rate:
+                    description: True when rateOrder would be accepted now. The order was handed over to this customer, it has no rating, and the rating window (the console setting rating_window_s) is still open. Always sent. The server sends false until part B builds ratings.
+                    type: boolean
                 cancel_until:
                     description: The end of the 5-second window after payment is confirmed. Null before that.
                     format: date-time
@@ -585,6 +588,11 @@ components:
                         - type: "null"
                 payment_status:
                     $ref: '#/components/schemas/PaymentStatus'
+                rating:
+                    description: The customer's own rating of this delivery, or null while the order has none. Always sent (Issue 265). The server sends null until part B builds ratings.
+                    oneOf:
+                        - $ref: '#/components/schemas/OrderRating'
+                        - type: "null"
                 remedy:
                     description: Set when a miss or failure earned the customer a remedy.
                     oneOf:
@@ -639,6 +647,8 @@ components:
                 - created_at
                 - order_number
                 - rider_waiting_since
+                - rating
+                - can_rate
             type: object
         OrderGate:
             properties:
@@ -696,6 +706,25 @@ components:
                 - orders
                 - next_cursor
                 - server_time
+            type: object
+        OrderRating:
+            properties:
+                rated_at:
+                    format: date-time
+                    type: string
+                reason:
+                    description: Null when the customer gave no reason.
+                    oneOf:
+                        - $ref: '#/components/schemas/RatingReason'
+                        - type: "null"
+                stars:
+                    maximum: 5
+                    minimum: 1
+                    type: integer
+            required:
+                - stars
+                - reason
+                - rated_at
             type: object
         OrderResponse:
             properties:
@@ -800,6 +829,15 @@ components:
                 - failed
                 - not_paid
                 - refunded
+            type: string
+        RatingReason:
+            description: The fixed list of reasons. Optional on a rating. There is no free text.
+            enum:
+                - late
+                - cold_food
+                - rude
+                - wrong_items
+                - other
             type: string
         Refund:
             properties:
@@ -2056,6 +2094,58 @@ paths:
                 "503":
                     $ref: '#/components/responses/ServiceUnavailable'
             summary: Try payment again
+            tags:
+                - orders
+    /orders/{order_id}/rating:
+        post:
+            description: After handover, the customer rates the delivery from 1 to 5 stars, with an optional reason from a fixed list (late, cold_food, rude, wrong_items, other). There is no free text. An order is rated once, and only within the rating window after handover. The window is a console setting named rating_window_s (seconds, set by admin), which the server adds in part B of Issue 265. The reply is the order, with rating set and can_rate false. The same Idempotency-Key again returns the stored reply. A rider never learns who rated them. Another customer's order is 404 (not_found). Errors, 400 invalid_request for stars outside 1 to 5 or not a whole number, a reason outside the list, or an unknown field. Errors, 409, each with its own code, all meaning rating_not_allowed. not_delivered, when the order was not handed over to this customer. rating_window_closed, when the window has passed. already_rated, when the order has a rating. Order.can_rate says whether a rating is allowed now.
+            operationId: rateOrder
+            parameters:
+                - $ref: '#/components/parameters/OrderId'
+                - $ref: '#/components/parameters/IdempotencyKey'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            additionalProperties: false
+                            properties:
+                                reason:
+                                    $ref: '#/components/schemas/RatingReason'
+                                stars:
+                                    example: 4
+                                    maximum: 5
+                                    minimum: 1
+                                    type: integer
+                            required:
+                                - stars
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OrderResponse'
+                    description: Rated. The order, with its rating.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "404":
+                    $ref: '#/components/responses/NotFound'
+                "409":
+                    $ref: '#/components/responses/Conflict'
+                "422":
+                    $ref: '#/components/responses/IdempotencyKeyReused'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+                "503":
+                    $ref: '#/components/responses/ServiceUnavailable'
+            summary: Rate a delivery
             tags:
                 - orders
     /orders/{order_id}/refund:

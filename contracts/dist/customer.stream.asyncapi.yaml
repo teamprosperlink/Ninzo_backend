@@ -202,6 +202,9 @@ components:
         Order:
             description: What the customer may see of an order. It never includes the true order state or rider_accepted_at. See Order states and customer stages in contracts/README.md.
             properties:
+                can_rate:
+                    description: True when rateOrder would be accepted now. The order was handed over to this customer, it has no rating, and the rating window (the console setting rating_window_s) is still open. Always sent. The server sends false until part B builds ratings.
+                    type: boolean
                 cancel_until:
                     description: The end of the 5-second window after payment is confirmed. Null before that.
                     format: date-time
@@ -258,6 +261,11 @@ components:
                         - type: "null"
                 payment_status:
                     $ref: '#/components/schemas/PaymentStatus'
+                rating:
+                    description: The customer's own rating of this delivery, or null while the order has none. Always sent (Issue 265). The server sends null until part B builds ratings.
+                    oneOf:
+                        - $ref: '#/components/schemas/OrderRating'
+                        - type: "null"
                 remedy:
                     description: Set when a miss or failure earned the customer a remedy.
                     oneOf:
@@ -312,6 +320,8 @@ components:
                 - created_at
                 - order_number
                 - rider_waiting_since
+                - rating
+                - can_rate
             type: object
         OrderGate:
             properties:
@@ -339,6 +349,25 @@ components:
                 - name
                 - qty
                 - unit_price
+            type: object
+        OrderRating:
+            properties:
+                rated_at:
+                    format: date-time
+                    type: string
+                reason:
+                    description: Null when the customer gave no reason.
+                    oneOf:
+                        - $ref: '#/components/schemas/RatingReason'
+                        - type: "null"
+                stars:
+                    maximum: 5
+                    minimum: 1
+                    type: integer
+            required:
+                - stars
+                - reason
+                - rated_at
             type: object
         OrderRider:
             description: Null on the order until the rider_accepted stage.
@@ -412,6 +441,15 @@ components:
                 - failed
                 - not_paid
                 - refunded
+            type: string
+        RatingReason:
+            description: The fixed list of reasons. Optional on a rating. There is no free text.
+            enum:
+                - late
+                - cold_food
+                - rude
+                - wrong_items
+                - other
             type: string
         Remedy:
             properties:

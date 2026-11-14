@@ -5,6 +5,11 @@ each with its Issue number. Entries are added in the same PR that ships the feat
 
 ## [Unreleased]
 
+### Customers rate a delivery, contract and mock (#265 part A)
+- Added: customer `rateOrder` (POST `/orders/{order_id}/rating`, stars 1 to 5 and an optional reason from a fixed list, once per order, inside the console setting `rating_window_s`; 409 `not_delivered`, `already_rated` or `rating_window_closed`); `rating` and `can_rate` on the customer Order; `rating` (average and count only) on the rider profile; console `listRatings` (GET `/admin/ratings`, `orders.read`, filters zone, rider, stars, from, to), timeline source `rating` (kind `rating.given`), and `rating` on rider review. The mock answers them, with the scenarios `already_rated`, `rating_window_closed`, `rider_unrated` and `ratings_empty`.
+- Changed: the server sends `rating` null and `can_rate` false on the customer order until part B builds ratings. The Order field list in `tests/contracts/rules_test.go` grew by `can_rate` and `rating`.
+- Evidence: docs/testing/reports/265-A.md
+
 ### The test payment stays on staging next to Razorpay (#263)
 - Changed: `POST /test/payments/{order_id}` is mounted on every environment except production, also with Razorpay keys, so the apps can pay on staging before they add Razorpay Checkout. A payment settled through it becomes a test payment, so its refunds are processed at once and never sent to Razorpay.
 - Evidence: docs/testing/reports/263.md

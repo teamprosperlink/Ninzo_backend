@@ -362,9 +362,11 @@ func TestRejectionsAreDeclared(t *testing.T) {
 // customerOrderFields is the complete list of what a customer may see of an order.
 // A new field must be added here on purpose, after checking it cannot reveal the rider.
 var customerOrderFields = []string{
-	"cancel_until", "cancellable", "created_at", "customer_stage", "ended_reason", "eta_offer", "eta_s",
+	// can_rate and rating were added for Issue 265. They are the customer's own rating of the delivery
+	// and whether one is allowed now, so they say nothing about the rider.
+	"can_rate", "cancel_until", "cancellable", "created_at", "customer_stage", "ended_reason", "eta_offer", "eta_s",
 	"eta_source", "gate", "handover_otp", "id", "items", "order_number", "payment_request", "payment_status",
-	"remedy", "rider", "rider_waiting_since", "seq", "timer", "total", "wait_deadline",
+	"rating", "remedy", "rider", "rider_waiting_since", "seq", "timer", "total", "wait_deadline",
 }
 
 func TestCustomerOrderFieldsAreExactlyTheAllowedList(t *testing.T) {

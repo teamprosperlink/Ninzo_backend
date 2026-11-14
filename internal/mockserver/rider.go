@@ -11,6 +11,7 @@ import (
 // riderScenarios lists every rider scenario, from the rider KT doc and decision 0007.
 var riderScenarios = map[string]string{
 	"account_blocked":         "Sign-in and GET rider fail with account_blocked",
+	"rider_unrated":           "No customer has rated the rider yet: GET rider shows rating with a null average and a count of 0",
 	"rider_not_approved":      "An applicant: shift start fails with rider_not_approved",
 	"offer_arrives":           "An open offer. This is the same as no scenario",
 	"on_delivery":             "The rider has an order, packed and on the way",
@@ -323,7 +324,11 @@ func riderRoutes() []route {
 				accountBlocked(c)
 				return
 			}
-			c.json(200, map[string]any{"rider": sampleRider(c.now, "Ravi Kumar", nil)})
+			rider := sampleRider(c.now, "Ravi Kumar", nil)
+			if c.scenario == "rider_unrated" {
+				rider["rating"] = map[string]any{"average": nil, "count": 0}
+			}
+			c.json(200, map[string]any{"rider": rider})
 		}},
 		{method: "PATCH", path: "/riders/me", handle: func(c *call) {
 			updateRider(c)
@@ -707,7 +712,9 @@ func sampleRider(now time.Time, name string, preferredArea any) map[string]any {
 	return map[string]any{"id": "rdr_mock0001", "name": name, "status": "active", "zone_id": "zone_mock01", "preferred_area": preferredArea,
 		"created_at": stamp(now.Add(-30 * 24 * time.Hour)), "approved_at": stamp(now.Add(-29 * 24 * time.Hour)),
 		// For the rider app (Issue 235). A rider who has set no email and no place shows null.
-		"phone": "+919876543210", "email": nil, "area": nil}
+		"phone": "+919876543210", "email": nil, "area": nil,
+		// Issue 265. Only the average and the count, never who rated.
+		"rating": map[string]any{"average": 4.6, "count": 38}}
 }
 
 // mockHub is the sample hub reference, with its place.

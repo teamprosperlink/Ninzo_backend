@@ -59,6 +59,7 @@ var consoleScenarios = map[string]string{
 	"shift_plans_empty":         "No shift plans are made",
 	"shift_plan_exists":         "Making a shift plan fails with shift_plan_exists: the rider has a plan for that day",
 	"quarantines_empty":         "No lot has been quarantined",
+	"ratings_empty":             "No delivery has been rated",
 }
 
 const consoleUserID = "usr_mock01"
@@ -140,7 +141,9 @@ func sampleSettings(zone any) map[string]any {
 
 func sampleRiderReview(verification string, now time.Time) map[string]any {
 	return map[string]any{"rider_id": "rdr_mock0002", "name": "Kiran", "phone_last4": "4321", "status": "applicant", "verification": verification,
-		"zone_id": nil, "applied_at": stamp(now.Add(-2 * time.Hour))}
+		"zone_id": nil, "applied_at": stamp(now.Add(-2 * time.Hour)),
+		// Issue 265. An applicant has no ratings yet.
+		"rating": map[string]any{"average": nil, "count": 0}}
 }
 
 func adminMenuItem(id, name string, price int, status string, isVeg bool, now time.Time) map[string]any {
@@ -411,7 +414,15 @@ func consoleRoutes() []route {
 			if c.scenario == "rider_verification_failed" {
 				v = "failed"
 			}
-			page(c, "riders", []map[string]any{sampleRiderReview(v, c.now)})
+			rows := []map[string]any{sampleRiderReview(v, c.now)}
+			if c.scenario == "rider_verification_failed" {
+				// An active rider whose verification failed has customer ratings, which the reviewer weighs.
+				active := sampleRiderReview(v, c.now)
+				active["rider_id"], active["name"], active["status"], active["zone_id"] = "rdr_mock0001", "Ravi", "active", "zone_mock01"
+				active["rating"] = map[string]any{"average": 3.8, "count": 12}
+				rows = append(rows, active)
+			}
+			page(c, "riders", rows)
 		}},
 		{method: "POST", path: "/admin/riders/{rider_id}/decision", handle: func(c *call) {
 			if denied(c) {
@@ -658,6 +669,7 @@ func consoleRoutes() []route {
 				ev(15*time.Minute, "stock", "stock.quarantined", "rider", "Ravi", map[string]any{"lot_id": "lot_mock0001", "lot_code": "LOT-B-0101", "item_id": "item_chai", "item_name": "Masala chai", "reason": "temperature", "qty": 8, "had_units_for_this_order": false}),
 				ev(12*time.Minute, "order", "order.timer_started", "system", nil, map[string]any{"perimeter_m": 350}),
 				ev(11*time.Minute, "order", "order.handed_over", "rider", "Ravi", map[string]any{"arrival_source": "handover"}),
+				ev(10*time.Minute, "rating", "rating.given", "customer", nil, map[string]any{"stars": 4, "reason": "late"}),
 				ev(8*time.Minute, "ticket", "ticket.opened", "customer", nil, map[string]any{"ticket_id": "tkt_mock01"}),
 				ev(5*time.Minute, "refund", "refund.processed", "console", "Asha K", map[string]any{"refund_id": "rfd_mock01", "amount": money(5000)}),
 				ev(4*time.Minute, "audit", "refund.requested", "console", "Asha K", map[string]any{"reason": "Cold food"}),
@@ -865,6 +877,7 @@ func consoleRoutes() []route {
 		}},
 	}
 	routes = append(routes, quarantineRoutes(denied)...)
+	routes = append(routes, ratingRoutes(denied)...)
 	return append(routes, riderAppRoutes(denied, fail)...)
 }
 
@@ -896,6 +909,8 @@ func consolePermission(c *call) string {
 	case contains(path, "/admin/help-articles"):
 		return "help.manage"
 	case contains(path, "/admin/quarantined-stock"):
+		return "orders.read"
+	case contains(path, "/admin/ratings"):
 		return "orders.read"
 	case contains(path, "/admin/rider-feedback"):
 		return "tickets.manage"

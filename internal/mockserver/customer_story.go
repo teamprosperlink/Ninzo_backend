@@ -97,6 +97,14 @@ func storyFor(scenario string) orderStory {
 		return orderStory{steps: append(accepted, stepArrived, stepHandedOver), getAt: 3}
 	case "handed_over":
 		return orderStory{steps: fullFlow(), getAt: -1}
+	case "already_rated":
+		rated := orderStep{stage: "handed_over", apply: func(o map[string]any, at time.Time) {
+			o["rating"], o["can_rate"] = sampleOrderRating(at), false
+		}}
+		return orderStory{steps: append(fullFlow()[:5], rated), getAt: -1}
+	case "rating_window_closed":
+		closed := orderStep{stage: "handed_over", apply: func(o map[string]any, _ time.Time) { o["can_rate"] = false }}
+		return orderStory{steps: append(fullFlow()[:5], closed), getAt: -1}
 	case "missing_food":
 		return orderStory{steps: append(fullFlow()[:5], orderStep{stage: "handed_over", apply: func(o map[string]any, _ time.Time) {
 			o["payment_status"] = "refunded"
@@ -155,6 +163,7 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 			"eta_source": "placeholder", "eta_s": nil, "eta_offer": nil, "rider": nil,
 			"timer":  map[string]any{"timer_started_at": timerStart, "timer_duration_s": duration, "timer_stopped_at": timerStop, "timer_missed": false},
 			"remedy": nil, "handover_otp": nil, "created_at": stamp(paid.Add(-time.Minute)), "order_number": "A2931", "rider_waiting_since": nil,
+			"rating": nil, "can_rate": false,
 		}
 		if riderShown {
 			o["rider"] = map[string]any{"first_name": "Ravi", "scooter_plate": "KA01AB1234"}
@@ -177,6 +186,7 @@ func buildStory(story orderStory, paid time.Time, step time.Duration) []map[stri
 			o["eta_source"], o["handover_otp"] = "unavailable", "4821"
 		case "handed_over":
 			o["eta_source"] = "unavailable"
+			o["can_rate"] = true
 		case "ended":
 			o["eta_source"], o["payment_status"] = "unavailable", "refunded"
 		}

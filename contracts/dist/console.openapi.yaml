@@ -2176,6 +2176,78 @@ components:
                 - next_cursor
                 - server_time
             type: object
+        RatingList:
+            properties:
+                next_cursor:
+                    type:
+                        - string
+                        - "null"
+                ratings:
+                    items:
+                        $ref: '#/components/schemas/RatingRow'
+                    type: array
+                server_time:
+                    $ref: '#/components/schemas/ServerTime'
+            required:
+                - ratings
+                - next_cursor
+                - server_time
+            type: object
+        RatingReason:
+            description: The fixed list of reasons a customer can give. There is no free text.
+            enum:
+                - late
+                - cold_food
+                - rude
+                - wrong_items
+                - other
+            type: string
+        RatingRow:
+            properties:
+                order_id:
+                    $ref: '#/components/schemas/Id'
+                order_number:
+                    pattern: ^[A-Z][0-9]{4}$
+                    type: string
+                rated_at:
+                    format: date-time
+                    type: string
+                reason:
+                    oneOf:
+                        - $ref: '#/components/schemas/RatingReason'
+                        - type: "null"
+                rider:
+                    description: The rider who delivered the order. Null when none is on record.
+                    oneOf:
+                        - properties:
+                            id:
+                                $ref: '#/components/schemas/Id'
+                            name:
+                                type:
+                                    - string
+                                    - "null"
+                          required:
+                            - id
+                            - name
+                          type: object
+                        - type: "null"
+                stars:
+                    maximum: 5
+                    minimum: 1
+                    type: integer
+                zone_id:
+                    type:
+                        - string
+                        - "null"
+            required:
+                - order_id
+                - order_number
+                - zone_id
+                - rider
+                - stars
+                - reason
+                - rated_at
+            type: object
         ReasonBody:
             properties:
                 reason:
@@ -2464,6 +2536,22 @@ components:
                 - next_cursor
                 - server_time
             type: object
+        RiderRatingSummary:
+            properties:
+                average:
+                    description: The mean of the rider's ratings, to one decimal such as 4.6. Null while count is 0.
+                    maximum: 5
+                    minimum: 1
+                    type:
+                        - number
+                        - "null"
+                count:
+                    minimum: 0
+                    type: integer
+            required:
+                - average
+                - count
+            type: object
         RiderReview:
             properties:
                 applied_at:
@@ -2476,6 +2564,9 @@ components:
                 phone_last4:
                     description: The last four digits only.
                     type: string
+                rating:
+                    $ref: '#/components/schemas/RiderRatingSummary'
+                    description: How customers rate this rider, for the reviewer (Issue 265). Optional until the server builds it in part B, then always sent. An applicant has no ratings, so the count is 0 and the average is null.
                 rider_id:
                     $ref: '#/components/schemas/Id'
                 status:
@@ -2893,7 +2984,7 @@ components:
                     description: Only the listed, non-personal fields of the event, such as ids, states and amounts (Money). Never a phone number, an address or a handover code.
                     type: object
                 kind:
-                    description: Open list, such as order.created or payment.captured.
+                    description: Open list, such as order.created or payment.captured. A customer's rating is rating.given, with source rating, and its detail holds stars, reason and nothing else.
                     type: string
                 source:
                     enum:
@@ -2907,6 +2998,7 @@ components:
                         - review
                         - audit
                         - stock
+                        - rating
                     type: string
             required:
                 - at
@@ -4716,6 +4808,81 @@ paths:
                 "500":
                     $ref: '#/components/responses/InternalError'
             summary: See the lots taken out of stock, and why
+            tags:
+                - orders
+            x-permission: orders.read
+    /admin/ratings:
+        get:
+            description: 'So ops and support can see how deliveries went, and which rider and zone they went with. Newest first (by rated_at). One row for each rated order, with the order id and number, the zone, the rider who delivered it (null when none is on record), the stars, the reason (one of the fixed list, or null) and when it was rated. There is never a customer name, phone or address, and never free text, because customers cannot type any. Filters, all optional and combined with and, are zone_id, rider_id, stars (exactly this many), from and to. The same ratings show on the order timeline (source rating, kind rating.given) and as the rider''s average on rider review. Permission: orders.read, which admin, ops and support have and a hub manager does not.'
+            operationId: listRatings
+            parameters:
+                - description: Only orders of this zone.
+                  in: query
+                  name: zone_id
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - description: Only orders this rider delivered.
+                  in: query
+                  name: rider_id
+                  required: false
+                  schema:
+                    $ref: '#/components/schemas/Id'
+                - description: Only ratings with exactly this many stars, 1 to 5.
+                  in: query
+                  name: stars
+                  required: false
+                  schema:
+                    maximum: 5
+                    minimum: 1
+                    type: integer
+                - description: Only ratings made at or after this time.
+                  in: query
+                  name: from
+                  required: false
+                  schema:
+                    format: date-time
+                    type: string
+                - description: Only ratings made before this time.
+                  in: query
+                  name: to
+                  required: false
+                  schema:
+                    format: date-time
+                    type: string
+                - description: From next_cursor.
+                  in: query
+                  name: cursor
+                  required: false
+                  schema:
+                    maxLength: 200
+                    type: string
+                - description: 1 to 100. 50 by default.
+                  in: query
+                  name: limit
+                  required: false
+                  schema:
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RatingList'
+                    description: Done.
+                "400":
+                    $ref: '#/components/responses/BadRequest'
+                "401":
+                    $ref: '#/components/responses/Unauthorized'
+                "403":
+                    $ref: '#/components/responses/Forbidden'
+                "429":
+                    $ref: '#/components/responses/TooManyRequests'
+                "500":
+                    $ref: '#/components/responses/InternalError'
+            summary: See how customers rated deliveries
             tags:
                 - orders
             x-permission: orders.read

@@ -1183,6 +1183,66 @@ paths:
           $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../shared/common.yaml#/components/responses/InternalError'
+  /orders/{order_id}/rating:
+    post:
+      tags: [orders]
+      operationId: rateOrder
+      summary: Rate a delivery
+      description: >-
+        After handover, the customer rates the delivery from 1 to 5 stars, with an optional reason from a
+        fixed list (late, cold_food, rude, wrong_items, other). There is no free text. An order is rated once,
+        and only within the rating window after handover. The window is a console setting named rating_window_s
+        (seconds, set by admin), which the server adds in part B of Issue 265. The reply is the order, with
+        rating set and can_rate false. The same Idempotency-Key again returns the stored reply. A rider never
+        learns who rated them. Another customer's order is 404 (not_found). Errors, 400 invalid_request for
+        stars outside 1 to 5 or not a whole number, a reason outside the list, or an unknown field. Errors, 409,
+        each with its own code, all meaning rating_not_allowed. not_delivered, when the order was not handed
+        over to this customer. rating_window_closed, when the window has passed. already_rated, when the order
+        has a rating. Order.can_rate says whether a rating is allowed now.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '../shared/common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [stars]
+              properties:
+                stars:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  example: 4
+                reason:
+                  $ref: '#/components/schemas/RatingReason'
+      responses:
+        '200':
+          description: Rated. The order, with its rating.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '../shared/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../shared/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../shared/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../shared/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../shared/common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: '../shared/common.yaml#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '../shared/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../shared/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../shared/common.yaml#/components/responses/ServiceUnavailable'
   /support/tickets:
     post:
       tags: [support]
@@ -1722,6 +1782,8 @@ components:
         - created_at
         - order_number
         - rider_waiting_since
+        - rating
+        - can_rate
       properties:
         id:
           $ref: '../shared/common.yaml#/components/schemas/Id'
@@ -1812,6 +1874,39 @@ components:
           description: Readable order number, a letter and four digits such as A2931.
           type: string
           pattern: '^[A-Z][0-9]{4}$'
+        rating:
+          description: >-
+            The customer's own rating of this delivery, or null while the order has none. Always sent (Issue 265).
+            The server sends null until part B builds ratings.
+          oneOf:
+            - $ref: '#/components/schemas/OrderRating'
+            - type: 'null'
+        can_rate:
+          type: boolean
+          description: >-
+            True when rateOrder would be accepted now. The order was handed over to this customer, it has no
+            rating, and the rating window (the console setting rating_window_s) is still open. Always sent.
+            The server sends false until part B builds ratings.
+    RatingReason:
+      type: string
+      description: The fixed list of reasons. Optional on a rating. There is no free text.
+      enum: [late, cold_food, rude, wrong_items, other]
+    OrderRating:
+      type: object
+      required: [stars, reason, rated_at]
+      properties:
+        stars:
+          type: integer
+          minimum: 1
+          maximum: 5
+        reason:
+          description: Null when the customer gave no reason.
+          oneOf:
+            - $ref: '#/components/schemas/RatingReason'
+            - type: 'null'
+        rated_at:
+          type: string
+          format: date-time
     Remedy:
       type: object
       required: [type, amount]
