@@ -113,7 +113,7 @@ The real rider API now serves, as the contract says: calls 1 (`invalid_phone`), 
 
 ## Part B2 (server): done for these calls
 
-The real rider API now serves calls 18 to 22, 27 and 30 as the contract says: `getRiderSettings`, `getRiderHelp`, `sendRiderFeedback`, `getShiftPlan`, `replyToShiftPlan`, `goOnline` and `setPlannedEnd`. `goOnline` and `setPlannedEnd` set the `shifts.online_at` and `planned_end_at` columns that part B1 added. Migration 0057 adds `help_articles`, `rider_feedback`, `shift_plans` and twelve zone settings. Evidence: `docs/testing/reports/235-B2.md`.
+The real rider API now serves calls 18 to 22, 27 and 30 as the contract says: `getRiderSettings`, `getRiderHelp`, `sendRiderFeedback`, `getShiftPlan`, `replyToShiftPlan`, `goOnline` and `setPlannedEnd`. `goOnline` and `setPlannedEnd` set the `shifts.online_at` and `planned_end_at` columns that part B1 added. Migration 0058 adds `help_articles`, `rider_feedback`, `shift_plans` and twelve zone settings. Evidence: `docs/testing/reports/235-B2.md`.
 
 **What each call does**
 
@@ -136,7 +136,7 @@ The real rider API now serves calls 18 to 22, 27 and 30 as the contract says: `g
 | `almost_there_m` | `zone_radius_m` (the zone where the timer can start) |
 | `low_stock_qty` | `restock_low_qty` |
 | `ride_speed_kmh` | `straight_line_speed_kmh` |
-| `away_from_spot_m`, `scooter_capacity_qty`, `min_phone_battery_pct`, `min_scooter_battery_pct`, `low_scooter_battery_pct`, `break_extension_s`, `not_at_gate_after_s`, `shift_ending_soon_before_s`, `stock_request_ask_before_s`, `stock_request_reminder_before_s`, `verification_within_s` | New console settings (migration 0057, `geo.Settings`). Every stored version holds the numbers the mock shows (400, 24, 20, 30, 15, 900, 30, 900, 3600, 1800, 86400); the code uses the same numbers if a row has none. `scooter_capacity_qty` is only shown to the app: the server does not enforce it |
+| `away_from_spot_m`, `scooter_capacity_qty`, `min_phone_battery_pct`, `min_scooter_battery_pct`, `low_scooter_battery_pct`, `break_extension_s`, `not_at_gate_after_s`, `shift_ending_soon_before_s`, `stock_request_ask_before_s`, `stock_request_reminder_before_s`, `verification_within_s` | New console settings (migration 0058, `geo.Settings`). Every stored version holds the numbers the mock shows (400, 24, 20, 30, 15, 900, 30, 900, 3600, 1800, 86400); the code uses the same numbers if a row has none. `scooter_capacity_qty` is only shown to the app: the server does not enforce it |
 | `cancel_pay_cap` | The new setting `cancel_pay_cap_paise` (4000 paise to start), as a Money. Nothing pays by it yet: that is part B6 |
 | `break_options_s` | The constant list 300, 600, 900, 1800, with any option longer than `max_break_s` left out |
 | `add_time_options_s` | The constant list 900, 1800, 3600 |
